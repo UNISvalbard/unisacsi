@@ -174,8 +174,7 @@ def read_Tinytag(filename, sensor):
     elif sensor == "CEB":
         df = ddf.read_csv(filename, delimiter="\t", skiprows=5, parse_dates=[1], names=["RECORD", "TIMESTAMP", "T"])
     else:
-        print('Sensortype of Tinytag not known. Should be one of "TT", "TH" or "CEB".')
-        df = None
+        assert False, 'Sensortype of Tinytag not known. Should be one of "TT", "TH" or "CEB".'
 
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
@@ -206,8 +205,7 @@ def read_IWIN(filename):
     elif len(files) > 1:
         ds = xr.open_mfdataset(files)
     else:
-        print("Wrong data path.")
-        ds = None
+        assert False, "No data found for the specified path."
 
     return ds
 
@@ -235,8 +233,7 @@ def read_AROME(filename):
     elif len(files) > 1:
         ds = xr.open_mfdataset(files)
     else:
-        print("Wrong data path.")
-        ds = None
+        assert False, "No data found for the specified path."
 
     return ds
 

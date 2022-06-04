@@ -1,0 +1,11 @@
+T: 0
+Humidity: 1
+wind: 0
+p_surf: 0
+T_surf: 0
+MSLP: 0
+momentum_flux: 0
+radiation: 0
+turb_fluxes: 0
+cloud_cover: 0
+ABL_height: 0
