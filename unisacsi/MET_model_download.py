@@ -12,6 +12,12 @@ import yaml
 import sys
 import xarray as xr
 import MET_model_tools as Mmt
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+import utm
+from scipy import interpolate
 
 
 def set_parameters():
@@ -40,8 +46,10 @@ def set_parameters():
                                 'SHF': ["downward_sensible_heat_flux", "W/m^2"],
                                 'cloud_cover': ['cloud_area_fraction', "%"],
                                 'ABL_height': ['atmosphere_boundary_layer_thickness', "m"],
+                                'precip': ["precipitation", "mm"],
                                 "p": ["pressure", "hPa"],
                                 "z": ["height", "m"],
+                                "z_asl": ["height_above_sea_level", "m"],
                                 'time': ["time", "seconds since 1970-01-01 00:00:00"]}
     
     return [int_h, int_f, variables_names_units]
@@ -161,7 +169,7 @@ def download_static_fields(out_path, model="AA"):
 
 
 
-def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt_lat, start_h, num_h, out_path, static_file, vari_config_file, model="AA"):
+def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt_lat, start_h, num_h, out_path, static_file, vari_config_file, model="AA", check_plot=True):
 
     int_h, int_f, variables_names_units = set_parameters()
     
@@ -189,7 +197,8 @@ def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt
                          'LHF': "integral_of_surface_downward_latent_heat_flux_wrt_time",
                          'SHF': "integral_of_surface_downward_sensible_heat_flux_wrt_time",
                          'cloud_cover': 'cloud_area_fraction',
-                         'ABL_height': 'atmosphere_boundary_layer_thickness'}
+                         'ABL_height': 'atmosphere_boundary_layer_thickness',
+                         'precip': "precipitation_amount_acc"}
     
     varis_to_load = {}
     for v in varis:
@@ -211,6 +220,43 @@ def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt
         
         model_orog[i] = static_fields['orog'][coords_xx[i], coords_yy[i]]
         model_lsm[i] = static_fields['lsm'][coords_xx[i], coords_yy[i]]
+        
+    
+    
+    if check_plot:
+        # figure to check if the right area was selected
+        lon_min = np.nanmin([model_lon[i] for i in range(len(stt_name))])-1.
+        lon_max = np.nanmax([model_lon[i] for i in range(len(stt_name))])+1.
+        lat_min = np.nanmin([model_lat[i] for i in range(len(stt_name))])-0.5
+        lat_max = np.nanmax([model_lat[i] for i in range(len(stt_name))])+0.5
+        plt.close("all")
+        plt.ion()
+        fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+        ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
+        ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+        gl = ax.gridlines(draw_labels=False)
+        gl.left_labels = True
+        gl.bottom_labels = True
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        ax.set_title(None)
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+        for i, (lon, lat) in enumerate(zip(stt_lon, stt_lat)):
+            ax.scatter(lon, lat, s=3., c="r", marker="x", transform=ccrs.PlateCarree())
+            ax.scatter(model_lon[i], model_lat[i], s=3., c="k", marker="o", transform=ccrs.PlateCarree())
+        plt.show(block=False)
+        plt.pause(5.)
+        
+        print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+        print("")
+        switch_continue = input("Your input:  ")
+        
+        plt.close("all")
+        
+        if switch_continue != "Y":
+            sys.exit(1)
 
     time = []
     data = {}
@@ -237,14 +283,20 @@ def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt
 
                     # Retrieving variables from MET Norway server thredds.met.no
                     for vari, vari_met in varis_to_load.items():
-                        if vari_met[:8] == "integral":
-                            data[stat][vari][nn] = np.squeeze(f.variables[vari_met][qrr,0,coords_yy[qr],coords_xx[qr]]) / (qrr*3600.)
-                        else:
-                            data[stat][vari][nn] = np.squeeze(f.variables[vari_met][qrr,0,coords_yy[qr],coords_xx[qr]])
+                        data[stat][vari][nn] = np.squeeze(f.variables[vari_met][qrr,0,coords_yy[qr],coords_xx[qr]])
 
                         print(f'Done reading variable {vari_met} from file {filename} on thredds server')
 
                     nn += 1
+                    
+        for vari, vari_met in varis_to_load.items():
+            if vari_met[:8] == "integral":
+                data[stat][vari][1:] -= np.diff(data[stat][vari])
+                data[stat][vari][0] /= start_h
+                data[stat][vari] /= 3600.
+            elif vari_met[-3:] == "acc":
+                data[stat][vari][1:] -= np.diff(data[stat][vari])
+                data[stat][vari][0] /= start_h
                 
         if "SW_net" in varis_to_load:
             # Converting radiative fluxes from net into up
@@ -257,7 +309,7 @@ def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt
         if "ur" in varis_to_load:
             # Wind u and v components in the original data are grid-related.
             # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-            data[stat]['u'], data[stat]['v'] = Mmt.Rotate_uv_components(data[stat]['ur'], data[stat]['vr'],coords_xx[qr], coords_yy[qr], static_fields["lon"],1,model)
+            data[stat]['u'], data[stat]['v'] = Mmt.Rotate_uv_components(data[stat]['ur'], data[stat]['vr'],coords_xx[qr], coords_yy[qr], static_fields["lon"],1,model, check_plot=True)
     
             # Calculating wind direction
             data[stat]['WD'] = (np.rad2deg(np.arctan2(-data[stat]['u'], -data[stat]['v']))+360.) % 360.
@@ -314,6 +366,8 @@ def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt
     ds = xr.Dataset.from_dict(d_dict)
     ds = ds.set_index({"station": "station_name"}, append=True)
     
+    ds = xr.decode_cf(ds)
+    
     ds.to_netcdf(out_path)
     
     return
@@ -321,7 +375,7 @@ def download_nearsurface_timeseries(start_time, end_time, stt_name, stt_lon, stt
     
     
     
-def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_h, num_h, out_path, static_file, vari_config_file, model="AA", int_x=1, int_y=1):
+def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_h, num_h, out_path, static_file, vari_config_file, model="AA", int_x=1, int_y=1, check_plot=True):
 
     int_h, int_f, variables_names_units = set_parameters()
     
@@ -349,7 +403,8 @@ def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_
                          'LHF': "integral_of_surface_downward_latent_heat_flux_wrt_time",
                          'SHF': "integral_of_surface_downward_sensible_heat_flux_wrt_time",
                          'cloud_cover': 'cloud_area_fraction',
-                         'ABL_height': 'atmosphere_boundary_layer_thickness'}
+                         'ABL_height': 'atmosphere_boundary_layer_thickness',
+                         'precip': "precipitation_amount_acc"}
     
     varis_to_load = {}
     for v in varis:
@@ -371,6 +426,35 @@ def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_
     model_lat = static_fields['lat'][idxx,:][:,idyy]
     model_orog = static_fields['orog'][idxx,:][:,idyy]
     model_lsm = static_fields['lsm'][idxx,:][:,idyy]
+    
+    if check_plot:
+        # figure to check if the right area was selected
+        plt.close("all")
+        plt.ion()
+        fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+        ax.set_extent([lon_lims[0]-2., lon_lims[1]+2., lat_lims[0]-.5, lat_lims[1]+.5], crs=ccrs.PlateCarree())
+        ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+        gl = ax.gridlines(draw_labels=False)
+        gl.left_labels = True
+        gl.bottom_labels = True
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        ax.set_title(None)
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+        ax.pcolormesh(model_lon, model_lat, model_orog, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+        plt.show(block=False)
+        plt.pause(5.)
+        
+        print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+        print("")
+        switch_continue = input("Your input:  ")
+        
+        plt.close("all")
+        
+        if switch_continue != "Y":
+            sys.exit(1)
 
     time = []
     data = {}
@@ -394,14 +478,20 @@ def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_
 
                 # Retrieving variables from MET Norway server thredds.met.no
                 for vari, vari_met in varis_to_load.items():
-                    if vari_met[:8] == "integral":
-                        data[vari][:,:,nn] = np.transpose(np.squeeze(f.variables[vari_met][qrr,0,idyy,idxx]) / (qrr*3600.))
-                    else:
-                        data[vari][:,:,nn] = np.transpose(np.squeeze(f.variables[vari_met][qrr,0,idyy,idxx]))
+                    data[vari][:,:,nn] = np.transpose(np.squeeze(f.variables[vari_met][qrr,0,idyy,idxx]))
 
                     print(f'Done reading variable {vari_met} from file {filename} on thredds server')
 
                 nn += 1
+                
+    for vari, vari_met in varis_to_load.items():
+        if vari_met[:8] == "integral":
+            data[vari][:,:,1:] -= np.diff(data[vari], axis=-1)
+            data[vari][:,:,0] /= start_h
+            data[vari] /= 3600.
+        elif vari_met[-3:] == "acc":
+            data[vari][:,:,1:] -= np.diff(data[vari], axis=-1)
+            data[vari][:,:,0] /= start_h
             
     if "SW_net" in varis_to_load:
         # Converting radiative fluxes from net into up
@@ -465,12 +555,257 @@ def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_
     
     ds = xr.Dataset.from_dict(d_dict)
     
+    ds = xr.decode_cf(ds)
+    
     ds.to_netcdf(out_path)
     
     return
+
+
+def download_cross_section(start_time, end_time, start_point, end_point, model_levels, start_h, num_h, out_path, static_file, vari_config_file, model="AA", int_x=1, int_y=1, check_plot=True):
+    
+    int_h, int_f, variables_names_units = set_parameters()
+    
+    time_vec, time_ind, fileurls, varis, static_fields, full_model_name = \
+        get_download_config(start_time, end_time, start_h, num_h, int_f, int_h, static_file, vari_config_file, model)
+        
+    if "Humidity" in varis:
+        varis.remove("Humidity")
+        varis += ["q"]
+        
+    model_varnames =    {'T': 'air_temperature_ml',
+                         'q': 'specific_humidity_ml',
+                         'ur': 'x_wind_ml',
+                         'vr': 'y_wind_ml',
+                         'p_surf': 'surface_air_pressure',
+                         'T_surf': 'air_temperature_0m'}
+    
+    varis_to_load = {}
+    for v in varis:
+        try:
+            varis_to_load[v] = model_varnames[v]
+        except KeyError:
+            print(f"The variable {v} is unfortunately not available as nearsurface time series, please de-select in the configuration file and try again.")
+            sys.exit(1)
+    if "p_surf" not in varis_to_load.keys():
+        varis_to_load["p_surf"] = model_varnames["p_surf"]
+    if "T_surf" not in varis_to_load.keys():
+        varis_to_load["T_surf"] = model_varnames["T_surf"]
+    if "T" not in varis_to_load.keys():
+        varis_to_load["T"] = model_varnames["T"]
+        
+    lat_lims = [np.min([start_point[0], end_point[0]]), np.max([start_point[0], end_point[0]])]
+    lon_lims = [np.min([start_point[1], end_point[1]]), np.max([start_point[1], end_point[1]])]
+    
+    start_lonlat, count_lonlat, _, _ = Mmt.lonlat2xy(lon_lims, lat_lims, static_fields["lon"], static_fields["lat"], 2)
+    start_lonlat -= 2
+    count_lonlat += 5
+    
+    idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
+    idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
+    idxx = idx[::int_x]
+    idyy = idy[::int_y]
+    
+    model_lon = static_fields['lon'][idxx,:][:,idyy]
+    model_lat = static_fields['lat'][idxx,:][:,idyy]
+    model_orog = static_fields['orog'][idxx,:][:,idyy]
+    
+    if check_plot:
+        # figure to check if the right area was selected
+        plt.close("all")
+        plt.ion()
+        fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+        ax.set_extent([lon_lims[0]-2., lon_lims[1]+2., lat_lims[0]-.5, lat_lims[1]+.5], crs=ccrs.PlateCarree())
+        ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+        gl = ax.gridlines(draw_labels=False)
+        gl.left_labels = True
+        gl.bottom_labels = True
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        ax.set_title(None)
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+        ax.pcolormesh(model_lon, model_lat, model_orog, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+        ax.plot([start_point[1], end_point[1]], [start_point[0], end_point[0]], 'r-', transform=ccrs.PlateCarree())
+        plt.show(block=False)
+        plt.pause(3.)
+        
+        print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+        print("")
+        switch_continue = input("Your input:  ")
+        
+        plt.close("all")
+        
+        if switch_continue != "Y":
+            sys.exit(1)
+    
+    time = []
+    data = {}
+    
+    # determine overall size of time dimension
+    len_time = 0                                          # overall time index
+    for filename in fileurls:                 # loop over files --> time in the order of days
+        for a in range(num_h):                     # loop over timesteps --> time in the order of hours
+            len_time += 1
+            
+    for vari in varis_to_load.keys():
+        if vari in ["p_surf", "T_surf"]:
+            data[vari] = np.zeros((model_lon.shape[0], model_lon.shape[1], len_time))
+        else:
+            data[vari] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+    data["p"] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+    data["z"] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+    
+    with Dataset(fileurls[0], 'r') as f:
+        hybrid = f.variables['hybrid'][-model_levels:]
+        ap = f.variables['ap'][-model_levels:]
+        b = f.variables['b'][-model_levels:]
+
+    nn = 0                                          # overall time index
+    for filename in fileurls:                 # loop over files --> time in the order of days
+        with Dataset(filename, 'r') as f:
+            for qrr in time_ind:                      # loop over timesteps --> time in the order of hours
+                time.append(f.variables['time'][qrr])
+
+                # Retrieving variables from MET Norway server thredds.met.no
+                for vari, vari_met in varis_to_load.items():
+                    if vari in ["p_surf", "T_surf"]:
+                        data[vari][:,:,nn] = np.transpose(np.squeeze(f.variables[vari_met][qrr,0,idyy,idxx]))
+                    else:
+                        data[vari][:,:,:,nn] = np.transpose(np.squeeze(f.variables[vari_met][qrr,-model_levels:,idyy,idxx]), (2,1,0))
+
+                    print(f'Done reading variable {vari_met} from file {filename} on thredds server')
+                    
+                
+                    
+                data['z'][:,:,:,nn], data['p'][:,:,:,nn] = Mmt.Calculate_height_levels_and_pressure(hybrid,ap,b, data['T_surf'][:,:,nn], data['p_surf'][:,:,nn], data['T'][:,:,:,nn],3)
+
+                nn += 1
+                
+    if "ur" in varis_to_load:
+        # Wind u and v components in the original data are grid-related.
+        # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+        data['u'], data['v'] = Mmt.Rotate_uv_components(data['ur'], data['vr'],idxx, idyy, static_fields["lon"],2,model)
+
+        # Calculating wind direction
+        data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
+
+        # Calculating wind speed
+        data['WS'] = np.sqrt((data['u']**2.) + (data['v']**2.))
+        
+        del data['ur']
+        del data['vr']
+                
+                
+    # Calculating potential temperature
+    data['T_pot'] = ((data['T'])*((1.e5/(data['p']))**(287./1005.))) - 273.15
+    if ("q" in varis_to_load):
+        T = data["T"] - 273.15
+        e = (data['q']*data['p'])/(0.622 + 0.378*data['q'])
+        data['RH'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T)))) * 100.
+        data['q'] *= 1000.
+        
+    # Converting units
+    data['p'] /= 100.
+    data['T'] -= 273.15
+    
+    del data["p_surf"]
+    del data["T_surf"]
+    
+    time = np.array(time)
     
     
-def download_3D_data_fields(start_time, end_time, lon_lims, lat_lims, model_levels, start_h, num_h, out_path, static_file, vari_config_file, model="AA", int_x=1, int_y=1):
+    # Calculating distance between end and start points
+    # using that (d2km) to find out how many points to use for the
+    # interpolation
+
+    radius = 6371.
+    lat1 = start_point[0] * (np.pi/180)
+    lat2 = end_point[0] * (np.pi/180)
+    lon1 = start_point[1] * (np.pi/180)
+    lon2 = end_point[1] * (np.pi/180)
+    deltaLat = lat2 - lat1
+    deltaLon = lon2 - lon1
+
+    x = deltaLon * np.cos((lat1+lat2)/2.)
+    y = deltaLat
+    d2km = radius * np.sqrt(x**2. + y**2.) # Pythagoran distance
+
+    dd = int(d2km/2.5)
+
+    lons = np.linspace(start_point[1], end_point[1], dd)
+    lats = np.linspace(start_point[0], end_point[0], dd)
+
+    # infer new x-axis as distances between the new lat-lon-points
+    basepoints_x, basepoints_y, _, _ = utm.from_latlon(lats, lons)
+    delta_x = basepoints_x - basepoints_x[0]
+    delta_y = basepoints_y - basepoints_y[0]
+    xx = np.sqrt(delta_x**2. + delta_y**2.) / 1000.
+
+    # Interpolating the surface height on to the cross section
+    hgs = interpolate.interp2d(model_lon, model_lat, model_orog, kind='linear')
+    hgss = np.diagonal(np.transpose(hgs(lons, lats)))
+    
+    
+    
+    data_cross = {"z_asl": np.zeros((len(lons), len(lats), model_levels, len_time))}
+    for vari, d in data.items():
+        data_cross[vari] = np.zeros((len(lons), model_levels, len_time))
+
+    for nn in range(len(time)):
+        # Interpolating the atmospheric data on to the cross section
+
+        zz = 0
+        for i in range(model_levels):
+
+            s = interpolate.interp2d(model_lon, model_lat, np.squeeze(data['z'][:,:,i,nn]), kind='linear')
+            data_cross["z_asl"][:,:,zz,nn] = s(lons, lats)
+
+            for vari in data.keys():
+                data_cross[vari][:,zz,nn] = np.diagonal(interpolate.griddata((model_lon.flatten(), model_lat.flatten(), np.squeeze(data['z'][:,:,i,nn]).flatten()), np.squeeze(data[vari][:,:,i,nn]).flatten(), (lons, lats, data_cross["z_asl"][:,:,zz,nn]), method="linear"), axis1=0, axis2=1)
+
+            zz = zz+1;
+
+    data_cross["z_asl"] = np.transpose(np.diagonal(data_cross["z_asl"], axis1=0, axis2=1), (2,0,1))
+
+    hg = np.repeat(hgss[:,np.newaxis], data_cross["z_asl"].shape[1], axis=1)
+    hg = np.repeat(hg[:,:,np.newaxis], data_cross["z_asl"].shape[2], axis=2)
+    
+    data_cross["z"] = data_cross["z_asl"]
+    data_cross["z_asl"] = data_cross["z_asl"] + hg
+    
+    d_dict = {
+        "coords": {
+            "time": {"dims": "time", "data": time, "attrs": {"units": "seconds since 1970-01-01 00:00:00"}},
+            "ml": {"dims": "ml", "data": np.arange(model_levels,0,-1), "attrs": {"units": "1", "long_name": "model_level"}},
+            "lat": {"dims": "x", "data": lats, "attrs": {"units": "degN", "long_name": "latitude"}},
+            "lon": {"dims": "x", "data": lons, "attrs": {"units": "degE", "long_name": "longitude"}},
+            "x": {"dims": "x", "data": xx, "attrs": {"units": "m", "long_name": "section_distance"}}
+            },
+        "attrs": {"Comments": f"Cross section data extracted from {full_model_name} simulations."},
+        "dims": ["x", "ml", "time"],
+        "data_vars": {
+            vari: {"dims": ["x", "ml", "time"],
+                   "data": d,
+                   "attrs": {"units": variables_names_units[vari][1],
+                             "long_name": variables_names_units[vari][0]}} for vari, d in data_cross.items()}}
+    
+    ds = xr.Dataset.from_dict(d_dict)
+    
+    ds = xr.decode_cf(ds)
+    
+    ds.to_netcdf(out_path)
+    
+    
+    return
+    
+
+
+
+
+    
+def download_3D_data_fields(start_time, end_time, lon_lims, lat_lims, model_levels, start_h, num_h, out_path, static_file, vari_config_file, model="AA", int_x=1, int_y=1, check_plot=True):
     
     int_h, int_f, variables_names_units = set_parameters()
     
@@ -514,6 +849,35 @@ def download_3D_data_fields(start_time, end_time, lon_lims, lat_lims, model_leve
     model_lat = static_fields['lat'][idxx,:][:,idyy]
     model_orog = static_fields['orog'][idxx,:][:,idyy]
     model_lsm = static_fields['lsm'][idxx,:][:,idyy]
+    
+    if check_plot:
+        # figure to check if the right area was selected
+        plt.close("all")
+        plt.ion()
+        fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+        ax.set_extent([lon_lims[0]-2., lon_lims[1]+2., lat_lims[0]-.5, lat_lims[1]+.5], crs=ccrs.PlateCarree())
+        ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+        gl = ax.gridlines(draw_labels=False)
+        gl.left_labels = True
+        gl.bottom_labels = True
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        ax.set_title(None)
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+        ax.pcolormesh(model_lon, model_lat, model_orog, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+        plt.show(block=False)
+        plt.pause(5.)
+        
+        print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+        print("")
+        switch_continue = input("Your input:  ")
+        
+        plt.close("all")
+        
+        if switch_continue != "Y":
+            sys.exit(1)
 
     time = []
     data = {}
@@ -610,12 +974,183 @@ def download_3D_data_fields(start_time, end_time, lon_lims, lat_lims, model_leve
     
     ds = xr.Dataset.from_dict(d_dict)
     
+    ds = xr.decode_cf(ds)
+    
     ds.to_netcdf(out_path)
     
     return
+
+
+
+
+def download_pressure_levels(start_time, end_time, lon_lims, lat_lims, p_levels, start_h, num_h, out_path, static_file, vari_config_file, model="AA", int_x=1, int_y=1, check_plot=True):
+    
+    int_h, int_f, variables_names_units = set_parameters()
+    
+    time_vec, time_ind, fileurls, varis, static_fields, full_model_name = \
+        get_download_config(start_time, end_time, start_h, num_h, int_f, int_h, static_file, vari_config_file, model)
+        
+    if "Humidity" in varis:
+        varis.remove("Humidity")
+        varis += ["q"]
+        
+    model_varnames =    {'T': 'air_temperature_pl',
+                         'q': 'specific_humidity_pl',
+                         'ur': 'x_wind_pl',
+                         'vr': 'y_wind_pl'}
+    
+    varis_to_load = {}
+    for v in varis:
+        try:
+            varis_to_load[v] = model_varnames[v]
+        except KeyError:
+            print(f"The variable {v} is unfortunately not available as nearsurface time series, please de-select in the configuration file and try again.")
+            sys.exit(1)
+            
+    model_p_levels = np.array(['50','100','150','200','250','300','400','500','700','800','850','925','1000'])
+    p_levels = [l.split("_")[0] for l in p_levels]
+    ind_p_levels = [np.where(model_p_levels == l)[0][0] for l in p_levels]
+        
+
+    start_lonlat, count_lonlat, _, _ = Mmt.lonlat2xy(lon_lims, lat_lims, static_fields["lon"], static_fields["lat"], 2)
+    
+    idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
+    idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
+    idxx = idx[::int_x]
+    idyy = idy[::int_y]
+    
+    model_lon = static_fields['lon'][idxx,:][:,idyy]
+    model_lat = static_fields['lat'][idxx,:][:,idyy]
+    model_orog = static_fields['orog'][idxx,:][:,idyy]
+    model_lsm = static_fields['lsm'][idxx,:][:,idyy]
+    
+    if check_plot:
+        # figure to check if the right area was selected
+        plt.close("all")
+        plt.ion()
+        fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+        ax.set_extent([lon_lims[0]-2., lon_lims[1]+2., lat_lims[0]-.5, lat_lims[1]+.5], crs=ccrs.PlateCarree())
+        ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+        gl = ax.gridlines(draw_labels=False)
+        gl.left_labels = True
+        gl.bottom_labels = True
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        ax.set_title(None)
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+        ax.pcolormesh(model_lon, model_lat, model_orog, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+        plt.show(block=False)
+        plt.pause(5.)
+        
+        print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+        print("")
+        switch_continue = input("Your input:  ")
+        
+        plt.close("all")
+        
+        if switch_continue != "Y":
+            sys.exit(1)
+
+    time = []
+    data = {}
+    
+    # determine overall size of time dimension
+    len_time = 0                                          # overall time index
+    for filename in fileurls:                 # loop over files --> time in the order of days
+        for a in range(num_h):                     # loop over timesteps --> time in the order of hours
+            len_time += 1
+            
+    for vari in varis_to_load.keys():
+        data[vari] = np.zeros((model_lon.shape[0], model_lon.shape[1], len(ind_p_levels), len_time))
+
+    nn = 0                                          # overall time index
+    for filename in fileurls:                 # loop over files --> time in the order of days
+        with Dataset(filename, 'r') as f:
+            for qrr in time_ind:                      # loop over timesteps --> time in the order of hours
+                for lc, l in enumerate(ind_p_levels):
+                    if lc == 0:
+                        time.append(f.variables['time'][qrr])
+
+                    # Retrieving variables from MET Norway server thredds.met.no
+                    for vari, vari_met in varis_to_load.items():
+                        data[vari][:,:,lc,nn] = np.transpose(np.squeeze(f.variables[vari_met][qrr,l,idyy,idxx]))
+
+                        print(f'Done reading variable {vari_met} at p-level {p_levels[lc]} from file {filename} on thredds server')
+                    
+                nn += 1
+                
+    if "ur" in varis_to_load:
+        # Wind u and v components in the original data are grid-related.
+        # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+        data['u'], data['v'] = Mmt.Rotate_uv_components(data['ur'], data['vr'],idxx, idyy, static_fields["lon"],2,model)
+
+        # Calculating wind direction
+        data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
+
+        # Calculating wind speed
+        data['WS'] = np.sqrt((data['u']**2.) + (data['v']**2.))
+        
+        del data['ur']
+        del data['vr']
+                
+                
+    # Calculating potential temperature and relative humidity
+    p_levels = np.array([float(l) for l in p_levels])
+    if (("q" in varis_to_load) & ("T" in varis_to_load)):
+        data["RH"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len(ind_p_levels), len_time))
+                
+    
+    if ("T" in varis_to_load):
+        for lc, l in enumerate(ind_p_levels):
+            data['T_pot'] = ((data['T'][:,lc,:,:])*((1.e3/(p_levels[lc]))**(287./1005.))) - 273.15
+            if ("q" in varis_to_load):
+                T = data["T"][:,lc,:,:] - 273.15
+                e = (data['q'][:,lc,:,:]*p_levels[lc])/(0.622 + 0.378*data['q'][:,lc,:,:])
+                data['RH'][:,lc,:,:] = (e/(611.2 * np.exp((17.62*T)/(243.12+T)))) * 100.
+        
+    # Converting units
+    if ("q" in varis_to_load):
+        data['q'] *= 1000.
+    if ("T" in varis_to_load):
+        data['T'] -= 273.15
     
     
-def download_profiles(start_time, end_time, stt_name, stt_lon, stt_lat, model_levels, start_h, num_h, out_path, static_file, vari_config_file, model="AA"):
+    time = np.array(time)
+    
+    d_dict = {
+        "coords": {
+            "time": {"dims": "time", "data": time, "attrs": {"units": "seconds since 1970-01-01 00:00:00"}},
+            "pl": {"dims": "pl", "data": p_levels, "attrs": {"units": "hPa", "long_name": "pressure_level"}},
+            "lat": {"dims": ["x", "y"], "data": model_lat, "attrs": {"units": "degN", "long_name": "latitude"}},
+            "lon": {"dims": ["x", "y"], "data": model_lon, "attrs": {"units": "degE", "long_name": "longitude"}},
+            "lsm": {"dims": ["x", "y"], "data": model_lsm, "attrs": {"units": "1", "long_name": "land_sea_mask"}},
+            "orog": {"dims": ["x", "y"], "data": model_orog, "attrs": {"units": "m", "long_name": "orography"}},
+            },
+        "attrs": {"Comments": f"Pressure level data fields extracted from {full_model_name} simulations."},
+        "dims": ["x", "y", "pl", "time"],
+        "data_vars": {
+            vari: {"dims": ["x", "y", "pl", "time"],
+                   "data": d,
+                   "attrs": {"units": variables_names_units[vari][1],
+                             "long_name": variables_names_units[vari][0]}} for vari, d in data.items()}}
+    
+    ds = xr.Dataset.from_dict(d_dict)
+    
+    ds = xr.decode_cf(ds)
+    
+    ds.to_netcdf(out_path)
+    
+    return
+
+
+
+
+
+    
+    
+def download_profiles(start_time, end_time, stt_name, stt_lon, stt_lat, model_levels, start_h, num_h, out_path, static_file, vari_config_file, model="AA", check_plot=True):
 
     int_h, int_f, variables_names_units = set_parameters()
     
@@ -659,6 +1194,41 @@ def download_profiles(start_time, end_time, stt_name, stt_lon, stt_lat, model_le
         
         model_orog[i] = static_fields['orog'][coords_xx[i], coords_yy[i]]
         model_lsm[i] = static_fields['lsm'][coords_xx[i], coords_yy[i]]
+        
+    if check_plot:
+        # figure to check if the right area was selected
+        lon_min = np.nanmin([model_lon[i] for i in range(len(stt_name))])-1.
+        lon_max = np.nanmax([model_lon[i] for i in range(len(stt_name))])+1.
+        lat_min = np.nanmin([model_lat[i] for i in range(len(stt_name))])-0.5
+        lat_max = np.nanmax([model_lat[i] for i in range(len(stt_name))])+0.5
+        plt.close("all")
+        plt.ion()
+        fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+        ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
+        ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+        gl = ax.gridlines(draw_labels=False)
+        gl.left_labels = True
+        gl.bottom_labels = True
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        ax.set_title(None)
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+        for i, (lon, lat) in enumerate(zip(stt_lon, stt_lat)):
+            ax.scatter(lon, lat, s=3., c="r", marker="x", transform=ccrs.PlateCarree())
+            ax.scatter(model_lon[i], model_lat[i], s=3., c="k", marker="o", transform=ccrs.PlateCarree())
+        plt.show(block=False)
+        plt.pause(5.)
+        
+        print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+        print("")
+        switch_continue = input("Your input:  ")
+        
+        plt.close("all")
+        
+        if switch_continue != "Y":
+            sys.exit(1)
 
     time = []
     data = {}
@@ -766,6 +1336,8 @@ def download_profiles(start_time, end_time, stt_name, stt_lon, stt_lat, model_le
     ds = xr.Dataset.from_dict(d_dict)
     ds = ds.set_index({"station": "station_name"}, append=True)
     
+    ds = xr.decode_cf(ds)
+    
     ds.to_netcdf(out_path)
     
     return
@@ -777,9 +1349,58 @@ def download_profiles(start_time, end_time, stt_name, stt_lon, stt_lat, model_le
 
 if __name__ == "__main__":
     
-    download_3D_data_fields("2022-05-05 00:00:00", "2022-05-06 00:00:00", 
-                                    [10., 15.], [78., 80.], 10, 0, 3, 
-                                    "C:/Users/lukasf/Desktop/test.nc",
-                                    "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
-                                    "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml", 
-                                    model="AA", int_x=2, int_y=2)
+    
+    days = pd.date_range("2022-05-03", "2022-05-05", freq="1D")
+    
+    for d in days:
+        print(f"downloading {d.strftime('%Y-%m-%d')}")
+        ds = download_nearsurface_fields(d.strftime("%Y-%m-%d %H:%M:%S"), (d + pd.Timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+                                        [15., 17.], [78.4, 78.7], 0, 3,
+                                        f"C:/Users/lukasf/Desktop/test_{d.strftime('%Y%m%d')}.nc",
+                                        "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+                                        "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
+                                        model="AA", int_x=1, int_y=1, check_plot=False)
+    
+    
+    
+    # download_nearsurface_timeseries("2022-05-05 00:00:00", "2022-05-06 00:00:00",
+    #                                 ["A", "B"], [15., 17.], [78.4, 78.7], 0, 3,
+    #                                 "C:/Users/lukasf/Desktop/test.nc",
+    #                                 "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+    #                                 "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
+    #                                 model="AA", check_plot=True)
+    
+    # ds = download_nearsurface_fields("2022-05-05 00:00:00", "2022-05-08 00:00:00",
+    #                             [15., 17.], [78.4, 78.7], 0, 3,
+    #                             "C:/Users/lukasf/Desktop/test.nc",
+    #                             "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+    #                             "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
+    #                             model="AA", int_x=1, int_y=1, check_plot=True)
+    
+    # download_3D_data_fields("2022-05-05 00:00:00", "2022-05-06 00:00:00",
+    #                             [15., 17.], [78.4, 78.7], 10, 0, 3,
+    #                             "C:/Users/lukasf/Desktop/test.nc",
+    #                             "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+    #                             "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
+    #                             model="AA", int_x=1, int_y=1, check_plot=True)
+    
+    # download_pressure_levels("2022-05-05 00:00:00", "2022-05-06 00:00:00",
+    #                             [15., 17.], [78.4, 78.7], ["1000_hPa", "850_hPa", "500_hPa"], 0, 3,
+    #                             "C:/Users/lukasf/Desktop/test.nc",
+    #                             "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+    #                             "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
+    #                             model="AA", int_x=1, int_y=1, check_plot=True)
+    
+    # download_profiles("2022-05-05 00:00:00", "2022-05-06 00:00:00",
+    #                                 ["A", "B"], [15., 17.], [78.4, 78.7], 10, 0, 3,
+    #                                 "C:/Users/lukasf/Desktop/test.nc",
+    #                                 "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+    #                                 "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
+    #                                 model="AA", check_plot=True)
+    
+    # d = download_cross_section("2022-05-05 00:00:00", "2022-05-06 00:00:00", 
+    #                                 [78.6, 16.], [78.5, 16.75], 10, 0, 3, 
+    #                                 "C:/Users/lukasf/Desktop/test.nc",
+    #                                 "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
+    #                                 "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml", 
+    #                                 model="AA", int_x=2, int_y=2, check_plot=True)

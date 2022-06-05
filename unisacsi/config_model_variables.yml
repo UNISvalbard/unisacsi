@@ -9,3 +9,4 @@ radiation: 0
 turb_fluxes: 0
 cloud_cover: 0
 ABL_height: 0
+precip: 0
