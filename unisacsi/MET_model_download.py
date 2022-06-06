@@ -504,7 +504,10 @@ def download_nearsurface_fields(start_time, end_time, lon_lims, lat_lims, start_
     if "ur" in varis_to_load:
         # Wind u and v components in the original data are grid-related.
         # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-        data['u'], data['v'] = Mmt.Rotate_uv_components(data['ur'], data['vr'],idxx, idyy, static_fields["lon"],2,model)
+        data["u"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len_time))
+        data["v"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len_time))
+        for nn in range(len(time)):
+            data['u'][:,:,nn], data['v'][:,:,nn] = Mmt.Rotate_uv_components(data['ur'][:,:,nn], data['vr'][:,:,nn],idxx, idyy, static_fields["lon"],2,model)
 
         # Calculating wind direction
         data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
@@ -686,7 +689,11 @@ def download_cross_section(start_time, end_time, start_point, end_point, model_l
     if "ur" in varis_to_load:
         # Wind u and v components in the original data are grid-related.
         # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-        data['u'], data['v'] = Mmt.Rotate_uv_components(data['ur'], data['vr'],idxx, idyy, static_fields["lon"],2,model)
+        data["u"] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+        data["v"] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+        for ml in range(model_levels):
+            for nn in range(len(time)):
+                data['u'][:,:,ml,nn], data['v'][:,:,ml,nn] = Mmt.Rotate_uv_components(data['ur'][:,:,ml,nn], data['vr'][:,:,ml,nn],idxx, idyy, static_fields["lon"],2,model)
 
         # Calculating wind direction
         data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
@@ -925,7 +932,12 @@ def download_3D_data_fields(start_time, end_time, lon_lims, lat_lims, model_leve
     if "ur" in varis_to_load:
         # Wind u and v components in the original data are grid-related.
         # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-        data['u'], data['v'] = Mmt.Rotate_uv_components(data['ur'], data['vr'],idxx, idyy, static_fields["lon"],2,model)
+        data["u"] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+        data["v"] = np.zeros((model_lon.shape[0], model_lon.shape[1], model_levels, len_time))
+        for ml in range(model_levels):
+            for nn in range(len(time)):
+                data['u'][:,:,ml,nn], data['v'][:,:,ml,nn] = Mmt.Rotate_uv_components(data['ur'][:,:,ml,nn], data['vr'][:,:,ml,nn],idxx, idyy, static_fields["lon"],2,model)
+
 
         # Calculating wind direction
         data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
@@ -1084,7 +1096,12 @@ def download_pressure_levels(start_time, end_time, lon_lims, lat_lims, p_levels,
     if "ur" in varis_to_load:
         # Wind u and v components in the original data are grid-related.
         # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-        data['u'], data['v'] = Mmt.Rotate_uv_components(data['ur'], data['vr'],idxx, idyy, static_fields["lon"],2,model)
+        data["u"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len(ind_p_levels), len_time))
+        data["v"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len(ind_p_levels), len_time))
+        for ml in range(len(ind_p_levels)):
+            for nn in range(len(time)):
+                data['u'][:,:,ml,nn], data['v'][:,:,ml,nn] = Mmt.Rotate_uv_components(data['ur'][:,:,ml,nn], data['vr'][:,:,ml,nn],idxx, idyy, static_fields["lon"],2,model)
+
 
         # Calculating wind direction
         data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
@@ -1347,8 +1364,7 @@ def download_profiles(start_time, end_time, stt_name, stt_lon, stt_lat, model_le
 
 
 
-if __name__ == "__main__":
-    
+if __name__ == "__main__":    
     
     days = pd.date_range("2022-05-03", "2022-05-05", freq="1D")
     
@@ -1356,7 +1372,7 @@ if __name__ == "__main__":
         print(f"downloading {d.strftime('%Y-%m-%d')}")
         ds = download_nearsurface_fields(d.strftime("%Y-%m-%d %H:%M:%S"), (d + pd.Timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
                                         [15., 17.], [78.4, 78.7], 0, 3,
-                                        f"C:/Users/lukasf/Desktop/test_{d.strftime('%Y%m%d')}.nc",
+                                        f"C:/Users/lukasf/Desktop/AA_nearsurface_{d.strftime('%Y%m%d')}.nc",
                                         "C:/Users/lukasf/Desktop/AA_static_fields.nc", 
                                         "C:/Users/lukasf/Github/unisacsi/unisacsi/config_model_variables.yml",
                                         model="AA", int_x=1, int_y=1, check_plot=False)
