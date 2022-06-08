@@ -1,0 +1,70 @@
+# Define the type of data that should be downloaded (uncomment only one of the following lines)
+#data_format: 0 # profile data
+#data_format: 1 # near-surface time series
+data_format: 2 # 2D near-surface data fields
+#data_format: 3 # 3D data fields
+#data_format: 4 # cross section 
+#data_format: 5 # pressure levels
+#
+start_day: "2022-05-03"
+end_day: "2022-05-07"
+save_daily_files: True # if True, data from end_day gets saved; if False, times after end_day are not included
+#
+check_plot: False # switch to enable first opening a plot to check that the correct area/points were selected
+#
+out_path: "C:/Users/lukasf/Desktop/test.nc" # save_daily_files == True, the day will automatically be appended to the filename like "C:/Users/lukasf/Desktop/test_20220506.nc"
+#
+start_h: 0 # (Python) index defining the first time step downloaded from each file. start_h = 0 means starting with the first available time step from each data file.
+num_h: 3 # Number of time steps to download from each file. num_h = 3 means that 3 time steps are downloaded from each file
+int_h: 1 # Time interval between data time steps in each data file (1 hour)
+int_f: 3 # Time interval in hours between each data file (3 hours)
+#
+stations: # the station settings are only used when downloading timeseries or profile data
+  LYR:
+    lat: 78.246
+    lon: 15.000
+  IR:
+    lat: 78.062
+    lon: 13.617
+  PB:
+    lat: 78.681
+    lon: 16.451
+#
+area: # the area settings are only used when downloading 2D nearsurface fields, 3D data or pressure level data
+  lat_min: 78.4
+  lat_max: 78.7
+  lon_min: 15.0
+  lon_max: 17.0
+#
+crosssection: # the start and end point settings are only used when downloading a cross section
+  start_lat: 78.6
+  start_lon: 16.0
+  end_lat: 78.5
+  end_lon: 16.75
+#
+model_levels: 10 # the model level setting is only used when downloading 3D data, profile or crosssection
+#
+pressure_levels: # the pressure level settings are only used when downloading pressure level data
+  - 1000_hPa
+  - 850_hPa
+  - 500_hPa
+#
+variables:
+   T: True
+   Humidity: True
+   wind: True
+   p_surf: False
+   T_surf: False
+   MSLP: False
+   momentum_flux: False
+   radiation: False
+   turb_fluxes: False
+   cloud_cover: False
+   ABL_height: False
+   precip: False
+#
+static_file: "C:/Users/lukasf/Desktop/AA_static_fields.nc" # Full path (absolute or relative) of the file with the static model fields. This file can be downloaded with the function "download_static_fields"
+model: "AA" # Switch to distinguish between the Arome-Arctic model for Svalbard ("AA") and the METCoOp model for mainland Norway ("MC")
+#
+int_x: 1
+int_y: 1

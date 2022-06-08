@@ -301,6 +301,11 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
         X,Z = X_int,Z_int
         
     return fCTD,Z,X,station_locs
+
+
+def mooring_to_grid(mooring):
+    
+    return
   
     
   
@@ -829,8 +834,6 @@ def read_mooring(file):
         raw_data = np.load(file,allow_pickle=True).item()
         
     return raw_data
-
-
 
 
 
