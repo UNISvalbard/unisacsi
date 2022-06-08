@@ -303,9 +303,52 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     return fCTD,Z,X,station_locs
 
 
-def mooring_to_grid(mooring):
+
+
+def mooring_to_grid(mooring, variable, temp_res, depth_res):
+    """
+    Function to grid all mooring measurements of the specified variable onto
+    a regular grid in depth and time.
+
+    Parameters
+    ----------
+    mooring : dict
+        Dictionary with mooring data
+    variable : str
+        Variable name ("T", "S", "P", "O", "C", "U", "V", ...)
+    temp_res : str
+        Identifier for the temporal resolution of the gridded data, e.g. "1H" for one hour
+    depth_res : float
+        Spacing of depth levels of the gridded data
+
+    Returns
+    -------
+    data_per_depth : pandas dataframe
+        Data gridded onto a common grid in time, but still at the respective depth levels of the instruments
+    data_depth_grid : pandas dataframe
+        Data gridded onto a regular grid in space and time
+        
+    """
     
-    return
+    data_per_depth = []
+    for k in mooring.keys():
+        if ((k[:len(variable)] == variable) & (k[len(variable):].isnumeric())):
+            sn = k[len(variable):]
+            df = pd.DataFrame(mooring[k], index=mooring[f"date{sn}"], columns=[round(mooring[f"md{sn}"])])
+            df.interpolate(method="time", inplace=True)
+            df = df.resample(temp_res).mean()
+            data_per_depth.append(df)
+    data_per_depth = pd.concat(data_per_depth, axis=1)
+    data_per_depth.sort_index(axis=1, inplace=True)
+    data_per_depth = data_per_depth.loc[data_per_depth.index[0]+pd.Timedelta(days=1):
+                                        data_per_depth.index[-1]-pd.Timedelta(hours=6)]
+    
+    data_depth_grid = data_per_depth.transpose(copy=True)
+    depth_levels = np.arange(10.*np.ceil(data_depth_grid.index[0]/10.), 10.*np.floor(data_depth_grid.index[-1]/10.), depth_res)
+    data_depth_grid = data_depth_grid.reindex(data_depth_grid.index.union(depth_levels)).interpolate('values').loc[depth_levels]
+    data_depth_grid = data_depth_grid.transpose()
+    
+    return [data_per_depth, data_depth_grid]
   
     
   
@@ -808,6 +851,10 @@ def read_mooring_from_mat(matfile):
     variable_name = list(raw_data.keys())[-1]
     raw_data = raw_data[variable_name]
     
+    for key in raw_data.keys():
+        if key[:4] == "date":
+            raw_data[key] = mat2py_time(np.asarray(raw_data[key]))
+    
     return raw_data
 
 
@@ -826,10 +873,7 @@ def read_mooring(file):
     '''
     ext = file.split('.')[-1]
     if ext == 'mat':
-        # read raw data using scipy.io.loadmat, plus more complicated changes
-        raw_data = myloadmat(file)
-        variable_name = list(raw_data.keys())[-1]
-        raw_data = raw_data[variable_name]
+        raw_data = read_mooring_from_mat(file)
     elif ext == 'npy':
         raw_data = np.load(file,allow_pickle=True).item()
         
@@ -1637,3 +1681,6 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
         return fig1, fig2, fig3
     else:
         return fig1, fig2
+    
+    
+    
