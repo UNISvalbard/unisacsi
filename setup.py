@@ -5,8 +5,6 @@ from setuptools import setup, find_packages
 with open("README.md", "r") as readme_file:
     readme = readme_file.read()
 
-requirements = ['matplotlib==3.5', 'glob2', 'jupyter', 'seabird','numpy','scipy','pandas==1.2', 'geopandas', 'proj', 'shapely', 'netCDF4','cartopy','gsw','cmocean','requests','adjusttext', 'spyder', 'xarray', 'rioxarray', 'dask', 'utm']
-
 setup(
   name = 'unisacsi',        
   version = '0.1.1',      # Start with a small number and increase it with every change you make
@@ -20,7 +18,6 @@ setup(
   download_url = 'https://github.com/lfrankunis/unisacsi/archive/v0.0.1.tar.gz',
   packages=find_packages(),
   keywords = ['oceanography', 'meteorology', 'UNIS'],   # Keywords that define your package best
-  install_requires=requirements,
   classifiers=[
     'Development Status :: 3 - Alpha',      # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state of your package
     'Intended Audience :: Developers',      # Define that your audience are developers
