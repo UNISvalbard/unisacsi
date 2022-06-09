@@ -22,7 +22,7 @@ import geopandas as gpd
 import numpy as np
 import cmocean as cmo
 import matplotlib as mpl
-from shapely.geometry import Point, LineString
+from shapely.geometry import LineString
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
