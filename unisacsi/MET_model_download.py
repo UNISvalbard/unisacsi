@@ -56,9 +56,9 @@ def download_MET_model_data(config_file):
             print("############################################################")
             print(f"start downloading data from {d.strftime('%Y-%m-%d')}")
             print("############################################################")
-            MET_model_download(daily_config)
+            MET_model_download_class(daily_config)
     else:
-        MET_model_download(config_settings)
+        MET_model_download_class(config_settings)
 
 
     return
@@ -134,7 +134,7 @@ def download_MET_model_static_fields(config_file):
 
 
 
-class MET_model_download():
+class MET_model_download_class():
     """
     Class handling the download of MET model data.
 
