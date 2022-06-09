@@ -22,6 +22,22 @@ from scipy import interpolate
 
 
 def download_MET_model_data(config_file):
+    """
+    Function to download and save model data
+    of one of the models of the Norwegian Meteorological Institute.
+    The download configuration (period to download, variables, type of data, ...)
+    is done in a config file.
+
+    Parameters
+    ----------
+    config_file : str
+        Full path to the yaml file with the configuration settings
+
+    Returns
+    -------
+    None.
+
+    """
     
     with open(config_file, "r") as f:
         config_settings = yaml.safe_load(f)
@@ -118,6 +134,15 @@ def download_MET_model_static_fields(config_file):
 
 
 class MET_model_download():
+    """
+    Class handling the download of MET model data.
+    
+    Parameters
+    ----------
+    config_settings : dict
+        Download configuration settings read from the configuration file.
+    
+"""
     
     def __init__(self, config_settings):
     
@@ -234,6 +259,14 @@ class MET_model_download():
 
 
     def download_nearsurface_timeseries(self):
+        """
+        Method to download time series of near-surface data from one or several locations.
+
+        Returns
+        -------
+        None.
+
+        """
     
             
         if "Humidity" in self.varis:
@@ -436,6 +469,14 @@ class MET_model_download():
         
         
     def download_nearsurface_fields(self):
+        """
+        Method to download 2D fields of near-surface variables.
+
+        Returns
+        -------
+        None.
+
+        """
         
     
         if "Humidity" in self.varis:
@@ -624,6 +665,14 @@ class MET_model_download():
     
     
     def download_cross_section(self):
+        """
+        Method to download a (vertical )cross section.
+
+        Returns
+        -------
+        None.
+
+        """
             
     
         if "Humidity" in self.varis:
@@ -867,6 +916,14 @@ class MET_model_download():
     
         
     def download_3D_data_fields(self):
+        """
+        Method to download the full 3D model output.
+
+        Returns
+        -------
+        None.
+
+        """
             
     
         if "Humidity" in self.varis:
@@ -1046,6 +1103,14 @@ class MET_model_download():
     
     
     def download_pressure_levels(self):
+        """
+        Method to download 2D fields from one or more pressure levels.
+
+        Returns
+        -------
+        None.
+
+        """
             
     
         if "Humidity" in self.varis:
@@ -1214,6 +1279,14 @@ class MET_model_download():
         
         
     def download_profiles(self):
+        """
+        Method to download profiles of atmospheric variables at one or several locations.
+
+        Returns
+        -------
+        None.
+
+        """
         
     
         if "Humidity" in self.varis:
