@@ -19,3 +19,5 @@ xarray
 rioxarray
 dask
 utm
+git
+pip
