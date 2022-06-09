@@ -52,5 +52,5 @@ from .Ocean import (
 	plot_ADCP_CTD_section
 )
 
-from .MET_model_download import download_MET_model_data, download_MET_model_static_fields, MET_model_download_class
 from .MET_model_tools import Rotate_uv_components, lonlat2xy, Calculate_height_levels_and_pressure
+from .MET_model_download import download_MET_model_data, download_MET_model_static_fields, MET_model_download_class
