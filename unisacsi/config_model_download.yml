@@ -7,7 +7,7 @@ data_format: 2 # 2D near-surface data fields
 #data_format: 5 # pressure levels
 #
 start_day: "2022-05-03"
-end_day: "2022-05-07"
+end_day: "2022-05-05"
 save_daily_files: True # if True, data from end_day gets saved; if False, times after end_day are not included
 #
 check_plot: False # switch to enable first opening a plot to check that the correct area/points were selected
