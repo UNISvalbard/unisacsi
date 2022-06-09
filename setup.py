@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 with open("README.md", "r") as readme_file:
     readme = readme_file.read()
 
-requirements = ['matplotlib==3.5', 'glob2', 'jupyter', 'copy', 'seabird','numpy','scipy','pandas==1.2', 'geopandas', 'shapely', 'netCDF4','cartopy','gsw','cmocean','requests','adjusttext', 'spyder', 'xarray', 'rioxarray', 'dask', 'utm']
+requirements = ['matplotlib==3.5', 'glob2', 'jupyter', 'seabird','numpy','scipy','pandas==1.2', 'geopandas', 'shapely', 'netCDF4','cartopy','gsw','cmocean','requests','adjusttext', 'spyder', 'xarray', 'rioxarray', 'dask', 'utm']
 
 setup(
   name = 'unisacsi',        
