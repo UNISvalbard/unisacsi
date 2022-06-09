@@ -29,3 +29,7 @@ Now you can run the notebook:
 > jupyter-notebook
 
 then navigate to the file and open it. Change the path in the second box of code to the location where you have saved the example data. Then press the Execute-button in the top.
+
+## MET model data download
+
+The configurations for the download of model data from AROME-ARcitc or METCoOp is donw via a seperate configuration file, which can be downloaded from the github repository and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specified.
