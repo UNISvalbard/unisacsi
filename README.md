@@ -7,12 +7,17 @@ The oceanographic part of this toolbox was originally developed at the Geophysic
 
 ## Installation
 
-We recommend the use of the anaconda distribution and the underlying conda package manager. It can be downloaded and installed from [here](https://www.anaconda.com/products/distribution). It is advised to install this toolbox into a virtual environment, as some of the functionality depends on older versions of common packages. Download the file requirements.txt directly from the github repository (open the file on the webpage, click on "Raw", right-click and Save as...), then open an anaconda-prompt window and create your new environment:
+We recommend the use of the anaconda distribution and the underlying conda package manager. It can be downloaded and installed from [here](https://www.anaconda.com/products/distribution). Furthermore, you should add the conda-forge channel. Open an anaconda-prompt/terminal window and type:
+```
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+```
+It is advised to install this toolbox into a virtual environment, as some of the functionality depends on older versions of common packages. Download the file requirements.txt directly from the github repository (open the file on the webpage, click on "Raw", right-click and Save as...), then type in a anaconda-prompt/terminal window:
 ```
 conda create -n myenv python=3.8 --file requirements.txt
 ```
 
-Follow the instructions and once the environment is created, activate it with:
+Follow the instructions and be patient, this might take some time! Once the environment is created, activate it with:
 ```
 conda activate myname
 ```
