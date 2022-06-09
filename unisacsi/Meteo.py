@@ -14,6 +14,7 @@ The functions were developed at the University Centre in Svalbard. They were
 optimized for the file formats typically used in the UNIS courses.
 """
 
+import unisacsi
 import pandas as pd
 import dask.dataframe as ddf
 import xarray as xr
@@ -32,13 +33,13 @@ from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
 ############################################################################
 #READING FUNCTIONS
-############################################################################        
-                
+############################################################################
+
 def read_MET_AWS(filename):
-    ''' 
+    '''
     Reads data from a csv file downloaded from seklima.met.no.
     The csv file should only include data from one station.
-    
+
     Parameters:
     -------
     filename: str
@@ -48,12 +49,12 @@ def read_MET_AWS(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
+
     with open(filename) as f:
         ncols = len(f.readline().split(';'))
 
     df = pd.read_csv(filename, dayfirst=True, sep=";", skipfooter=1, header=0, usecols=range(2,ncols+1), parse_dates=[0], decimal=",")
-    
+
     try:
         df["Tid"] = df["Tid(norsk normaltid)"] - pd.Timedelta("1h")
         df.set_index("Tid", inplace=True)
@@ -62,16 +63,16 @@ def read_MET_AWS(filename):
         df["Time"] = df["Time(norwegian mean time)"] - pd.Timedelta("1h")
         df.set_index("Time", inplace=True)
         df.drop(["Time(norwegian mean time)"], axis=1, inplace=True)
-            
+
     return df
 
 
 
 def read_Campbell_AWS(filename):
-    ''' 
+    '''
     Reads data from one or several data files from the Campbell AWS output files.
     Make sure to only specify files with the same temporal resolution.
-    
+
     Parameters:
     -------
     filename: str
@@ -82,20 +83,20 @@ def read_Campbell_AWS(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
+
     df = ddf.read_csv(filename, skiprows=[0,2,3,4], dayfirst=True, parse_dates=["TIMESTAMP"])
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
     df.drop(["ID"], axis=1, inplace=True)
-    
+
     return df
 
 
 
 def read_Campbell_radiation(filename):
-    ''' 
+    '''
     Reads data from one or several data files from the Campbell radiation output files.
-    
+
     Parameters:
     -------
     filename: str
@@ -106,19 +107,19 @@ def read_Campbell_radiation(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
+
     df = ddf.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"])
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
-    
+
     return df
 
 
 
 def read_Irgason_flux(filename):
-    ''' 
+    '''
     Reads data from a Irgason flux output file.
-    
+
     Parameters:
     -------
     filename: str
@@ -128,18 +129,18 @@ def read_Irgason_flux(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
+
     df = pd.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
-    
+
     return df
 
 
 
 def read_CSAT3_flux(filename):
-    ''' 
+    '''
     Reads data from a CSAT3 flux data file processed with TK3.
-    
+
     Parameters:
     -------
     filename: str
@@ -152,18 +153,18 @@ def read_CSAT3_flux(filename):
 
     sonic_header = pd.read_csv(filename, nrows=1)
     sonic_header = [key.strip() for key in sonic_header.columns]
-    
+
     df = pd.read_csv(filename, names=sonic_header, header=0, dayfirst=True, parse_dates=["T_begin", "T_end", "T_mid"], na_values=-9999.9003906)
     df.set_index("T_mid", inplace=True)
-    
+
     return df
 
 
 
 def read_Tinytag(filename, sensor):
-    ''' 
+    '''
     Reads data from one or several data files from the Tinytag output files.
-    
+
     Parameters:
     -------
     filename: str
@@ -176,8 +177,8 @@ def read_Tinytag(filename, sensor):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
-    
+
+
     if sensor == "TT":
         df = ddf.read_csv(filename, delimiter="\t", skiprows=5, parse_dates=[1], names=["RECORD", "TIMESTAMP", "T_black", "T_white"], encoding = "ISO-8859-1")
     elif sensor == "TH":
@@ -189,7 +190,7 @@ def read_Tinytag(filename, sensor):
 
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
-    
+
     for key in list(df.columns):
         if key == "RECORD":
             pass
@@ -199,20 +200,20 @@ def read_Tinytag(filename, sensor):
             if unit == "°C":
                 unit = "degC"
             new_key = f"{key}_{unit}"
-            
+
             df[new_key] = data
-            
+
             df.drop(key, axis=1, inplace=True)
-    
+
     return df
 
 
 
 
 def read_HOBO(filename):
-    ''' 
+    '''
     Reads data from one or several data files from the HOBO output files.
-    
+
     Parameters:
     -------
     filename: str
@@ -223,12 +224,12 @@ def read_HOBO(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
+
     df = ddf.read_csv(filename, delimiter=";", skiprows=1, parse_dates=["Date Time, GMT+00:00"], dayfirst=True, encoding = "ISO-8859-1")
     df = df.compute()
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
-    
+
     new_names = []
     for i in list(df.columns):
         old_split = i.split(",")
@@ -240,15 +241,15 @@ def read_HOBO(filename):
             sn = f"_sn{old_split[2].split(' ')[3][:-1]}"
             new_names.append(name+sn+unit)
     df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
-    
+
     return df
-            
+
 
 
 def read_IWIN(filename):
-    ''' 
+    '''
     Reads data from one or several netCDF data files from IWIN stations.
-    
+
     Parameters:
     -------
     filename: str
@@ -259,9 +260,9 @@ def read_IWIN(filename):
     ds : xarray dataset
         a xarray dataset representing the netCDF file(s)
     '''
-    
+
     files = sorted(glob.glob(filename))
-    
+
     if len(files) == 1:
         ds = xr.open_dataset(filename)
     elif len(files) > 1:
@@ -274,9 +275,9 @@ def read_IWIN(filename):
 
 
 def read_AROME(filename):
-    ''' 
+    '''
     Reads data from one or several netCDF data files from AROME-Arctic.
-    
+
     Parameters:
     -------
     filename: str
@@ -287,9 +288,9 @@ def read_AROME(filename):
     ds : xarray dataset
         a xarray dataset representing the netCDF file(s)
     '''
-    
+
     files = sorted(glob.glob(filename))
-    
+
     if len(files) == 1:
         ds = xr.open_dataset(filename)
     elif len(files) > 1:
@@ -318,7 +319,7 @@ def read_AROME(filename):
 
 ############################################################################
 #PLOTTING FUNCTIONS
-############################################################################ 
+############################################################################
 
 
 
@@ -345,7 +346,7 @@ def initialize_empty_map(lat_limits, lon_limits):
         The axis of the figure
 
     """
-    
+
     fig, ax = plt.subplots(1,1, figsize=(12,12), subplot_kw={'projection': ccrs.Mercator()})
     ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
     gl = ax.gridlines(draw_labels=False)
@@ -392,7 +393,7 @@ def map_add_coastline(fig, ax, option, color, lat_limits, lon_limits, path_mapda
         The axis of the figure
 
     """
-    
+
     if option == 0:
         ax.coastlines(resolution="10m", linewidth=1., edgecolor=color)
     elif option == 1:
@@ -409,11 +410,11 @@ def map_add_coastline(fig, ax, option, color, lat_limits, lon_limits, path_mapda
         ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
     else:
         assert False, f"{option} not a valid option!"
-        
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
-        
+
     return fig, ax
 
 
@@ -451,7 +452,7 @@ def map_add_land_filled(fig, ax, option, color, lat_limits, lon_limits, path_map
         The axis of the figure
 
     """
-    
+
     if option == 0:
         ax.add_feature(cfeature.LAND.with_scale('10m'), facecolor=color)
     elif option == 1:
@@ -468,11 +469,11 @@ def map_add_land_filled(fig, ax, option, color, lat_limits, lon_limits, path_map
         ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
     else:
         assert False, f"{option} not a valid option!"
-        
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
-        
+
     return fig, ax
 
 
@@ -515,17 +516,17 @@ def map_add_bathymetry(fig, ax, option, color, resolution, lat_limits, lon_limit
         The axis of the figure
 
     """
-    
+
     path_ibcao = f"{path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
-    
+
     bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
     bathy.rio.set_crs(3996)
     bathy = bathy.rio.reproject("EPSG:4326")
     bathy = bathy.rio.clip_box(minx=lon_limits[0], miny=lat_limits[0], maxx=lon_limits[1], maxy=lat_limits[1])
     bathy = bathy.rio.reproject(ccrs.Mercator().proj4_init)
     bathy = bathy.where(bathy <= 10.)
-        
-    
+
+
     if option == 0:
         pic = bathy.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors=color, levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), 1., resolution))
         ax.clabel(pic, pic.levels, inline=True, fmt="%.0f", fontsize=10)
@@ -538,11 +539,11 @@ def map_add_bathymetry(fig, ax, option, color, resolution, lat_limits, lon_limit
         cbar.ax.set_ylabel('Height [m]', fontsize=10)
     else:
         assert False, f"{option} not a valid option!"
-        
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
-        
+
     return fig, ax
 
 
@@ -584,14 +585,14 @@ def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits
         The axis of the figure
 
     """
-    
+
     bathy = rxr.open_rasterio(f"{path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif", masked=True).squeeze()
     bathy.rio.set_crs(3996)
     bathy = bathy.rio.reproject("EPSG:4326")
     bathy = bathy.rio.clip_box(minx=lon_limits[0], miny=lat_limits[0], maxx=lon_limits[1], maxy=lat_limits[1])
     bathy = bathy.rio.reproject(ccrs.Mercator().proj4_init)
-        
-    
+
+
     if option == 0:
         pic = bathy.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors='k',
                                  levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), resolution * np.ceil(np.nanmax(bathy)/resolution)+1., resolution))
@@ -607,11 +608,11 @@ def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits
         cbar.ax.set_ylabel('Height [m]', fontsize=10)
     else:
         assert False, f"{option} not a valid option!"
-        
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
-        
+
     return fig, ax
 
 
@@ -652,8 +653,8 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
         The axis of the figure
 
     """
-    
-    
+
+
     if ((option == 0) | (option == 2) | (option == 4)):
         dem = rxr.open_rasterio(f"{path_mapdata}NP_S0_DTM50/S0_DTM50.tif", masked=True).squeeze()
     elif ((option == 1) | (option == 3)| (option == 5)):
@@ -663,9 +664,9 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
     dem = dem.rio.reproject("EPSG:4326")
     dem = dem.rio.clip_box(minx=lon_limits[0], miny=lat_limits[0], maxx=lon_limits[1], maxy=lat_limits[1])
     dem = dem.rio.reproject(ccrs.Mercator().proj4_init)
-    
-    
-    
+
+
+
     if ((option == 0) | (option == 1)):
         dem = dem.where(dem >= 0.)
         pic = dem.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors='k',
@@ -688,7 +689,7 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
-        
+
     return fig, ax
 
 
@@ -727,7 +728,7 @@ def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata)
         The axis of the figure
 
     """
-    
+
     colors = {'Elvesletter': '#CCBDA9',
               'Hav': '#B3FFFF',
               'Isbreer': '#FFFFFF',
@@ -735,7 +736,7 @@ def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata)
               'Morener': '#CED8D9',
               'TekniskSituasjon': '#FF8080',
               'Vann': '#99CAEB'}
-    
+
     if option == 0:
         layers = ['Land', 'Vann', 'Isbreer']
         res = "1000"
@@ -747,7 +748,7 @@ def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata)
         res = "100"
     else:
         assert False, f"{option} not a valid option!"
-    
+
     ax.set_facecolor('#B3FFFF')
     for layer in layers:
         input_file = f'{path_mapdata}NP_S{res}_SHP/S{res}_{layer}_f.shp'
@@ -755,11 +756,11 @@ def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata)
         df_layer = df_layer.to_crs(ccrs.Mercator().proj4_init)
         df_layer.plot(ax=ax, edgecolor=None, facecolor=colors[layer])
         ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-    
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
-        
+
     return fig, ax
 
 
@@ -797,7 +798,7 @@ def map_add_crosssection_line(fig, ax, lat, lon, color='k', **kwargs):
     gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs="EPSG:4326")
     gdf = gdf.to_crs(ccrs.Mercator().proj4_init)
     gdf.plot(ax=ax, color=color, **kwargs)
-    
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
@@ -865,7 +866,7 @@ def map_add_points(fig, ax, option, lat, lon, color, size, label, marker="o"):
 
     gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326")
     gdf = gdf.to_crs(ccrs.Mercator().proj4_init)
-    
+
 
     if option == 0:
         gdf.plot(ax=ax, color=color, markersize=size, marker=marker, zorder=10)
@@ -881,7 +882,7 @@ def map_add_points(fig, ax, option, lat, lon, color, size, label, marker="o"):
         cbar = plt.colorbar(pic, ax=ax, pad=0.1, orientation='horizontal')
         cbar.ax.tick_params('x', labelsize=10)
         cbar.ax.set_xlabel(label, fontsize=10)
-        
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
@@ -931,14 +932,11 @@ def map_add_wind_arrows(fig, ax, lat, lon, u, v, length=10, lw=1):
     df = pd.DataFrame({'latitude': lat, 'longitude': lon, 'u': u, 'v': v})
     gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326")
     gdf = gdf.to_crs(ccrs.Mercator().proj4_init)
-    
+
     ax.barbs(gdf['geometry'].x, gdf['geometry'].y, gdf['u'], gdf['v'], length=length, linewidth=lw)
-    
+
     ax.set_title(None)
     ax.set_xlabel(None)
     ax.set_ylabel(None)
 
     return fig, ax
-
-
-

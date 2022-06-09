@@ -4,7 +4,7 @@ This module contains scripts to download data from the AROME-Arctic weather mode
 from the Norwegian Meteorological Institute. The code is optimized
 for the use in the UNIS courses.
 """
-
+import unisacsi
 import numpy as np
 import copy
 
@@ -39,7 +39,7 @@ def Rotate_uv_components(ur,vr,cordsx,cordsy,longitude,data_type,model="AA"):
         List with arrays of u and v as entries.
 
     """
-    
+
     if model == "AA":
         truelat1 = 77.5 # true latitude
         stdlon   = -25  # standard longitude
@@ -48,7 +48,7 @@ def Rotate_uv_components(ur,vr,cordsx,cordsy,longitude,data_type,model="AA"):
         stdlon   = 15.  # standard longitude
     else:
         assert False, "Model name not recognized, specify either 'AA' or 'MC'."
-        
+
     cone = np.sin(np.abs(np.deg2rad(truelat1))) # cone factor
 
     diffn = stdlon - longitude
@@ -119,7 +119,7 @@ def lonlat2xy(lon,lat,lons,lats,data_type):
         x = deltaLon * np.cos((lat1+lat2)/2.)
         y = deltaLat
         d2km = radius * np.sqrt(x**2. + y**2.)
-        
+
 
         xx, yy = np.unravel_index(d2km.argmin(), d2km.shape)
 
@@ -127,7 +127,7 @@ def lonlat2xy(lon,lat,lons,lats,data_type):
         output2 = yy
         output3 = lons[xx, yy]
         output4 = lats[xx, yy]
-        
+
 
     elif data_type == 2:
 
@@ -172,7 +172,7 @@ def lonlat2xy(lon,lat,lons,lats,data_type):
         output2 = np.array([np.abs(lonmax_id-lonmin_id), np.abs(latmax_id-latmin_id)])
         output3 = [1,1]
         output4 = np.nan
-        
+
     else:
         assert False, "Input data type not recognized, specify either '1' for point data \
             or '2' for 2D data."
@@ -214,30 +214,30 @@ def Calculate_height_levels_and_pressure(hybrid,ap,b,t0,PSFC,T,data_type):
 
     R = 287. # ideal gas constant
     g = 9.81 # acceleration of gravity
-    
+
     if data_type == 1:
         PN = np.zeros(len(T)+1)
-    
+
         # Calculating pressure levels
         for n in range(len(T)):
             PN[n] = ap[n] + b[n]*PSFC
-    
+
         # Adding surface data as the lowest level
         PN[-1] = PSFC
         TN = copy.copy(T)
         TN = np.append(TN, t0)
-    
+
         heightt = np.zeros(len(hybrid)+1)
-    
+
         # Calculating height levels (in metres) based on the hypsometric equation and assuming a dry atmosphere
         for n in range(len(T),0,-1):
             pd = PN[n]/PN[n-1]
             TM = np.mean([TN[n], TN[n-1]])
             heightt[n-1] = heightt[n] + R*TM/g*np.log(pd)
-    
+
         height = heightt[:-1]
         P = PN[:-1]
-    
+
     elif data_type == 3:
         PN = np.zeros((T.shape[0], T.shape[1], T.shape[2]+1))
 
@@ -259,10 +259,9 @@ def Calculate_height_levels_and_pressure(hybrid,ap,b,t0,PSFC,T,data_type):
 
         height = heightt[:,:,:-1]
         P = PN[:,:,:-1]
-        
+
     else:
         assert False, "Input data type not recognized, specify either '2' for 2D data \
             or '3' for 3D data."
 
     return [height,P]
-

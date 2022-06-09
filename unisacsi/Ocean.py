@@ -11,11 +11,12 @@ University of Bergen, Norway. They were adapted for the file formats typically u
 in student cruises at UNIS.
 """
 
+import unisacsi
 from seabird.cnv import fCNV
 import gsw
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib 
+import matplotlib
 from netCDF4 import Dataset,num2date
 import glob
 from scipy.interpolate import interp1d,griddata
@@ -36,68 +37,68 @@ from adjustText import adjust_text as adj_txt
 ############################################################################
 def cal_dist_dir_on_sphere(longitude, latitude):
     """
-    function to calculate a series of distances between 
-    coordinate points (longitude and latitude) 
+    function to calculate a series of distances between
+    coordinate points (longitude and latitude)
     of the drifter between sequential timesteps
-        
+
     Parameters
     ----------
     longitude : pd.Series
          time Series of logitudinal coordinates [deg] of the ship
     latitude : pd.Series
         time Series of latitudinal coordinates [deg] of the ship
-            
-    Returns 
+
+    Returns
     -------
     speed : pd.Series
         speed the drifter travelled between each of the timesteps
     heading : pd.Series
         direction drifter headed between each of the timesteps
-               
+
     """
-    
+
     # Define the Earths Radius (needed to estimate distance on Earth's sphere)
     R = 6378137. # [m]
-        
+
     # Convert latitude and logitude to radians
     lon = longitude * np.pi/180.
     lat = latitude  * np.pi/180.
-        
-    # Calculate the differential of lon and lat between the timestamps 
+
+    # Calculate the differential of lon and lat between the timestamps
     dlon = lon.diff()
     dlat = lat.diff()
-        
+
     # Create a shifted time Series
     lat_t1 = lat.shift(periods=1)
     lat_t2 = lat.copy()
-        
+
     # Calculate interim stage
     alpha = np.sin(dlat/2.)**2 + np.cos(lat_t1) * np.cos(lat_t2) * np.sin(dlon/2.)**2
-        
+
     distance = 2*R*np.arctan2(np.sqrt(alpha),np.sqrt(1-alpha))#(np.arcsin(np.sqrt(alpha))
-           
+
     time_delta = pd.Series((lat.index[1:]-lat.index[0:-1]).seconds, index = lat.index[1::])
     speed = (distance/time_delta)
-        
+
     # Calculate the ships heading
     arg1 = np.sin(dlon) * np.cos(lat_t2)
     arg2 = np.cos(lat_t1) * np.sin(lat_t2) -np.sin(lat_t1) * np.cos(lat_t2) * np.cos(dlon)
-        
+
     heading = np.arctan2(arg1,arg2) * (-180./np.pi) + 90.0
     heading[heading<0.0] = heading + 360.
     heading[heading>360.0] = heading - 360.
-    
+
     return speed, heading
 
 
 
 def cart2pol(u,v,ctype='math'):
     '''
-    Converts cartesian velocity (u,v) to polar velocity (angle,speed), 
-    using either 
+    Converts cartesian velocity (u,v) to polar velocity (angle,speed),
+    using either
     1) mathematical
     2) oceanographical, or
-    3) meteorological 
+    3) meteorological
     definition.
     Parameters
     ----------
@@ -118,21 +119,21 @@ def cart2pol(u,v,ctype='math'):
     if ctype == 'math':
         angle = 180/np.pi* np.arctan2(v,u)
     if ctype in ['meteo','ocean']:
-        angle = 180 / np.pi * np.arctan2(u,v)         
+        angle = 180 / np.pi * np.arctan2(u,v)
         if ctype == 'meteo':
             angle = (angle+180)%360
-        
+
     return angle,speed
 
 
 
 def pol2cart(angle,speed,ctype='math'):
     '''
-    Converts polar velocity (angle,speed) to cartesian velocity (u,v), 
-    using either 
+    Converts polar velocity (angle,speed) to cartesian velocity (u,v),
+    using either
     1) mathematical
     2) oceanographical, or
-    3) meteorological 
+    3) meteorological
     definition.
     Parameters
     ----------
@@ -158,9 +159,9 @@ def pol2cart(angle,speed,ctype='math'):
     elif ctype == 'ocean':
         u = speed * np.sin(angle*np.pi/180.)
         v = speed * np.cos(angle*np.pi/180.)
-    
+
     return u,v
-        
+
 
 
 def create_latlon_text(lat,lon):
@@ -185,23 +186,23 @@ def create_latlon_text(lat,lon):
     else:
         lat_letter = 'N'
     latstring = str(int(np.abs(lat)))+ ' ' + lat_minutes + ' ' + lat_letter
-    
+
     lon_minutes = str(np.round((np.abs(lon - int(lon)))*60,5))
     if lon < 0:
         lon_letter = 'W'
     else:
         lon_letter = 'E'
     lonstring = str(int(np.abs(lon)))+ ' ' + lon_minutes + ' ' + lon_letter
-    
+
     return latstring,lonstring
 
 
 
 def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     '''
-    This function accepts a CTD dict of dicts, finds out the maximum 
+    This function accepts a CTD dict of dicts, finds out the maximum
     length of the depth vectors for the given stations, and fills all
-    fields to that maximum length, using np.nan values. 
+    fields to that maximum length, using np.nan values.
     Parameters
     ----------
     CTD : dict of dicts
@@ -209,7 +210,7 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     stations : array_like, optional
         list of stations to select from `CTD`.
     interp_opt : int, optional
-        flag how to interpolate over X (optional). 
+        flag how to interpolate over X (optional).
                      0: no interpolation,
                      1: linear interpolation, fine grid (default),
                      2: linear interpolation, coarse grid. The default is 1.
@@ -233,7 +234,7 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
         stations = list(CTD.keys())
     else:
         CTD = {key:CTD[key] for key in stations}
-        
+
     # construct the Z-vector from the max and min depth of the given stations
     maxdepth = np.nanmax([np.nanmax(-CTD[i]['z']) for i in stations])
     mindepth = np.nanmin([np.nanmin(-CTD[i]['z']) for i in stations])
@@ -241,7 +242,7 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
         Z = np.linspace(mindepth,maxdepth,int((maxdepth-mindepth)*10)+1)
     else:
         Z = np.linspace(mindepth,maxdepth,int(maxdepth-mindepth)+1)
-    
+
     # construct the X-vector, either distance or time
     if x_type == 'distance':
         LAT = np.asarray([d['LAT'] for d in CTD.values()])
@@ -250,12 +251,12 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     elif x_type == 'time':
         X = np.array([date2num(d['datetime']) for d in CTD.values()])
         X = (X - X[0])*24
-        
+
     # this X vector is where the stations are located, so save that
     station_locs = X[:]
-    fields = set([field for field in CTD[stations[0]] 
+    fields = set([field for field in CTD[stations[0]]
                         if np.size(CTD[stations[0]][field]) > 1])
-    
+
     # original grids
     X_orig,Z_orig = [f.ravel() for f in np.meshgrid(X,Z)]
     # new grids in case of 2-d interpolation
@@ -265,7 +266,7 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     elif interp_opt == 2:
         X_int = np.linspace(np.min(X),np.max(X),20) # create coarse X grid
         Z_int = np.linspace(mindepth,maxdepth,50)
-          
+
     fCTD = {}
     for field in fields:
         try:
@@ -279,7 +280,7 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
                     temp_array.append(interp1d(Z,Z*np.nan,
                                             bounds_error=False)(Z))
             temp_array = np.array(temp_array).transpose()
-            
+
             if interp_opt == 0: # only grid over Z
                 fCTD[field] = temp_array
             else: # grid over Z and X
@@ -295,11 +296,11 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
             if interp_opt == 0:
                 fCTD[field] = np.meshgrid(X,Z)[0] * np.nan
             else:
-                fCTD[field] = np.meshgrid(X_int,Z_int)[0] * np.nan   
-                
-    if interp_opt > 0:           
+                fCTD[field] = np.meshgrid(X_int,Z_int)[0] * np.nan
+
+    if interp_opt > 0:
         X,Z = X_int,Z_int
-        
+
     return fCTD,Z,X,station_locs
 
 
@@ -327,9 +328,9 @@ def mooring_to_grid(mooring, variable, temp_res, depth_res):
         Data gridded onto a common grid in time, but still at the respective depth levels of the instruments
     data_depth_grid : pandas dataframe
         Data gridded onto a regular grid in space and time
-        
+
     """
-    
+
     data_per_depth = []
     for k in mooring.keys():
         if ((k[:len(variable)] == variable) & (k[len(variable):].isnumeric())):
@@ -342,20 +343,20 @@ def mooring_to_grid(mooring, variable, temp_res, depth_res):
     data_per_depth.sort_index(axis=1, inplace=True)
     data_per_depth = data_per_depth.loc[data_per_depth.index[0]+pd.Timedelta(days=1):
                                         data_per_depth.index[-1]-pd.Timedelta(hours=6)]
-    
+
     data_depth_grid = data_per_depth.transpose(copy=True)
     depth_levels = np.arange(10.*np.ceil(data_depth_grid.index[0]/10.), 10.*np.floor(data_depth_grid.index[-1]/10.), depth_res)
     data_depth_grid = data_depth_grid.reindex(data_depth_grid.index.union(depth_levels)).interpolate('values').loc[depth_levels]
     data_depth_grid = data_depth_grid.transpose()
-    
+
     return [data_per_depth, data_depth_grid]
-  
-    
-  
+
+
+
 def calc_freshwater_content(salinity,depth,ref_salinity=34.8):
     '''
     Calculates the freshwater content from a profile of salinity and depth.
-    
+
     Parameters
     ----------
     salinity : array-like
@@ -375,13 +376,13 @@ def calc_freshwater_content(salinity,depth,ref_salinity=34.8):
         depth = depth[:idx]
     except:
         pass
-    
+
     salinity = np.mean([salinity[1:],salinity[:-1]])
-    
+
     dz = np.diff(depth)
-    
+
     return np.sum((salinity-ref_salinity)/ref_salinity *dz)
-    
+
 
 
 def myloadmat(filename):
@@ -431,7 +432,7 @@ def myloadmat(filename):
             else:
                 elem_list.append(sub_elem)
         return np.asarray(elem_list)
-    
+
     data = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
     return _check_keys(data)
 
@@ -447,20 +448,20 @@ def mat2py_time(matlab_dnum):
     Returns
     -------
     pydate : datetime object
-        The python datetime 
+        The python datetime
     '''
     return pd.to_datetime(np.asarray(matlab_dnum)-719529, unit='D').round('1s')
-    # try: 
+    # try:
     #     len(matlab_dnum)
     # except:
     #     matlab_dnum = [matlab_dnum]
     # return [datetime.fromordinal(int(t)) + timedelta(days=t%1) - \
     #                         timedelta(days = 366) for t in matlab_dnum]
-        
-    
+
+
 def present_dict(d,offset=''):
     '''
-    Iterative function to present the contents of a dictionary. Prints in 
+    Iterative function to present the contents of a dictionary. Prints in
     the terminal.
     Parameters
     ----------
@@ -492,25 +493,25 @@ def present_dict(d,offset=''):
                 print(offset,i,':',k)
             elif np.size(k) > 1 and type(k[0]) == dict:
                 print(offset,i,': array of dicts, first one containing:')
-                present_dict(k[0],offset=' |'+offset+'       ') 
+                present_dict(k[0],offset=' |'+offset+'       ')
             else:
                 print(offset,i,':',type(k),', size:',np.size(k))
-                
-                
-                
-                
-                
-                
-                
-                
+
+
+
+
+
+
+
+
 ############################################################################
 #READING FUNCTIONS
-############################################################################        
-                
+############################################################################
+
 def read_ADCP_UNIS(filename, correct_for_shipspeed=True):
-    ''' 
+    '''
     Reads ADCP data from a netCDF file processed by CODAS.
-    
+
     Parameters:
     -------
     filename: str
@@ -523,11 +524,11 @@ def read_ADCP_UNIS(filename, correct_for_shipspeed=True):
         dset = Dataset(filename)
     except:
         assert False, 'File is not a valid netCDF file!'
-        
+
     variable_translation = {"u": "u", "v": "v", "lat": "lat", "lon": "lon", "depth": "depth",
                             "vship": "ACCESS_V_ship_absolute", "uship": "ACCESS_U_ship_absolute",
                             "heading": "ANCIL1_mn_heading"}
-       
+
     data= {}
     # read all the variables
     time = dset.variables['time']
@@ -536,22 +537,21 @@ def read_ADCP_UNIS(filename, correct_for_shipspeed=True):
     for var, inname in variable_translation.items():
         data[var] = dset.variables[inname][:].data
         data[var][data[var]>42e20] = np.nan
-    
+
     data['shipspeed'] = np.sqrt(data['uship']**2 + data['vship']**2)
-    
+
     if correct_for_shipspeed:
         data["u"] += data["uship"][:,np.newaxis]
         data["v"] += data["vship"][:,np.newaxis]
-    
+
     data['crossvel'] = data['v']*np.sin(data['heading'][:,np.newaxis]*np.pi/180.) \
-                     - data['u']*np.cos(data['heading'][:,np.newaxis]*np.pi/180.)  
-    
-    return data   
-                
-                
-                
-def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None,
-             salt_corr=(1.,0.),oxy_corr = (1.,0.)):
+                     - data['u']*np.cos(data['heading'][:,np.newaxis]*np.pi/180.)
+
+    return data
+
+
+
+def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(1.,0.),oxy_corr = (1.,0.)):
     '''
     This function reads in the CTD data from cnv files in `inpath`
     for the stations `stations` and returns a list of dicts containing
@@ -567,7 +567,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None,
     outpath : str, optional
         path where to store the output. The default is None.
     stations : array_like, optional
-        list of stations to read in (optional). If not given, 
+        list of stations to read in (optional). If not given,
         the function will read all stations in `inpath`. The default is None.
     salt_corr : tuple, optional
         tuple with 2 values containing (slope,intersect) of
@@ -607,29 +607,29 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None,
     if stations is not None:
         use_files = [i for i in files for j in stations if str(j) in i]
         assert len(use_files) > 0, 'None of your provided stations exists!'
-        if len(use_files) < len(stations): 
+        if len(use_files) < len(stations):
             print('Warning: Some stations you provided do not exist!')
         files = use_files
-        
+
     files = sorted(files)
-    
+
     # Read in the data, file by file
     CTD_dict = {}
     for file in files:
         # get all the fields, construct a dict with the fields
         profile = fCNV(file)
-        p = {var_names[name]:profile[name] 
+        p = {var_names[name]:profile[name]
             for name in profile.keys() if name in var_names}
-        
+
         # get the interesting header fields and append it to the dict
         p.update(profile.attrs)
-        
+
         # if time is present: convert to dnum
         try:
             p['dnum'] = date2num(p['datetime'])
         except:
             pass
-        # rename the most important ones to the same convention used in MATLAB, 
+        # rename the most important ones to the same convention used in MATLAB,
         # add other important ones
         p['LAT'] = p.pop('LATITUDE')
         p['LON'] = p.pop('LONGITUDE')
@@ -649,10 +649,10 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None,
             p['OX'] = oxy_corr[0] * p['OX'] + oxy_corr[1]
         CTD_dict[p['st']]= p
 
-    # save data if outpath was given    
+    # save data if outpath was given
     if outpath is not None:
         np.save(outpath+cruise_name+'_CTD',CTD_dict)
-        
+
     return CTD_dict
 
 
@@ -678,14 +678,14 @@ def read_CTD_from_mat(matfile):
         station = record.__dict__['st']
         CTD[station] = record.__dict__
         CTD[station].pop('_fieldnames',None)
-        
-        # correct dnum parameter, because MATLAB and PYTHON 
+
+        # correct dnum parameter, because MATLAB and PYTHON
         # datenumbers are different
         CTD[station]['dnum'] = datestr2num(CTD[station]['date'])
-        
+
     if 'note' in CTD[next(iter(CTD))]:
         print('Note: This CTD data is already calibrated.')
-        
+
     return CTD
 
 
@@ -694,12 +694,12 @@ def read_mini_CTD(file,corr=(1,0),lon=0,lat=60.,station_name = 'miniCTD'):
     '''
     Reads files generated by the processing software of the mini CTD instrument.
     Calculated absolute salinity, conservative temperature, depth
-    
+
     Parameters
     ----------
     file : string
         File containing the data (.TOB).
-    
+
     corr : tuple (2), optional
         Tuple containing correction values (a,b) of linear correction, where
         a is the slope and b is the intercept. Defaults to (1,0)
@@ -709,7 +709,7 @@ def read_mini_CTD(file,corr=(1,0),lon=0,lat=60.,station_name = 'miniCTD'):
         Latitude of profile. Defaults to 60.
     station_name : str, optional
         Name of the mini CTD station. Defaults to 'miniCTD'.
-        
+
     Returns
     -------
     a dictionary containing the data
@@ -718,33 +718,33 @@ def read_mini_CTD(file,corr=(1,0),lon=0,lat=60.,station_name = 'miniCTD'):
     d2n = {'januar':'01','februar':'02','mars':'03','april':'04','mai':'05',
            'juni':'06','juli':'07','august':'08','september':'09',
            'oktober':'10','november':'11','desember':'12'}
-    
+
     # open file
     f = open(file,encoding="ISO-8859-1")
     lines = f.readlines(10000) # read first lines of file
     f.close()
-    
+
     # read time string, prepare for datetime parsing
     time_str = lines[2].replace(':','.').split(' ')[1::]
     time_str[1] = d2n[time_str[1]]
     time_str[0] = time_str[0].zfill(3)
-    
+
     header_line = lines[25].replace(';','').split(' ')
     while '' in header_line: header_line.remove('')
     while '\n' in header_line: header_line.remove('\n')
-    
+
     if 'IntT' in header_line: # Check if instrument recorded time
         header_line[header_line.index('IntT')] = 'Time'
         header_line[header_line.index('IntD')] = 'Date'
 
-    
+
     dd = pd.read_csv(file,encoding="ISO-8859-1",skiprows=28,
                      engine='python',delim_whitespace=True,
                      skip_blank_lines=False,names =list(header_line),
                      na_values='########')
-    
+
     p = {key:dd[key].to_numpy()[1::] for key in dd.columns}
-    p['z'] = gsw.z_from_p(p['Press'],lat) 
+    p['z'] = gsw.z_from_p(p['Press'],lat)
     p['Cond'][p['Cond']<0] = np.nan
     p['Cond'] = corr[0]*p['Cond'] + corr[1] # apply correction
     p['Temp'][p['Temp']<-2.5] = np.nan
@@ -761,7 +761,7 @@ def read_mini_CTD(file,corr=(1,0),lon=0,lat=60.,station_name = 'miniCTD'):
                                     for (a,b) in zip(p['Date'],p['Time'])]
         del p['Date'], p['Time']
 
-    return p    
+    return p
 
 
 
@@ -774,38 +774,38 @@ def read_MSS(files,excel_file=None):
     Returns
     -------
     None.
-    '''  
+    '''
     # first, handle the excel file
     if excel_file is not None:
         exc = pd.read_excel(excel_file)
         exc.columns = np.arange(len(exc.columns))
-        st = exc[[a for a in exc.columns 
+        st = exc[[a for a in exc.columns
                     if 'Station name' in exc[a].to_numpy()][0]]
-        lat_deg = exc[[a for a in exc.columns 
+        lat_deg = exc[[a for a in exc.columns
                     if 'Latitude/ N' in exc[a].to_numpy()][0]]
-        lat_min = exc[[a for a in exc.columns 
+        lat_min = exc[[a for a in exc.columns
                     if 'Latitude/ N' in exc[a].to_numpy()][0]+1]
-        lon_deg = exc[[a for a in exc.columns 
+        lon_deg = exc[[a for a in exc.columns
                     if 'Longitude/ E' in exc[a].to_numpy()][0]]
-        lon_min = exc[[a for a in exc.columns 
+        lon_min = exc[[a for a in exc.columns
                     if 'Longitude/ E' in exc[a].to_numpy()][0]+1]
-        
+
     # Determine if folder or file is given
     if  '.mat' in files:
         files = [files]
     else:
         files = glob.glob(files+'*.mat')
-        
+
     out_data = {'CTD':{},'MIX':{},'DATA':{}}
     for file in files:
         st_name = int(file.split('.mat')[0][-4:])
         raw_data = myloadmat(file)
         data = {k:raw_data[k] for k in ['CTD','MIX','DATA']}
-        
+
         for name in ['CTD','MIX']:
             for var in ['LON','LAT','fname','date']:
                 data[name][var] = raw_data['STA'][var]
-            
+
             if excel_file is not None:
                 try:
                     index = np.where(st == st_name)[0][0]
@@ -814,22 +814,22 @@ def read_MSS(files,excel_file=None):
                 except:
                     pass
             try:
-                data[name]['z'] = gsw.z_from_p(data[name]['P'],data[name]['LAT']) 
+                data[name]['z'] = gsw.z_from_p(data[name]['P'],data[name]['LAT'])
             except: # just use 60N as lat if lat is not provided
                 data[name]['z'] = gsw.z_from_p(data[name]['P'],60)
-                
+
             # Something weird in the data...
             data[name]['z'][np.isnan(data[name]['SIGTH'])] = np.nan
             data[name]['BottomDepth'] = np.nanmax(-data[name]['z'])
             data[name]['datetime'] = pd.to_datetime(data[name]['date']
                                                     ,format='%d-%b-%Y %H:%M:%S')
-                                    
-    
-        
-        
+
+
+
+
         for name in ['CTD','MIX','DATA']:
             out_data[name][st_name] = data[name]
-            
+
     return out_data['CTD'],out_data['MIX'],out_data['DATA']
 
 
@@ -850,11 +850,11 @@ def read_mooring_from_mat(matfile):
     raw_data = myloadmat(matfile)
     variable_name = list(raw_data.keys())[-1]
     raw_data = raw_data[variable_name]
-    
+
     for key in raw_data.keys():
         if key[:4] == "date":
             raw_data[key] = mat2py_time(np.asarray(raw_data[key]))
-    
+
     return raw_data
 
 
@@ -876,7 +876,7 @@ def read_mooring(file):
         raw_data = read_mooring_from_mat(file)
     elif ext == 'npy':
         raw_data = np.load(file,allow_pickle=True).item()
-        
+
     return raw_data
 
 
@@ -888,13 +888,13 @@ def read_mooring(file):
 def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contours=None,
                     clabel='',bottom_depth=None,clevels=20,station_text='',
                     interp_opt=1,tlocator=None):
-    '''    
-    Plots a filled contour plot of *Z*, with contourf of *Z2* on top to 
+    '''
+    Plots a filled contour plot of *Z*, with contourf of *Z2* on top to
     the axes *ax*. It also displays the position of stations, if given in
-    *station_pos*, adds labels to the contours of Z2, given in 
-    *Z2_contours*. If no labels are given, it assumes Z2 is density (sigma0) 
+    *station_pos*, adds labels to the contours of Z2, given in
+    *Z2_contours*. If no labels are given, it assumes Z2 is density (sigma0)
     and adds its own labels. It adds bottom topography if given in *bottom_depth*.
-    
+
     Parameters
     ----------
     X : (N,K) array_like
@@ -918,17 +918,17 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
     bottom_depth : (S,) array_like, optional
         list with bottom depth. The default is None.
     clevels : array_like or number, optional
-        list of color levels, or number of levels to use for `Z`. 
+        list of color levels, or number of levels to use for `Z`.
         The default is 20.
     station_text : str, optional
-        Name to label the station locations. Can be the Section Name for 
+        Name to label the station locations. Can be the Section Name for
         instance. The default is ''.
     interp_opt: int, optional
-        Indicator which is used to decide whether to use pcolormesh or contourf 
+        Indicator which is used to decide whether to use pcolormesh or contourf
     tlocator: matplotlib.ticker locators, optional
-        special locator for the colorbar. For example logarithmic values, 
+        special locator for the colorbar. For example logarithmic values,
         for that use matplotlib.ticker.LogLocator(). Default is None.
-        
+
     Returns
     -------
     ax : plot axes
@@ -937,18 +937,18 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
     # open new figure and get current axes, if none is provided
     if ax is None:
         ax = plt.gca()
-        
+
     # get the labels for the Z2 contours
     if Z2 is not None and Z2_contours is None:
         Z2_contours = np.concatenate([list(range(21,26)),np.arange(25.5,29,0.2)])
-        Z2_contours = [i for i in Z2_contours 
+        Z2_contours = [i for i in Z2_contours
                         if np.nanmin(Z2) < i < np.nanmax(Z2)]
-    
-    # get the Y-axis limits 
+
+    # get the Y-axis limits
     y_limits = (0,np.nanmax(Y))
     if bottom_depth is not None:
         y_limits = (0,np.nanmax(bottom_depth))
-     
+
     if interp_opt == 0: #only z-interpolation: use pcolormesh
         norm = None
         if type(clevels) == int:
@@ -957,12 +957,12 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
             cmap = plt.cm.get_cmap(cmap,clevels)
         else:
             norm = matplotlib.colors.BoundaryNorm(clevels,
-                                                  ncolors=len(clevels)-1, 
+                                                  ncolors=len(clevels)-1,
                                                   clip=False)
             if tlocator == 'logarithmic':
                 norm = matplotlib.colors.LogNorm(np.min(clevels),np.max(clevels))
             cmap = plt.cm.get_cmap(cmap,len(clevels))
-            
+
         cT = ax.pcolormesh(X,Y,Z,cmap=cmap,shading='auto',norm=norm) # draw Z
         plt.xlim(np.nanmin(X),np.nanmax(X))
     else: # full interpolation: use contours
@@ -971,8 +971,8 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
             locator = matplotlib.ticker.LogLocator()
         cT = ax.contourf(X,Y,Z,cmap=cmap,levels=clevels,extend='both',
                          locator=locator) # draw Z
-    
-    
+
+
     if Z2 is not None:
         cSIG = ax.contour(X,Y,Z2,levels = Z2_contours,
                            colors='k',linewidths=[1],alpha=0.6) # draw Z2
@@ -981,11 +981,11 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
                            pad=0,alpha=0.6)) for txt in clabels]
     else:
         cSIG = None
-        
+
     plt.colorbar(cT,ax = ax,label=clabel,pad=0.01) # add colorbar
     ax.set_ylim(y_limits)
     ax.invert_yaxis()
-    
+
     # add bathymetry
     if bottom_depth is not None:
         # make sure bottom_depth is an np.array
@@ -993,10 +993,10 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
 
         ax.fill_between(station_pos,bottom_depth*0+y_limits[1]+10,bottom_depth,
                      zorder=999,color='gray')
-       
+
     ax.xaxis.set_ticks_position('both')
     ax.yaxis.set_ticks_position('both')
-    
+
     # add station ticks
     if station_pos is not None:
         for i,pos in enumerate(station_pos):
@@ -1004,9 +1004,9 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
             if station_text != '':
                 ax.annotate(station_text+str(i+1),(pos,0),xytext=(0,10),
                         textcoords='offset points',ha='center')
-                
+
     return ax, cT, cSIG
-    
+
 
 
 def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
@@ -1014,7 +1014,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
     '''
     This function plots a CTD section of Temperature and Salinity,
     given CTD data either directly or via a file.
-    
+
     Parameters
     ----------
     CTD : str or dict
@@ -1034,25 +1034,25 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
                      1: linear interpolation, fine grid (default),
                      2: linear interpolation, coarse grid. The default is 1.
     z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
-    
+
     Returns
     -------
     axT: matplotlib.pyplot.axes
         The axes for the temperature subplot
     axS: matplotlib.pyplot.axes
         The axes for the Salinity subplot
-    Ct_T: 
+    Ct_T:
         The ...
     '''
     # Check if the function has data to work with
     assert type(CTD) in [dict,str], 'Parameter *CTD*: You must provide either\n'\
             ' a) a data dict or \n b) a npy file string with the data !'
-    
+
     # read in the data (only needed if no CTD-dict, but a file was given)
     if type(CTD) is str:
         print('reading file...')
         CTD = np.load(CTD,allow_pickle=True).item()
-        
+
     # Check if all stations given are found in the data
     assert min([np.isin(st,list(CTD.keys())) for st in stations]), 'Not all '\
             'of the provided stations were found in the CTD data! \n'\
@@ -1061,23 +1061,23 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
     # Check if x_type is either distance or time
     assert x_type in ['distance','time'], 'x_type must be eigher distance or '\
             'time!'
-            
-    
-    
+
+
+
     # select only the given stations in the data
     CTD = {key:CTD[key] for key in stations}
-    
-    # extract Bottom Depth    
+
+    # extract Bottom Depth
     BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
 
     # put the fields (the vector data) on a regular, common pressure and X grid
-    # by interpolating. 
+    # by interpolating.
     fCTD,Z,X,station_locs = CTD_to_grid(CTD,x_type=x_type,
                                         interp_opt=interp_opt,z_fine=z_fine)
-    
+
     # plot the figure
     fig,[axT,axS] = plt.subplots(2,1,figsize=(8,9))
-  
+
     # Temperature
     _,Ct_T,C_T = contour_section(X,Z,fCTD['T'],fCTD['SIGTH'],ax = axT,
                           station_pos=station_locs,cmap=cmocean.cm.thermal,
@@ -1087,7 +1087,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
     _,Ct_S,C_S = contour_section(X,Z,fCTD['S'],fCTD['SIGTH'],ax=axS,
                           station_pos=station_locs,cmap=cmocean.cm.haline,
                           clabel='Salinity [g kg$^{-1}$]',bottom_depth=BDEPTH,
-                          interp_opt=interp_opt)    
+                          interp_opt=interp_opt)
     # Add x and y labels
     axT.set_ylabel('Depth [m]')
     axS.set_ylabel('Depth [m]')
@@ -1095,15 +1095,15 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
         axS.set_xlabel('Distance [km]')
     else:
         axS.set_xlabel('Time [h]')
-        
+
     # add title
     fig.suptitle(cruise_name+' Section '+section_name,fontweight='bold')
-    
+
     # tight_layout
     fig.tight_layout(h_pad=0.1,rect=[0,0,1,0.95])
-    
+
     return axT, axS, Ct_T, Ct_S, C_T, C_S
-    
+
 
 
 def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
@@ -1135,7 +1135,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     cmap : array-like or str, optional
         The colormap to be used. The default is cmocean.cm.thermal.
     clevels : array-like or number, optional
-        The levels of the filled contourf. Either a number of levels, 
+        The levels of the filled contourf. Either a number of levels,
         or the specific levels. The defauls is 20.
     interp_opt: int, optional
         Integer which interpolation method to use for gridding
@@ -1143,10 +1143,10 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
                      1: linear interpolation, fine grid (default),
                      2: linear interpolation, coarse grid. The default is 1.
     tlocator: matplotlib.ticker locators, optional
-        special locator for the colorbar. For example logarithmic values, 
+        special locator for the colorbar. For example logarithmic values,
         for that use matplotlib.ticker.LogLocator(). Default is None.
     z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
-        
+
     Returns
     -------
     None.
@@ -1154,12 +1154,12 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     # Check if the function has data to work with
     assert type(CTD) in [dict,str], 'Parameter *CTD*: You must provide either\n'\
             ' a) a data dict or \n b) a npy file string with the data !'
-    
+
     # read in the data (only needed if no CTD-dict, but a file was given)
     if type(CTD) is str:
         print('reading file...')
         CTD = np.load(CTD,allow_pickle=True).item()
-        
+
     # Check if all stations given are found in the data
     assert min([np.isin(st,list(CTD.keys())) for st in stations]), 'Not all '\
             'of the provided stations were found in the CTD data! \n'\
@@ -1168,21 +1168,21 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     # Check if x_type is either distance or time
     assert x_type in ['distance','time'], 'x_type must be eigher distance or '\
             'time!'
-            
+
     # select only the given stations in the data
     CTD = {key:CTD[key] for key in stations}
-    
-    # extract Bottom Depth    
+
+    # extract Bottom Depth
     BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
 
     # put the fields (the vector data) on a regular, common pressure and X grid
-    # by interpolating. 
+    # by interpolating.
     fCTD,Z,X,station_locs = CTD_to_grid(CTD,x_type=x_type,
                                         interp_opt=interp_opt,z_fine=z_fine)
-    
+
     # plot the figure
     fig,ax = plt.subplots(1,1,figsize=(8,5))
-  
+
     # Temperature
     _,Ct,C = contour_section(X,Z,fCTD[parameter],fCTD['SIGTH'],ax = ax,
                           station_pos=station_locs,cmap=cmap,
@@ -1195,14 +1195,14 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
         ax.set_xlabel('Distance [km]')
     else:
         ax.set_xlabel('Time [h]')
-        
+
     # add title
     fig.suptitle(cruise_name+' Section '+section_name,fontweight='bold')
-    
+
     # tight_layout
     fig.tight_layout(h_pad=0.1,rect=[0,0,1,0.95])
     return ax, Ct, C
-    
+
 
 
 def plot_CTD_station(CTD,station,axes = None, add = False,linestyle='-'):
@@ -1215,14 +1215,14 @@ def plot_CTD_station(CTD,station,axes = None, add = False,linestyle='-'):
               the function read_CTD. Or a str with a file where the dict is stored
     station : number
         Number which station to plot (must be in the CTD data!).
-        
+
     ax: (2,) array-like
-        List of two axes, the first one being the axes for temperature, 
+        List of two axes, the first one being the axes for temperature,
         and the second one for Salinity
     add : bool, optional, depracated
-        Switch whether to add the plot to a figure (True), or to create a 
+        Switch whether to add the plot to a figure (True), or to create a
         new figure for the plot (False). The default is True. This parameter
-        is depracated, which means that it doesn't have any effect anymore. 
+        is depracated, which means that it doesn't have any effect anymore.
     Returns
     -------
     None.
@@ -1230,22 +1230,22 @@ def plot_CTD_station(CTD,station,axes = None, add = False,linestyle='-'):
     # Check if the function has data to work with
     assert type(CTD) in [dict,str], 'Parameter *CTD*: You must provide either\n'\
             ' a) a data dict or \n b) a npy file string with the data !'
-    
+
     # read in the data (only needed if no CTD-dict, but a file was given)
     if type(CTD) is str:
         print('reading file...')
         CTD = np.load(CTD,allow_pickle=True).item()
-        
+
     # Check if all stations given are found in the data
     assert np.isin(station,list(CTD.keys())), 'The station was not found in '\
             'the CTD data! \n The following stations are in the data: '\
             +''.join([str(st) +' ' for st in CTD.keys()])
-    
+
     # end of checks.
-            
+
     # select station
     CTD = CTD[station]
-    
+
     if axes == None:
         ax = plt.gca()
         ax2 = ax.twiny()
@@ -1255,22 +1255,22 @@ def plot_CTD_station(CTD,station,axes = None, add = False,linestyle='-'):
         ax = axes[0]
         ax2 = axes[1]
 
-    
+
     # plot
     ax.plot(CTD['CT'],-CTD['z'],'r',linestyle=linestyle)
     ax.set_xlabel('Conservative temperature [˚C]',color='r')
     ax.set_ylabel('Depth [m]')
     ax.spines['bottom'].set_color('r')
     ax.tick_params(axis='x', colors='r')
-    
-    
+
+
     ax2.plot(CTD['SA'],-CTD['z'],'b',linestyle=linestyle)
     ax2.set_xlabel('Absolute salinity [g / kg]',color='b')
     ax2.tick_params(axis='x', colors='b')
     plt.tight_layout()
-    
+
     return ax,ax2
-    
+
 
 
 def plot_CTD_map(CTD,stations=None,topography=None,extent=None,
@@ -1281,26 +1281,26 @@ def plot_CTD_map(CTD,stations=None,topography=None,extent=None,
     Parameters
     ----------
     CTD : dict
-        Dictionary containing the CTD data. 
+        Dictionary containing the CTD data.
     stations : array_like, optional
         The positions to put on the map. The default is all stations.
     topography : str or array-like, optional
-        Either a file or an array with topography data. 
+        Either a file or an array with topography data.
         If topography is given in a file, three filetypes are supported:
             - .nc, in that case the file should contain the variables
               'lat', 'lon', and 'z'
-            - .mat, in that case the file should contain the variables 
+            - .mat, in that case the file should contain the variables
               'lat', 'lon', and 'D'
-            - .npy, in that case the file should contain an array with 
+            - .npy, in that case the file should contain an array with
               lat, lon and elevation as columns (and total size 3 x lon x lat)
-        If topography is given as an array, it should be an array with 
+        If topography is given as an array, it should be an array with
               lat, lon and elevation as columns (and total size 3 x lon x lat)
         The default is None, then no bathymetry will be plotted (only coasts).
     extent : (4,) array_like, optional
         List of map extent. Must be given as [lon0,lon1,lat0,lat1].
         The default is None.
     depth_contours : array_like, optional
-        A list containing contour levels for the bathymetry. The default is 
+        A list containing contour levels for the bathymetry. The default is
         [10,50,100,150,200,300,400,500,1000,2000,3000,4000,5000].
     adjust_text : bool, optional
         Whether to adjust the station names so they don't overlap. Default is
@@ -1309,26 +1309,26 @@ def plot_CTD_map(CTD,stations=None,topography=None,extent=None,
     -------
     None.
     '''
-    
+
     assert type(st_labels) in [str,list,tuple], 'st_labels must either be' \
         'a string, a tuple or a list.'
     # if no stations are provided, just plot all stations
     if stations is None:
         stations = CTD.keys()
-        
+
     # select only stations
     CTD = {key:CTD[key] for key in stations}
     lat = [value['LAT'] for value in CTD.values()]
     lon = [value['LON'] for value in CTD.values()]
-    std_lat,std_lon = np.std(lat),np.std(lon) 
+    std_lat,std_lon = np.std(lat),np.std(lon)
     lon_range = [min(lon)-std_lon,max(lon)+std_lon]
     lat_range = [min(lat)-std_lat,max(lat)+std_lat]
-    
+
     ax = plt.axes(projection=ccrs.PlateCarree())
     if extent is None:
         extent = [lon_range[0],lon_range[1],lat_range[0],lat_range[1]]
     ax.set_extent(extent)
-    
+
     if topography is not None:
         if type(topography) is str:
             ext = topography.split('.')[-1]
@@ -1360,7 +1360,7 @@ def plot_CTD_map(CTD,stations=None,topography=None,extent=None,
         if clabels is not None:
             for txt in clabels:
                 txt.set_bbox(dict(facecolor='none', edgecolor='none',
-                               pad=0,alpha=0.)) 
+                               pad=0,alpha=0.))
         ax.contour(topo_lon,topo_lat,topo_z,levels=[0],colors='k',linewidths=0.5)
         ax.contourf(topo_lon,topo_lat,topo_z,levels=[-1,1],
                     colors=['lightgray','white'])
@@ -1368,25 +1368,25 @@ def plot_CTD_map(CTD,stations=None,topography=None,extent=None,
         ax.add_feature(cartopy.feature.GSHHSFeature(scale='auto',
                                                     facecolor='lightgray',
                                                     linewidth=0.5))
-        
+
     # add the points, and add labels
     if type(st_labels) == str:
         st_texts = [st_labels+str(s) for s in stations]
     else:
         st_texts = st_labels
-        
+
     ax.plot(lon,lat,'xr',transform=ccrs.PlateCarree())
     texts = []
     for i,station in enumerate(stations):
         if extent[0]<lon[i]<extent[1] and extent[2]<lat[i]<extent[3]:
             texts.append(ax.text(lon[i],lat[i],st_texts[i],horizontalalignment='center',
                     verticalalignment='bottom'))
-       
+
     gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
                   linewidth=1, color='gray', alpha=0.5, linestyle='--')
     gl.xformatter = LONGITUDE_FORMATTER
     gl.yformatter = LATITUDE_FORMATTER
-    
+
     # make sure aspect ration of the axes is not too extreme
     ax.set_aspect('auto')
     if adjust_text:
@@ -1407,20 +1407,20 @@ def plot_empty_map(extent,topography=None,
     extent : (4,) array_like
         List of map extent. Must be given as [lon0,lon1,lat0,lat1].
     topography : str or array-like, optional
-        Either a file or an array with topography data. 
+        Either a file or an array with topography data.
         If topography is given in a file, three filetypes are supported:
             - .nc, in that case the file should contain the variables
               'lat', 'lon', and 'z'
-            - .mat, in that case the file should contain the variables 
+            - .mat, in that case the file should contain the variables
               'lat', 'lon', and 'D'
-            - .npy, in that case the file should contain an array with 
+            - .npy, in that case the file should contain an array with
               lat, lon and elevation as columns (and total size 3 x lon x lat)
-        If topography is given as an array, it should be an array with 
+        If topography is given as an array, it should be an array with
               lat, lon and elevation as columns (and total size 3 x lon x lat)
         The default is None, then no bathymetry
         will be plotted.
     depth_contours : array_like, optional
-        A list containing contour levels for the bathymetry. The default is 
+        A list containing contour levels for the bathymetry. The default is
         [10,50,100,150,200,300,400,500,1000,2000,3000,4000,5000].
     Returns
     -------
@@ -1458,7 +1458,7 @@ def plot_empty_map(extent,topography=None,
         if clabels is not None:
             for txt in clabels:
                 txt.set_bbox(dict(facecolor='none', edgecolor='none',
-                               pad=0,alpha=0.)) 
+                               pad=0,alpha=0.))
         ax.contour(topo_lon,topo_lat,topo_z,levels=[0.1],colors='k',linewidths=0.5)
         ax.contourf(topo_lon,topo_lat,topo_z,levels=[-1,1],
                     colors=['lightgray','white'])
@@ -1466,24 +1466,24 @@ def plot_empty_map(extent,topography=None,
         ax.add_feature(cartopy.feature.GSHHSFeature(scale='auto',
                                                     facecolor='lightgray',
                                                     linewidth=0.5))
-       
+
     gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
                   linewidth=1, color='gray', alpha=0.5, linestyle='--')
     gl.xformatter = LONGITUDE_FORMATTER
     gl.yformatter = LATITUDE_FORMATTER
-    
+
     # make sure aspect ration of the axes is not too extreme
     ax.set_aspect('auto')
     plt.gcf().canvas.draw()
     plt.tight_layout()
-    
+
     return ax
-    
+
 
 
 def plot_CTD_ts(CTD,stations=None,pref = 0):
     '''
-    Plots a TS diagram of selected stations from a CTD dataset. 
+    Plots a TS diagram of selected stations from a CTD dataset.
     Parameters
     ----------
     CTD : dict
@@ -1505,29 +1505,29 @@ def plot_CTD_ts(CTD,stations=None,pref = 0):
     # select only input stations
     if stations is not None:
         CTD = {key:CTD[key] for key in stations}
-        
+
     max_S = max([np.nanmax(value['SA']) for value in CTD.values()]) + 0.1
     min_S = min([np.nanmin(value['SA']) for value in CTD.values()]) - 0.1
-    
+
     max_T = max([np.nanmax(value['CT']) for value in CTD.values()]) + 0.5
     min_T = min([np.nanmin(value['CT']) for value in CTD.values()]) - 0.5
-    
-    
+
+
     create_empty_ts((min_T,max_T),(min_S,max_S),p_ref=pref)
-    
+
     # Plot the data in the empty TS-diagram
     for station in CTD.values():
         plt.plot(station['SA'],station['CT'],linestyle='none',marker='.',
                  label=station['st'])
-        
+
     if len(CTD.keys()) > 1:
         plt.legend(ncol=2,framealpha=1,columnspacing=0.7,handletextpad=0.4)
-    
-    
-    
+
+
+
 def create_empty_ts(T_extent,S_extent,p_ref = 0):
     '''
-    Creates an empty TS-diagram to plot data into. 
+    Creates an empty TS-diagram to plot data into.
     Parameters
     ----------
     T_extent : (2,) array_like
@@ -1546,32 +1546,32 @@ def create_empty_ts(T_extent,S_extent,p_ref = 0):
     -------
     None.
     '''
-    
+
     sigma_functions = [gsw.sigma0,gsw.sigma1,gsw.sigma2,gsw.sigma3,gsw.sigma4]
     T = np.linspace(T_extent[0],T_extent[1],100)
     S = np.linspace(S_extent[0],S_extent[1],100)
-    
+
     T,S = np.meshgrid(T,S)
-    
+
     SIGMA = sigma_functions[p_ref](S,T)
-    
+
     cs = plt.contour(S,T,SIGMA,colors='k',linestyles='--')
     plt.clabel(cs,fmt = '%1.1f')
-    
+
     plt.ylabel('Conservative Temperature [°C]')
     plt.xlabel('Absolute Salinity [g kg$^{-1}$]')
     plt.title('$\Theta$ - $S_A$ Diagram')
     if p_ref > 0:
         plt.title('Density: $\sigma_{'+str(p_ref)+'}$',loc='left',fontsize=10)
-    
-    
-    
+
+
+
 def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
                           geostr=False,levels_2 = np.linspace(-0.5,0.5,11),
                           topography = None,z_fine=False):
     '''
-    
-    Plots ADCP velocities along a CTD section given by *stations*. If wished, 
+
+    Plots ADCP velocities along a CTD section given by *stations*. If wished,
     also plots geostrophic velocities estimates calculated from CTD section
     Parameters
     ----------
@@ -1582,18 +1582,18 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     stations : (n, ) array-like
         The CTD stations of the section.
     levels : array-like, optional
-        The filled contour levels for the velocity. The default is 
+        The filled contour levels for the velocity. The default is
         np.linspace(-0.1,0.1,11).
     geostr : bool, optional
         Wether to also plot geostrphic velocity estimates. The default is False.
     levels_2 : array-like, optional
-        The filled contour levels for the geostrophicvelocity. The default is 
+        The filled contour levels for the geostrophicvelocity. The default is
         np.linspace(-0.5,0.5,11).
     topography : str or array-like, optional
         The topography to use for the map of the section. See documentation of
         Ocean.plot_CTD_map() . Default is None.
     z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
-    
+
     Returns
     -------
     None.
@@ -1615,11 +1615,11 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
                          ' CTD stations. Check if the ADCP data is available' \
                          ' for your CTD section!')
     shipspeed = interp1d(ADCP['time'],ADCP['shipspeed'],axis=0)(time_section)
-    
+
     # printout of Ship Speed, to check
     print('Ship speed at the CTD stations in m/s:')
     print(shipspeed)
-    
+
     # calculate the angle of the section between each CTD station
     angle = np.arctan2(np.diff(lat),np.cos(lat[1::]*np.pi/180)*np.diff(lon))
     angle = np.array([angle[0]] + list(angle)+ [angle[-1]])
@@ -1627,12 +1627,12 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     print('The angle (from due east) of the section is:')
     print(angle*180/np.pi)
     print('Note: Please check if that matches with the map!')
-    
+
     # project u and v to the velocity perpendicular to the section
     crossvel = u*np.sin(-angle)[:,np.newaxis] + v*np.cos(-angle)[:,np.newaxis]
     # create the distance vector of the section
     x = [0] + list(np.cumsum(gsw.distance(lon,lat)/1000))
-    
+
     # map
     fig1 = plt.figure()
     labels = ['S'+str(i) for i in range(1,len(stations)+1)]
@@ -1642,19 +1642,19 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     qk = plt.quiverkey(q,0.92,0.9,0.2,'20 cm/s',color='blue',labelcolor='blue',
                   transform=plt.gca().transAxes,zorder=1000)
     qk.text.set_backgroundcolor('w')
-    
+
     # section
     fig2 = plt.figure()
     contour_section(x,depth,crossvel.transpose(),cmap='RdBu',clevels=levels,
                     bottom_depth=BDEPTH,station_pos=x,station_text='S')
-    
+
     plt.xlabel('Distance [km]')
     plt.ylabel('Depth [m]')
     plt.ylim(bottom=np.max(BDEPTH))
-    
+
     if geostr:
         # put the fields (the vector data) on a regular, common pressure and X grid
-        # by interpolating. 
+        # by interpolating.
         fCTD,Z,X,station_locs = CTD_to_grid(CTD,stations=stations,interp_opt=0,
                                             z_fine=z_fine)
 
@@ -1677,10 +1677,7 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
         plt.xlim(0,np.max(X))
         plt.xlabel('Distance [km]')
         plt.ylabel('Depth [m]')
-        
+
         return fig1, fig2, fig3
     else:
         return fig1, fig2
-    
-    
-    
