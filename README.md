@@ -7,7 +7,7 @@ The oceanographic part of this toolbox was originally developed at the Geophysic
 
 ## Installation
 
-It is advised to install this toolbox into a virtual environment, as some of the functionality depends on older versions of common packages. We recommend the use of the anaconda distribution and the underlying conda package manager. It can be downloaded and installed from [here](https://www.anaconda.com/products/distribution). After the successful installation open an anaconda-prompt window, and create a virtual environment with Python 3.8, git and pip:
+We recommend the use of the anaconda distribution and the underlying conda package manager. It can be downloaded and installed from [here](https://www.anaconda.com/products/distribution). It is advised to install this toolbox into a virtual environment, as some of the functionality depends on older versions of common packages. Download the file requirements.txt directly from the github repository, then open an anaconda-prompt window and create your new environment:
 ```
 conda create -n myenv python=3.8 --file requirements.txt
 ```
