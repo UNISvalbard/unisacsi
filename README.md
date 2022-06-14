@@ -31,11 +31,7 @@ pip install git+https://github.com/UNISvalbard/unisacsi.git
 
 Besides the actual toolbox code, the github repository also includes a jupyter notebook with examples how to use the different toolbox function. It should be downloaded directly from github and saved into a local folder of your choice. Furthermore, you need to download a folder with example data from [here](https://www.google.com)
 
-Now you can run the notebook:
-```
-jupyter-notebook
-```
-then navigate to the file and open it. Change the path in the second box of code to the location where you have saved the example data. Then press the Execute-button in the top.
+Start jupyter-notebook inside your newly created environment and open the example notebook. Change the path in the second box of code to the location where you have saved the example data. Then run the code.
 
 ## MET model data download
 
