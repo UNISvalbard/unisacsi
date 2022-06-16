@@ -35,4 +35,4 @@ Start jupyter-notebook inside your newly created environment and open the exampl
 
 ## MET model data download
 
-The configurations for the download of model data from AROME-ARcitc or METCoOp is donw via a seperate configuration file, which can be downloaded from the github repository and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specified.
+The configurations for the download of model data from AROME-Arctic or METCoOp is done via a seperate configuration file, which can be downloaded from the github repository and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specified.
