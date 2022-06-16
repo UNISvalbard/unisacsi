@@ -2,7 +2,7 @@
 
 unisacsi (acsi = air-cryosphere-sea-interactions) is a collection of functions and tools to handle meteorological and oceanographical data. It is especially targeted towards students in the courses AGF-213, AGF-214, AGF-211 and AGF-212 at the University Centre in Svalbard. The toolbox contains functions to read and plot data obtained during the respective course fieldworks, e.g. CTD profiles or time series from automatic weather stations.
 
-The oceanographic part of this toolbox was originally developed at the Geophysical Institute at the University of Bergen
+The oceanographic part of this toolbox was originally developed at the Geophysical Institute at the University of Bergen.
 
 
 ## Installation
