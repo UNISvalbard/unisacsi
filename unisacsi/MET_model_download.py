@@ -183,7 +183,13 @@ class MET_model_download_class():
         if self.model == "AA":
             self.full_model_name = "AROME_Arctic"
             for t in self.time_vec:
-                self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                if t < pd.Timestamp("2022-02-01"):
+                    if config_settings["data_format"] == 5:
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                    else:
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                else:
+                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
         elif self.model == "MC":
             self.full_model_name= "METCoOp"
             for t in self.time_vec:
