@@ -19,7 +19,7 @@ conda create -n myenv python=3.8 --file requirements.txt
 
 Follow the instructions and be patient, this might take some time! Once the environment is created, activate it with:
 ```
-conda activate myname
+conda activate myenv
 ```
 
 Now you can install the unisacsi toolbox with:
@@ -29,10 +29,10 @@ pip install git+https://github.com/UNISvalbard/unisacsi.git
 
 ## Examples
 
-Besides the actual toolbox code, the github repository also includes a jupyter notebook with examples how to use the different toolbox function. It should be downloaded directly from github and saved into a local folder of your choice. Furthermore, you need to download a folder with example data from [here](https://www.gibtesheutepommes.de).
+Besides the actual toolbox code, the github repository also includes a jupyter notebook with examples how to use the different toolbox function. It should be downloaded directly from github (see instructions for the requirements.txt-file above) and saved into a local folder of your choice. Furthermore, you need to download a folder with example data from the course Canvas page.
 
 Start jupyter-notebook inside your newly created environment and open the example notebook. Change the path in the second box of code to the location where you have saved the example data. Then run the code.
 
 ## MET model data download
 
-The configurations for the download of model data from AROME-Arctic or METCoOp is done via a seperate configuration file, which can be downloaded from the github repository and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specified.
+The configurations for the download of model data from AROME-Arctic or METCoOp is done via a seperate configuration file, which can be downloaded from the github repository (see instructions above) and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specified.
