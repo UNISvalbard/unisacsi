@@ -27,6 +27,11 @@ Now you can install the unisacsi toolbox with:
 pip install git+https://github.com/UNISvalbard/unisacsi.git
 ```
 
+In case we find a bug or add new functionalities to the toolbox thoughout the semester, we might tell you to update your local copy of the package:
+```
+pip install git+https://github.com/UNISvalbard/unisacsi.git --upgrade
+```
+
 ## Examples
 
 Besides the actual toolbox code, the github repository also includes a jupyter notebook with examples how to use the different toolbox function. It should be downloaded directly from github (see instructions for the requirements.txt-file above) and saved into a local folder of your choice. Furthermore, you need to download a folder with example data from the course Canvas page.
