@@ -24,12 +24,12 @@ conda activate myenv
 
 Now you can install the unisacsi toolbox with:
 ```
-pip install git+https://github.com/UNISvalbard/unisacsi.git
+path/to/your/local/anaconda/envs/myenv/bin/pip install git+https://github.com/UNISvalbard/unisacsi.git
 ```
 
 In case we find and fix a bug or add new functionalities to the toolbox during the course, we might tell you to update your local copy of the package:
 ```
-pip install git+https://github.com/UNISvalbard/unisacsi.git --upgrade
+path/to/your/local/anaconda/envs/myenv/bin/pip install git+https://github.com/UNISvalbard/unisacsi.git --upgrade
 ```
 
 ## Examples
