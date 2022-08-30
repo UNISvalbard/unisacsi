@@ -68,7 +68,7 @@ def read_MET_AWS(filename):
 
 
 
-def read_Campbell_AWS(filename):
+def read_Campbell_AWS(filename, resolution="1_s"):
     '''
     Reads data from one or several data files from the Campbell AWS output files.
     Make sure to only specify files with the same temporal resolution.
@@ -78,13 +78,24 @@ def read_Campbell_AWS(filename):
     filename: str
         String with path to file(s)
         If several files shall be read, specify a string including UNIX-style wildcards
+    resolution: str
+        String specifying the temporal resolution of the data
+        1_s --> wind
+        10_s --> T/RH
     Returns
     -------
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
 
-    df = ddf.read_csv(filename, skiprows=[0,2,3,4], dayfirst=True, parse_dates=["TIMESTAMP"])
+    if resolution == "1_s":
+        dtypes = {'VH1_mps': 'float64', 'VH2_mps': 'float64', 'VR1_gr': 'float64', 'VR2_gr': 'float64'}
+    elif resolution == "10_s":
+        dtypes = {'LT1_gr_C_Avg': 'float64', 'LT2_gr_C_Avg': 'float64', 'LF1_prsnt_Avg': 'float64', 'LF2_prsnt_Avg': 'float64'}
+
+    df = ddf.read_csv(filename, skiprows=[0,2,3,4], dayfirst=True, parse_dates=["TIMESTAMP"],
+                      dtype=dtypes)
+
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
     df.drop(["ID"], axis=1, inplace=True)
