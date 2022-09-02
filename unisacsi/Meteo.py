@@ -760,7 +760,7 @@ def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata)
     else:
         assert False, f"{option} not a valid option!"
 
-    ax.set_facecolor('#B3FFFF')
+    ax.set_facecolor('#FFFFFF')
     for layer in layers:
         input_file = f'{path_mapdata}NP_S{res}_SHP/S{res}_{layer}_f.shp'
         df_layer = gpd.read_file(input_file)
