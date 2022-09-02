@@ -741,8 +741,8 @@ def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata)
     """
 
     colors = {'Elvesletter': '#CCBDA9',
-              'Hav': '#B3FFFF',
-              'Isbreer': '#FFFFFF',
+              'Hav': '#FFFFFF',
+              'Isbreer': '#B3FFFF',
               'Land': '#E7D3B8',
               'Morener': '#CED8D9',
               'TekniskSituasjon': '#FF8080',
