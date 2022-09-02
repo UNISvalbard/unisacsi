@@ -7,7 +7,7 @@ with open("README.md", "r") as readme_file:
 
 setup(
   name = 'unisacsi',        
-  version = '0.1.0',      # Start with a small number and increase it with every change you make
+  version = '0.1.1',      # Start with a small number and increase it with every change you make
   license='MIT',        # Chose a license from here: https://help.github.com/articles/licensing-a-repository
   description = 'Python toolbox for reading and analysing meteorological and oceanographic data from fieldwork with UNIS AGF courses.',   # Give a short description about your library
   long_description=readme,
@@ -15,7 +15,7 @@ setup(
   author = 'Lukas Frank, Jakob Doerr',                   # Type in your name
   author_email = 'lukasf@unis.no, jakob.dorr@uib.no',      # Type in your E-Mail
   url = 'https://github.com/lfrankunis/unisacsi',   # Provide either the link to your github or to your website
-  download_url = 'https://github.com/lfrankunis/unisacsi/archive/v0.1.0.tar.gz',
+  download_url = 'https://github.com/lfrankunis/unisacsi/archive/v0.1.1.tar.gz',
   packages=find_packages(),
   keywords = ['oceanography', 'meteorology', 'UNIS'],   # Keywords that define your package best
   classifiers=[
