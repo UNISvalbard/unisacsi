@@ -41,6 +41,9 @@ def download_MET_model_data(config_file):
 
     with open(config_file, "r") as f:
         config_settings = yaml.safe_load(f)
+        
+    if config_settings["model"] == "MC":
+        config_settings["resolution"] = "2p5km"
 
     if config_settings["save_daily_files"]:
         days = pd.date_range(config_settings["start_day"], config_settings["end_day"], freq="1D")
@@ -49,14 +52,14 @@ def download_MET_model_data(config_file):
             daily_config["start_day"] = d.strftime("%Y-%m-%d")
             daily_config["end_day"] = (d+pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             path = config_settings["out_path"].split("/")[:-1]
-            filename_full = config_settings["out_path"].split("/")[-1]
-            filename, file_extension = filename_full.split(".")
-            daily_config["out_path"] = f"{'/'.join(path)}/{filename}_{d.strftime('%Y%m%d')}.{file_extension}"
+            filename = config_settings["out_path"].split("/")[-1]
+            daily_config["out_path"] = f"{'/'.join(path)}/{filename}_{config_settings['resolution']}_{d.strftime('%Y%m%d')}.nc"
             print("############################################################")
             print(f"start downloading data from {d.strftime('%Y-%m-%d')}")
             print("############################################################")
             MET_model_download_class(daily_config)
     else:
+        config_settings["out_path"] = f"{config_settings['out_path']}_{config_settings['resolution']}.nc"
         MET_model_download_class(config_settings)
 
 
@@ -84,15 +87,19 @@ def download_MET_model_static_fields(config_file):
         config_settings = yaml.safe_load(f)
 
     model = config_settings["model"]
-    out_path = config_settings["static_file"]
-
+    resolution = config_settings["resolution"]
 
     if model == "AA":
-        file = 'https://thredds.met.no/thredds/dodsC/aromearcticarchive/2022/06/03/arome_arctic_det_2_5km_20220603T00Z.nc'
-        comment = "AROME-Arctic static fields of full data files with 2.5 km horizontal resolution"
+        if resolution == "2p5km":
+            file = 'https://thredds.met.no/thredds/dodsC/aromearcticarchive/2022/06/03/arome_arctic_det_2_5km_20220603T00Z.nc'
+            comment = "AROME-Arctic static fields of full data files with 2.5 km horizontal resolution"
+        elif resolution == "500m":
+            file = 'https://thredds.met.no/thredds/catalog/metusers/yuriib/N-FORCES/catalog.html?dataset=metusers/yuriib/N-FORCES/AS500_2022090100.nc'
+            comment = "AROME-Arctic static fields of full data files with 500 m horizontal resolution"
     elif model == "MC":
         file = 'https://thredds.met.no/thredds/dodsC/meps25epsarchive/2022/02/20/meps_det_2_5km_20220220T00Z.nc'
         comment = "MetCoOp static fields of full data files with 2.5 km horizontal resolution"
+        resolution = "2p5km"
 
     with Dataset(file) as f:
         x = f.variables['x'][:]
@@ -101,6 +108,10 @@ def download_MET_model_static_fields(config_file):
         AA_latitude = f.variables['latitude'][:]
         AA_topo_height = np.squeeze(f.variables['surface_geopotential'][0,:,:])
         AA_lsm = np.squeeze(f.variables['land_area_fraction'][0,:,:])
+        
+    path = config_settings["static_file"].split("/")[:-1]
+    filename = config_settings["static_file"].split("/")[-1]
+    out_path = f"{'/'.join(path)}/{filename}_{resolution}.nc"
 
     with Dataset(out_path, 'w', format="NETCDF4") as f:
         f.Comments = comment
@@ -152,7 +163,6 @@ class MET_model_download_class():
         self.int_f = config_settings["int_f"]
         self.start_h = config_settings["start_h"]
         self.num_h = config_settings["num_h"]
-        self.static_file = config_settings["static_file"]
         self.model = config_settings["model"]
         self.check_plot = config_settings["check_plot"]
         self.out_path = config_settings["out_path"]
@@ -163,14 +173,29 @@ class MET_model_download_class():
         self.lat_lims = [config_settings["area"]["lat_min"], config_settings["area"]["lat_max"]]
         self.int_x = config_settings["int_x"]
         self.int_y = config_settings["int_y"]
+        self.resolution = config_settings["resolution"]
         self.start_point = [config_settings["crosssection"]["start_lat"], config_settings["crosssection"]["start_lon"]]
         self.end_point = [config_settings["crosssection"]["end_lat"], config_settings["crosssection"]["end_lon"]]
         self.model_levels = config_settings["model_levels"]
         self.p_levels = config_settings["pressure_levels"]
 
-        self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+        if self.model == "AA":
+            if self.resolution == "2p5km":
+                self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+            elif self.resolution == "500m":
+                self.time_vec = pd.date_range(self.start_time, self.end_time, freq="1D", closed="left")
+            else:
+                assert False, "Resolution not valid, specify either '2p5km' or '500m'."
+        elif self.model == "MC":
+            self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+        else:
+            assert False, "Model name not recognized, specify either 'AA' or 'MC'."
         self.time_ind = np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int)
 
+
+        path = config_settings["static_file"].split("/")[:-1]
+        filename = config_settings["static_file"].split("/")[-1]
+        self.static_file = f"{'/'.join(path)}/{filename}_{self.resolution}.nc"
         self.static_fields = {}
         with Dataset(self.static_file, 'r') as f:
             self.static_fields["lon"] = f.variables["lon"][:]
@@ -182,14 +207,20 @@ class MET_model_download_class():
         self.fileurls = []
         if self.model == "AA":
             self.full_model_name = "AROME_Arctic"
-            for t in self.time_vec:
-                if t < pd.Timestamp("2022-02-01"):
-                    if config_settings["data_format"] == 5:
-                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+            if self.resolution == "2p5km":
+                for t in self.time_vec:
+                    if t < pd.Timestamp("2022-02-01"):
+                        if config_settings["data_format"] == 5:
+                            self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                        else:
+                            self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
                     else:
-                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
-                else:
-                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+            elif self.resolution == "500m":
+                for t in self.time_vec:
+                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_{t.strftime("%Y%m%d")}00.nc')
+            else:
+                assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":
             self.full_model_name= "METCoOp"
             for t in self.time_vec:
