@@ -642,9 +642,12 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
         The axis of the map figure
     option : int
         Switch to distinguish different styles. Valid options:
-            0 : Topography as contour lines
-            1 : Topography as filled contours, no colorbar
-            2 : Topography as filled contours, with colorbar
+            0 : Topography as contour lines, low resolution
+            1 : Topography as contour lines, high resolution
+            2 : Topography as filled contours, no colorbar, low resolution
+            3 : Topography as filled contours, no colorbar, high resolution
+            4 : Topography as filled contours, with colorbar, low resolution
+            5 : Topography as filled contours, with colorbar, high resolution
     color : str or RGB
         Color for the topography contour lines (only used with option 0)
     resolution: float
