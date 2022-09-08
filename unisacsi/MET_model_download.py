@@ -94,7 +94,7 @@ def download_MET_model_static_fields(config_file):
             file = 'https://thredds.met.no/thredds/dodsC/aromearcticarchive/2022/06/03/arome_arctic_det_2_5km_20220603T00Z.nc'
             comment = "AROME-Arctic static fields of full data files with 2.5 km horizontal resolution"
         elif resolution == "500m":
-            file = 'https://thredds.met.no/thredds/catalog/metusers/yuriib/N-FORCES/catalog.html?dataset=metusers/yuriib/N-FORCES/AS500_2022090100.nc'
+            file = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_2022090200.nc'
             comment = "AROME-Arctic static fields of full data files with 500 m horizontal resolution"
     elif model == "MC":
         file = 'https://thredds.met.no/thredds/dodsC/meps25epsarchive/2022/02/20/meps_det_2_5km_20220220T00Z.nc'
