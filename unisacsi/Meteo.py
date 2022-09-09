@@ -30,7 +30,6 @@ import cartopy.feature as cfeature
 import rioxarray as rxr
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
-
 ############################################################################
 #READING FUNCTIONS
 ############################################################################
@@ -313,12 +312,65 @@ def read_AROME(filename):
 
 
 
+def read_radiosonde(filename, date=pd.Timestamp.now().strftime("%Y%m%d")):
+    '''
+    Reads data from one or several data files from the small re-usable radiosondes.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file(s)
+        If several files shall be read, specify a string including UNIX-style wildcards
+    date: str
+        String specifying the date of the sounding (the output file doesn't include the date) Format: YYYYmmdd, default: today.
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+
+    df = ddf.read_csv(filename, delimiter=",", parse_dates=["UTC time"], encoding = "ISO-8859-1", na_values=["", " ", "  ", "   "])
+    df = df.compute()
+    df["UTC time"] = [dt.replace(year=int(date[:4]), month=int(date[4:6]), day=int(date[6:])) for dt in df["UTC time"]]
+    df.rename(dict(zip(list(df.keys()), [k.strip() for k in list(df.keys())])), axis=1, inplace=True)
+    df.rename({"UTC time": "TIMESTAMP"}, axis=1, inplace=True)
+    df.set_index("TIMESTAMP", inplace=True)
+    
+    return df
 
 
 
+def read_iMet(filename):
+    '''
+    Reads data from one or several data files from the iMet sensors.
 
-
-
+    Parameters:
+    -------
+    filename: str
+        String with path to file(s)
+        If several files shall be read, specify a string including UNIX-style wildcards
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+    
+    df = ddf.read_csv(filename, delimiter=",", parse_dates=[["Date", "Time"]], dayfirst=True, encoding = "ISO-8859-1")
+    df = df.compute()
+    df.drop('ID', axis=1, inplace=True)
+    df.rename(dict(zip(list(df.keys()), [k.replace("XQ-iMet-XQ ", "").strip() for k in list(df.keys())])), axis=1, inplace=True)
+    df.rename({"Date_Time": "TIMESTAMP"}, axis=1, inplace=True)
+    df.set_index("TIMESTAMP", inplace=True)
+    
+    unit_conversion = {"Pressure": 100., "Air Temperature": 100., "Humidity": 10., "Longitude": 1.e7, "Latitude": 1.e7, "Altitude": 1000.}
+    for k, factor in unit_conversion.items():
+        df[k] = df[k] / factor
+    try:
+        df["Humidity Temp"] = df["Humidity Temp"] / 100.
+    except KeyError:
+        pass
+    
+    return df
 
 
 
