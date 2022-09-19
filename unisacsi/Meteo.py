@@ -93,11 +93,12 @@ def read_Campbell_AWS(filename, resolution="1_s"):
         dtypes = {'LT1_gr_C_Avg': 'float64', 'LT2_gr_C_Avg': 'float64', 'LF1_prsnt_Avg': 'float64', 'LF2_prsnt_Avg': 'float64'}
 
     df = ddf.read_csv(filename, skiprows=[0,2,3,4], dayfirst=True, parse_dates=["TIMESTAMP"],
-                      dtype=dtypes)
+                      dtype=dtypes, na_values=["NAN"])
 
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
     df.drop(["ID"], axis=1, inplace=True)
+    df.sort_index(inplace=True)
 
     return df
 
@@ -118,9 +119,10 @@ def read_Campbell_radiation(filename):
         a pandas dataframe with time as index and the individual variables as columns.
     '''
 
-    df = ddf.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"])
+    df = ddf.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"], na_values=["NAN"])
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(inplace=True)
 
     return df
 
@@ -140,8 +142,9 @@ def read_Irgason_flux(filename):
         a pandas dataframe with time as index and the individual variables as columns.
     '''
 
-    df = pd.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"])
+    df = pd.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"], na_values=["NAN"])
     df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(inplace=True)
 
     return df
 
@@ -166,6 +169,7 @@ def read_CSAT3_flux(filename):
 
     df = pd.read_csv(filename, names=sonic_header, header=0, dayfirst=True, parse_dates=["T_begin", "T_end", "T_mid"], na_values=-9999.9003906)
     df.set_index("T_mid", inplace=True)
+    df.sort_index(inplace=True)
 
     return df
 
@@ -239,6 +243,7 @@ def read_HOBO(filename):
     df = df.compute()
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(inplace=True)
 
     new_names = []
     for i in list(df.columns):
@@ -248,7 +253,7 @@ def read_HOBO(filename):
         else:
             name = f"{old_split[0].replace(' ', '_')}"
             unit = f"_{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}"
-            sn = f"_sn{old_split[2].split(' ')[3][:-1]}"
+            sn = f"_sn{old_split[2].split(' ')[3]}"
             new_names.append(name+sn+unit)
     df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
 
@@ -335,6 +340,7 @@ def read_radiosonde(filename, date=pd.Timestamp.now().strftime("%Y%m%d")):
     df.rename(dict(zip(list(df.keys()), [k.strip() for k in list(df.keys())])), axis=1, inplace=True)
     df.rename({"UTC time": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(True)
     
     return df
 
@@ -361,6 +367,7 @@ def read_iMet(filename):
     df.rename(dict(zip(list(df.keys()), [k.replace("XQ-iMet-XQ ", "").strip() for k in list(df.keys())])), axis=1, inplace=True)
     df.rename({"Date_Time": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(inplace=True)
     
     unit_conversion = {"Pressure": 100., "Air Temperature": 100., "Humidity": 10., "Longitude": 1.e7, "Latitude": 1.e7, "Altitude": 1000.}
     for k, factor in unit_conversion.items():

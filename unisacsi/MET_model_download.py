@@ -740,7 +740,7 @@ class MET_model_download_class():
         lat_lims = [np.min([self.start_point[0], self.end_point[0]]), np.max([self.start_point[0], self.end_point[0]])]
         lon_lims = [np.min([self.start_point[1], self.end_point[1]]), np.max([self.start_point[1], self.end_point[1]])]
 
-        start_lonlat, count_lonlat, _, _ = unisacsi.lonlat2xy(self.lon_lims, self.lat_lims, self.static_fields["lon"], self.static_fields["lat"], 2)
+        start_lonlat, count_lonlat, _, _ = unisacsi.lonlat2xy(lon_lims, lat_lims, self.static_fields["lon"], self.static_fields["lat"], 2)
         start_lonlat -= 2
         count_lonlat += 5
 
