@@ -92,13 +92,10 @@ def download_MET_model_static_fields(config_file):
     if model == "AA":
         if resolution == "2p5km":
             file = 'https://thredds.met.no/thredds/dodsC/aromearcticarchive/2022/06/03/arome_arctic_det_2_5km_20220603T00Z.nc'
-            comment = "AROME-Arctic static fields of full data files with 2.5 km horizontal resolution"
         elif resolution == "500m":
             file = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_2022090200.nc'
-            comment = "AROME-Arctic static fields of full data files with 500 m horizontal resolution"
     elif model == "MC":
         file = 'https://thredds.met.no/thredds/dodsC/meps25epsarchive/2022/02/20/meps_det_2_5km_20220220T00Z.nc'
-        comment = "MetCoOp static fields of full data files with 2.5 km horizontal resolution"
         resolution = "2p5km"
 
     path = config_settings["static_file"].split("/")[:-1]
@@ -106,62 +103,8 @@ def download_MET_model_static_fields(config_file):
     out_path = f"{'/'.join(path)}/{filename}_{resolution}.nc"
     
     with xr.open_dataset(file) as static_fields:
-        static_fields[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].to_netcdf(out_path)
+        static_fields.isel(time=1)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
 
-
-    # with Dataset(file) as f:
-    #     x = f.variables['x'][:]
-    #     y = f.variables['y'][:]
-    #     proj = f.variables["projection_lambert"][:]
-    #     AA_longitude = f.variables['longitude'][:]
-    #     AA_latitude = f.variables['latitude'][:]
-    #     AA_topo_height = np.squeeze(f.variables['surface_geopotential'][0,:,:])
-    #     AA_lsm = np.squeeze(f.variables['land_area_fraction'][0,:,:])
-        
-    
-
-    # with Dataset(out_path, 'w', format="NETCDF4") as f:
-    #     f.Comments = comment
-    #     f.createDimension('x', len(x))
-    #     f.createDimension('y', len(y))
-
-    #     var = f.createVariable('x', 'f4', ('x',))
-    #     var.units = 'm'
-    #     var.long_name = 'x-coordinate in Cartesian system'
-    #     var[:] = x
-        
-    #     var = f.createVariable('y', 'f4', ('y',))
-    #     var.units = 'm'
-    #     var.long_name = 'y-coordinate in Cartesian system'
-    #     var[:] = y
-        
-    #     var = f.createVariable("projection_lambert", "i4", ("projection_lambert",))
-    #     var.grid_mapping_name = "lambert_conformal_conic"
-    #     var.standard_parallel = [77.5, 77.5]
-    #     var.longitude_of_central_meridian = -25.0
-    #     var.latitude_of_projection_origin = 77.5
-    #     var.earth_radius = 6371000.0
-    #     var[:] = proj
-
-    #     var = f.createVariable('lon', 'f4', ('x', 'y',))
-    #     var.units = 'degree_north'
-    #     var.long_name = 'longitude'
-    #     var[:] = np.transpose(AA_longitude)
-
-    #     var = f.createVariable('lat', 'f4', ('x', 'y',))
-    #     var.units = 'degree_east'
-    #     var.long_name = 'latitude'
-    #     var[:] = np.transpose(AA_latitude)
-
-    #     var = f.createVariable('orog', 'f4', ('x', 'y',))
-    #     var.units = 'm'
-    #     var.long_name = 'orography'
-    #     var[:] = np.transpose(AA_topo_height) / 9.81
-
-    #     var = f.createVariable('lsm', 'f4', ('x', 'y',))
-    #     var.units = '1'
-    #     var.long_name = 'land-sea-mask'
-    #     var[:] = np.transpose(AA_lsm)
 
     print(f"Static fields were successfully saved into {out_path}.")
 
