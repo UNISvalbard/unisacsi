@@ -129,7 +129,7 @@ def download_MET_model_static_fields(config_file):
         var.long_name = 'y-coordinate in Cartesian system'
         var[:] = y
         
-        var = f.createVariable("projection_lambert", "i4", ("projection_lambert1",))
+        var = f.createVariable("projection_lambert", "i4", ("projection_lambert",))
         var.grid_mapping_name = "lambert_conformal_conic"
         var.standard_parallel = [77.5, 77.5]
         var.longitude_of_central_meridian = -25.0
