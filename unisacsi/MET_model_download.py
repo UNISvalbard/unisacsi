@@ -104,7 +104,7 @@ def download_MET_model_static_fields(config_file):
     with Dataset(file) as f:
         x = f.variables['x'][:]
         y = f.variables['y'][:]
-        proj = f.variables["projection_lambert1"][:]
+        proj = f.variables["projection_lambert"][:]
         AA_longitude = f.variables['longitude'][:]
         AA_latitude = f.variables['latitude'][:]
         AA_topo_height = np.squeeze(f.variables['surface_geopotential'][0,:,:])
@@ -129,7 +129,7 @@ def download_MET_model_static_fields(config_file):
         var.long_name = 'y-coordinate in Cartesian system'
         var[:] = y
         
-        var = f.createVariable("projection_lambert1", "i4", ("projection_lambert1",))
+        var = f.createVariable("projection_lambert", "i4", ("projection_lambert1",))
         var.grid_mapping_name = "lambert_conformal_conic"
         var.standard_parallel = [77.5, 77.5]
         var.longitude_of_central_meridian = -25.0
