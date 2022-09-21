@@ -172,7 +172,6 @@ class MET_model_download_class():
             self.static_fields["lat"] = f.variables["latitude"][:]
             self.static_fields["orog"] = f.variables["surface_geopotential"][:] / 9.81
             self.static_fields["lsm"] = f.variables["land_area_fraction"][:]
-            self.static_fields["projection_lambert"] = f.variables["projection_lambert"][:]
 
 
         self.fileurls = []
@@ -243,6 +242,7 @@ class MET_model_download_class():
                                         "z_asl": ["height_above_sea_level", "m"],
                                         'time': ["time", "seconds since 1970-01-01 00:00:00"]}
 
+
         if "data_format" in config_settings.keys():
             if config_settings["data_format"] == 0:
                 self.download_profiles()
@@ -251,7 +251,8 @@ class MET_model_download_class():
             elif config_settings["data_format"] == 2:
                 self.download_nearsurface_fields()
             elif config_settings["data_format"] == 3:
-                self.download_3D_data_fields()
+                self.new()
+                # self.download_3D_data_fields()
             elif config_settings["data_format"] == 4:
                 self.download_cross_section()
             elif config_settings["data_format"] == 5:
@@ -321,7 +322,6 @@ class MET_model_download_class():
 
             model_orog[i] = self.static_fields['orog'][coords_xx[i], coords_yy[i]]
             model_lsm[i] = self.static_fields['lsm'][coords_xx[i], coords_yy[i]]
-
 
 
         if self.check_plot:
@@ -455,8 +455,11 @@ class MET_model_download_class():
                 "model_lon": {"dims": "station", "data": model_lon, "attrs": {"units": "degE", "long_name": "longitude_of_model_gridpoint"}},
                 "model_lsm": {"dims": "station", "data": model_lsm, "attrs": {"units": "1", "long_name": "land_sea_mask_of_model_gridpoint"}},
                 "model_orog": {"dims": "station", "data": model_orog, "attrs": {"units": "m", "long_name": "elevation_of_model_gridpoint"}},
+                "model_x": {"dims": "station", "data": coords_xx, "attrs": {"units": "m", "long_name": "x-coordinate in model Cartesian system"}},
+                "model_y": {"dims": "station", "data": coords_yy, "attrs": {"units": "m", "long_name": "y-coordinate in model Cartesian system"}},
                 },
-            "attrs": {"Comments": f"Near-surface time series data extracted from {self.full_model_name} simulations."},
+            "attrs": {"Comments": f"Near-surface time series data extracted from {self.full_model_name} simulations.",
+                      "Conventions": "CF-1.6, ACDD"},
             "dims": ["station", "time"],
             "data_vars": {
                 vari: {"dims": ["station", "time"],
@@ -466,8 +469,10 @@ class MET_model_download_class():
 
         ds = xr.Dataset.from_dict(d_dict)
         ds = ds.set_index({"station": "station_name"}, append=True)
+        
+        ds.rio.write_crs("+proj=lcc +lat_0=77.5 +lon_0=-25 +lat_1=77.5 +lat_2=77.5 +no_defs +R=6.371e+06", inplace=True)
 
-        ds = xr.decode_cf(ds)
+        ds = xr.decode_cf(ds)        
 
         ds.to_netcdf(self.out_path)
 
@@ -531,6 +536,8 @@ class MET_model_download_class():
         model_lat = self.static_fields['lat'][idxx,:][:,idyy]
         model_orog = self.static_fields['orog'][idxx,:][:,idyy]
         model_lsm = self.static_fields['lsm'][idxx,:][:,idyy]
+        model_x = self.static_fields['x'][idxx]
+        model_y = self.static_fields['y'][idyy]
 
         if self.check_plot:
             # figure to check if the right area was selected
@@ -652,8 +659,11 @@ class MET_model_download_class():
                 "lon": {"dims": ["x", "y"], "data": model_lon, "attrs": {"units": "degE", "long_name": "longitude"}},
                 "lsm": {"dims": ["x", "y"], "data": model_lsm, "attrs": {"units": "1", "long_name": "land_sea_mask"}},
                 "orog": {"dims": ["x", "y"], "data": model_orog, "attrs": {"units": "m", "long_name": "orography"}},
+                "x": {"dims": ["x"], "data": model_x, "attrs": {"units": "m", "long_name": "x-coordinate in model Cartesian system"}},
+                "y": {"dims": ["y"], "data": model_y, "attrs": {"units": "m", "long_name": "y-coordinate in model Cartesian system"}}
                 },
-            "attrs": {"Comments": f"Near-surface fields extracted from {self.full_model_name} simulations."},
+            "attrs": {"Comments": f"Near-surface fields extracted from {self.full_model_name} simulations.",
+                      "Conventions": "CF-1.6, ACDD"},
             "dims": ["x", "y", "time"],
             "data_vars": {
                 vari: {"dims": ["x", "y", "time"],
@@ -663,6 +673,8 @@ class MET_model_download_class():
 
         ds = xr.Dataset.from_dict(d_dict)
 
+        ds.rio.write_crs("+proj=lcc +lat_0=77.5 +lon_0=-25 +lat_1=77.5 +lat_2=77.5 +no_defs +R=6.371e+06", inplace=True)
+        
         ds = xr.decode_cf(ds)
 
         ds.to_netcdf(self.out_path)
@@ -723,6 +735,8 @@ class MET_model_download_class():
         model_lon = self.static_fields['lon'][idxx,:][:,idyy]
         model_lat = self.static_fields['lat'][idxx,:][:,idyy]
         model_orog = self.static_fields['orog'][idxx,:][:,idyy]
+        model_x = self.static_fields['x'][idxx]
+        model_y = self.static_fields['y'][idyy]
 
         if self.check_plot:
             # figure to check if the right area was selected
@@ -901,7 +915,8 @@ class MET_model_download_class():
                 "lon": {"dims": "x", "data": lons, "attrs": {"units": "degE", "long_name": "longitude"}},
                 "x": {"dims": "x", "data": xx, "attrs": {"units": "m", "long_name": "section_distance"}}
                 },
-            "attrs": {"Comments": f"Cross section data extracted from {self.full_model_name} simulations."},
+            "attrs": {"Comments": f"Cross section data extracted from {self.full_model_name} simulations.",
+                      "Conventions": "CF-1.6, ACDD"},
             "dims": ["x", "ml", "time"],
             "data_vars": {
                 vari: {"dims": ["x", "ml", "time"],
@@ -910,6 +925,8 @@ class MET_model_download_class():
                                  "long_name": self.variables_names_units[vari][0]}} for vari, d in data_cross.items()}}
 
         ds = xr.Dataset.from_dict(d_dict)
+        
+        ds.rio.write_crs("+proj=lcc +lat_0=77.5 +lon_0=-25 +lat_1=77.5 +lat_2=77.5 +no_defs +R=6.371e+06", inplace=True)
 
         ds = xr.decode_cf(ds)
 
@@ -971,6 +988,8 @@ class MET_model_download_class():
         model_lat = self.static_fields['lat'][idxx,:][:,idyy]
         model_orog = self.static_fields['orog'][idxx,:][:,idyy]
         model_lsm = self.static_fields['lsm'][idxx,:][:,idyy]
+        model_x = self.static_fields['x'][idxx]
+        model_y = self.static_fields['y'][idyy]
 
         if self.check_plot:
             # figure to check if the right area was selected
@@ -1003,7 +1022,7 @@ class MET_model_download_class():
 
         time = []
         data = {}
-
+        
         # determine overall size of time dimension
         len_time = 0                                          # overall time index
         for filename in self.fileurls:                 # loop over files --> time in the order of days
@@ -1090,8 +1109,11 @@ class MET_model_download_class():
                 "lon": {"dims": ["x", "y"], "data": model_lon, "attrs": {"units": "degE", "long_name": "longitude"}},
                 "lsm": {"dims": ["x", "y"], "data": model_lsm, "attrs": {"units": "1", "long_name": "land_sea_mask"}},
                 "orog": {"dims": ["x", "y"], "data": model_orog, "attrs": {"units": "m", "long_name": "orography"}},
+                "x": {"dims": ["x"], "data": model_x, "attrs": {"units": "m", "long_name": "x-coordinate in model Cartesian system"}},
+                "y": {"dims": ["y"], "data": model_y, "attrs": {"units": "m", "long_name": "y-coordinate in model Cartesian system"}}
                 },
-            "attrs": {"Comments": f"3D data fields extracted from {self.full_model_name} simulations."},
+            "attrs": {"Comments": f"3D data fields extracted from {self.full_model_name} simulations.",
+                      "Conventions": "CF-1.6, ACDD"},
             "dims": ["x", "y", "ml", "time"],
             "data_vars": {
                 vari: {"dims": ["x", "y", "ml", "time"],
@@ -1100,6 +1122,8 @@ class MET_model_download_class():
                                  "long_name": self.variables_names_units[vari][0]}} for vari, d in data.items()}}
 
         ds = xr.Dataset.from_dict(d_dict)
+        
+        ds.rio.write_crs("+proj=lcc +lat_0=77.5 +lon_0=-25 +lat_1=77.5 +lat_2=77.5 +no_defs +R=6.371e+06", inplace=True)
 
         ds = xr.decode_cf(ds)
 
@@ -1154,6 +1178,9 @@ class MET_model_download_class():
         model_lat = self.static_fields['lat'][idxx,:][:,idyy]
         model_orog = self.static_fields['orog'][idxx,:][:,idyy]
         model_lsm = self.static_fields['lsm'][idxx,:][:,idyy]
+        model_x = self.static_fields['x'][idxx]
+        model_y = self.static_fields['y'][idyy]
+
 
         if self.check_plot:
             # figure to check if the right area was selected
@@ -1234,13 +1261,15 @@ class MET_model_download_class():
 
         # Calculating potential temperature and relative humidity
         plevels = np.array([float(l) for l in plevels])
+        if "T" in varis_to_load:
+            data["T_pot"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len(ind_p_levels), len_time))
         if (("q" in varis_to_load) & ("T" in varis_to_load)):
             data["RH"] = np.zeros((model_lon.shape[0], model_lon.shape[1], len(ind_p_levels), len_time))
 
 
         if ("T" in varis_to_load):
             for lc, l in enumerate(ind_p_levels):
-                data['T_pot'] = ((data['T'][:,lc,:,:])*((1.e3/(plevels[lc]))**(287./1005.))) - 273.15
+                data['T_pot'][:,lc,:,:] = ((data['T'][:,lc,:,:])*((1.e3/(plevels[lc]))**(287./1005.))) - 273.15
                 if ("q" in varis_to_load):
                     T = data["T"][:,lc,:,:] - 273.15
                     e = (data['q'][:,lc,:,:]*plevels[lc])/(0.622 + 0.378*data['q'][:,lc,:,:])
@@ -1263,8 +1292,11 @@ class MET_model_download_class():
                 "lon": {"dims": ["x", "y"], "data": model_lon, "attrs": {"units": "degE", "long_name": "longitude"}},
                 "lsm": {"dims": ["x", "y"], "data": model_lsm, "attrs": {"units": "1", "long_name": "land_sea_mask"}},
                 "orog": {"dims": ["x", "y"], "data": model_orog, "attrs": {"units": "m", "long_name": "orography"}},
+                "x": {"dims": ["x"], "data": model_x, "attrs": {"units": "m", "long_name": "x-coordinate in model Cartesian system"}},
+                "y": {"dims": ["y"], "data": model_y, "attrs": {"units": "m", "long_name": "y-coordinate in model Cartesian system"}}
                 },
-            "attrs": {"Comments": f"Pressure level data fields extracted from {self.full_model_name} simulations."},
+            "attrs": {"Comments": f"Pressure level data fields extracted from {self.full_model_name} simulations.",
+                      "Conventions": "CF-1.6, ACDD"},
             "dims": ["x", "y", "pl", "time"],
             "data_vars": {
                 vari: {"dims": ["x", "y", "pl", "time"],
@@ -1273,6 +1305,8 @@ class MET_model_download_class():
                                  "long_name": self.variables_names_units[vari][0]}} for vari, d in data.items()}}
 
         ds = xr.Dataset.from_dict(d_dict)
+        
+        ds.rio.write_crs("+proj=lcc +lat_0=77.5 +lon_0=-25 +lat_1=77.5 +lat_2=77.5 +no_defs +R=6.371e+06", inplace=True)
 
         ds = xr.decode_cf(ds)
 
@@ -1464,8 +1498,11 @@ class MET_model_download_class():
                 "model_lon": {"dims": "station", "data": model_lon, "attrs": {"units": "degE", "long_name": "longitude_of_model_gridpoint"}},
                 "model_lsm": {"dims": "station", "data": model_lsm, "attrs": {"units": "1", "long_name": "land_sea_mask_of_model_gridpoint"}},
                 "model_orog": {"dims": "station", "data": model_orog, "attrs": {"units": "m", "long_name": "elevation_of_model_gridpoint"}},
+                "model_x": {"dims": "station", "data": coords_xx, "attrs": {"units": "m", "long_name": "x-coordinate in model Cartesian system"}},
+                "model_y": {"dims": "station", "data": coords_yy, "attrs": {"units": "m", "long_name": "y-coordinate in model Cartesian system"}}
                 },
-            "attrs": {"Comments": f"Profile data extracted from {self.full_model_name} simulations."},
+            "attrs": {"Comments": f"Profile data extracted from {self.full_model_name} simulations.",
+                      "Conventions": "CF-1.6, ACDD"},
             "dims": ["station", "time", "ml"],
             "data_vars": {
                 vari: {"dims": ["station", "ml", "time"],
@@ -1475,9 +1512,130 @@ class MET_model_download_class():
 
         ds = xr.Dataset.from_dict(d_dict)
         ds = ds.set_index({"station": "station_name"}, append=True)
+        
+        ds.rio.write_crs("+proj=lcc +lat_0=77.5 +lon_0=-25 +lat_1=77.5 +lat_2=77.5 +no_defs +R=6.371e+06", inplace=True)
 
         ds = xr.decode_cf(ds)
 
         ds.to_netcdf(self.out_path)
 
         return
+    
+    
+    def new(self):
+        
+        if "Humidity" in self.varis:
+            self.varis.remove("Humidity")
+            self.varis += ["q"]
+
+        model_varnames =    {'T': 'air_temperature_ml',
+                             'q': 'specific_humidity_ml',
+                             'ur': 'x_wind_ml',
+                             'vr': 'y_wind_ml',
+                             'p_surf': 'surface_air_pressure',
+                             'T_surf': 'air_temperature_0m'}
+
+        varis_to_load = {}
+        for v in self.varis:
+            try:
+                varis_to_load[v] = model_varnames[v]
+            except KeyError:
+                print(f"The variable {v} is unfortunately not available as nearsurface time series, please de-select in the configuration file and try again.")
+                sys.exit(1)
+        if "p_surf" not in varis_to_load.keys():
+            varis_to_load["p_surf"] = model_varnames["p_surf"]
+        if "T_surf" not in varis_to_load.keys():
+            varis_to_load["T_surf"] = model_varnames["T_surf"]
+        if "T" not in varis_to_load.keys():
+            varis_to_load["T"] = model_varnames["T"]
+            
+        model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction", "ap", "b"]
+            
+            
+        start_lonlat, count_lonlat, _, _ = unisacsi.lonlat2xy(self.lon_lims, self.lat_lims, self.static_fields["lon"], self.static_fields["lat"], 2)
+
+        idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
+        idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
+        idxx = idx[::self.int_x]
+        idyy = idy[::self.int_y]
+                        
+        for filename in self.fileurls:
+            with xr.open_dataset(filename) as full_file:
+                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy, hybrid=np.arange(-self.model_levels,0,1))[model_varis].squeeze()
+                
+            ap, b, sp = xr.broadcast(data["ap"], data["b"], data["surface_air_pressure"])
+            data["air_pressure_ml"] = ap + b*sp
+            
+            data["z"] = xr.zeros_like(data["air_pressure_ml"])
+            
+            for c, n in enumerate(range(1,len(data["hybrid"])+1)):
+                if c == 0:
+                    pd = data["surface_air_pressure"].values/data["air_pressure_ml"].isel(hybrid=-n).values
+                    Tm = np.nanmean([data["air_temperature_0m"].values, data["air_temperature_ml"].isel(hybrid=-n).values])
+                else:
+                    pd = data["air_pressure_ml"].isel(hybrid=-n+1).values/data["air_pressure_ml"].isel(hybrid=-n).values
+                    Tm = 0.5 * (data["air_temperature_ml"].isel(hybrid=-n+1).values + data["air_temperature_ml"].isel(hybrid=-n).values)
+                data["z"][dict(hybrid=-n)] = data["z"].isel(hybrid=-n+1).values + 287.*Tm/9.81*np.log(pd)
+                
+            for vari, vari_met in varis_to_load.items():
+                if vari_met[:8] == "integral":
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=0)] /= self.start_h
+                    data[vari] /= (3600.*self.int_h)
+                elif vari_met[-3:] == "acc":
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=0)] /= self.start_h
+
+            if "SW_net" in varis_to_load:
+                # Converting radiative fluxes from net into up
+                data["SW_up"] = data["SW_down"] - data["SW_net"]
+                data["LW_up"] = data["LW_down"] - data["LW_net"]
+
+                del data['SW_net']
+                del data['LW_net']
+                
+            if "x_wind_ml" in model_varis:
+                # Wind u and v components in the original data are grid-related.
+                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
+                data["diffn"].values[data["diffn"].values > 180.] -= 360
+                data["diffn"].values[data["diffn"].values < -180.] += 360
+
+                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
+
+                data["u"] = data['x_wind_ml'] * np.cos(data["alpha"]) - data['y_wind_ml'] * np.sin(data["alpha"])
+                data["v"] = data['y_wind_ml'] * np.cos(data["alpha"]) + data['x_wind_ml'] * np.sin(data["alpha"])
+
+                # Calculating wind direction
+                data['WD'] = (np.rad2deg(np.arctan2(-data['u'], -data['v']))+360.) % 360.
+
+                # Calculating wind speed
+                data['WS'] = np.sqrt((data['u']**2.) + (data['v']**2.))
+
+                del data['x_wind_ml']
+                del data['y_wind_ml']
+                del data['diffn']
+                del data['alpha']
+                
+                
+            # Calculating potential temperature
+            data['air_potential_temperature_ml'] = ((data['air_temperature_ml'])*((1.e5/(data['air_pressure_ml']))**(287./1005.))) - 273.15
+
+            if ("q" in varis_to_load):
+                T = data["air_temperature_ml"] - 273.15
+                e = (data['specific_humidity_ml']*data['air_pressure'])/(0.622 + 0.378*data['specific_humidity_ml'])
+                data['relative_humidty_ml'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T)))) * 100.
+                data['specific_humidity_ml'] *= 1000.
+            
+            # Converting units
+            data['air_pressure_ml'] /= 100.
+            data['air_temperature_ml'] -= 273.15
+
+            print(data)
+            
+        return
+    
+    
+    
