@@ -1,4 +1,4 @@
-__version__ = '0.1.13'
+__version__ = '0.1.14'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
@@ -54,5 +54,4 @@ from .Ocean import (
 	plot_ADCP_CTD_section
 )
 
-from .MET_model_tools import Rotate_uv_components, lonlat2xy, Calculate_height_levels_and_pressure
 from .MET_model_download import download_MET_model_data, download_MET_model_static_fields, MET_model_download_class
