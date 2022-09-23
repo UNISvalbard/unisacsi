@@ -279,9 +279,11 @@ def read_IWIN(filename):
     files = sorted(glob.glob(filename))
 
     if len(files) == 1:
-        ds = xr.open_dataset(filename)
+        with xr.open_dataset(filename) as f:
+            ds = f.load()
     elif len(files) > 1:
-        ds = xr.open_mfdataset(files)
+        with xr.open_mfdataset(filename) as f:
+            ds = f.load()
     else:
         assert False, "No data found for the specified path."
 
@@ -307,9 +309,11 @@ def read_AROME(filename):
     files = sorted(glob.glob(filename))
 
     if len(files) == 1:
-        ds = xr.open_dataset(filename)
+        with xr.open_dataset(filename) as f:
+            ds = f.load()
     elif len(files) > 1:
-        ds = xr.open_mfdataset(files)
+        with xr.open_mfdataset(filename) as f:
+            ds = f.load()
     else:
         assert False, "No data found for the specified path."
 

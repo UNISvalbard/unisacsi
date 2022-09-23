@@ -19,6 +19,7 @@ import cartopy.crs as ccrs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 import utm
 from scipy import interpolate
+import metpy
 
 
 def download_MET_model_data(config_file):
@@ -142,8 +143,8 @@ class MET_model_download_class():
         self.int_x = config_settings["int_x"]
         self.int_y = config_settings["int_y"]
         self.resolution = config_settings["resolution"]
-        self.start_point = [config_settings["crosssection"]["start_lat"], config_settings["crosssection"]["start_lon"]]
-        self.end_point = [config_settings["crosssection"]["end_lat"], config_settings["crosssection"]["end_lon"]]
+        self.start_point = [config_settings["section"]["start_lat"], config_settings["section"]["start_lon"]]
+        self.end_point = [config_settings["section"]["end_lat"], config_settings["section"]["end_lon"]]
         self.model_levels = config_settings["model_levels"]
         self.p_levels = config_settings["pressure_levels"]
 
@@ -164,15 +165,9 @@ class MET_model_download_class():
         path = config_settings["static_file"].split("/")[:-1]
         filename = config_settings["static_file"].split("/")[-1]
         self.static_file = f"{'/'.join(path)}/{filename}_{self.resolution}.nc"
-        self.static_fields = {}
-        with Dataset(self.static_file, 'r') as f:
-            self.static_fields["x"] = f.variables["x"][:]
-            self.static_fields["y"] = f.variables["y"][:]
-            self.static_fields["lon"] = f.variables["longitude"][:]
-            self.static_fields["lat"] = f.variables["latitude"][:]
-            self.static_fields["orog"] = f.variables["surface_geopotential"][:] / 9.81
-            self.static_fields["lsm"] = f.variables["land_area_fraction"][:]
-
+        self.static_fields = xr.open_dataset(self.static_file)
+        self.dxdy = np.nanmean(np.diff(self.static_fields["x"]))
+        
 
         self.fileurls = []
         if self.model == "AA":
@@ -219,8 +214,9 @@ class MET_model_download_class():
                         1: "near-surface time series data",
                         2: "2D near surface field data",
                         3: "3D data",
-                        4: "cross section data",
-                        5: "pressure level data"}
+                        4: "vertical cross section data",
+                        5: "horizontal near-surface section",
+                        6: "pressure level data"}
 
 
 
@@ -244,10 +240,14 @@ class MET_model_download_class():
                 
             elif config_settings["data_format"] == 4:
                 self.data_format = data_formats[4]
-                self.download_cross_section_data()
+                self.download_vertical_cross_section_data()
                 
             elif config_settings["data_format"] == 5:
                 self.data_format = data_formats[5]
+                self.download_horizontal_near_surface_section_data()
+                
+            elif config_settings["data_format"] == 6:
+                self.data_format = data_formats[6]
                 self.download_pressure_level_data()
                 
             else:
@@ -298,33 +298,20 @@ class MET_model_download_class():
             
         model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction", "ap", "b"]
 
-        idxx = []
-        idyy = []
-        for i, (stat, lon, lat) in enumerate(zip(self.stt_name, self.stt_lon, self.stt_lat)):
-            
-            radius = 6378.137
-            lat1 = lat * (np.pi/180.)
-            lat2 = self.static_fields['lat'] * (np.pi/180.)
-            lon1 = lon * (np.pi/180.)
-            lon2 = self.static_fields['lon'] * (np.pi/180.)
-            deltaLat = lat2 - lat1
-            deltaLon = lon2 - lon1
-
-            x = deltaLon * np.cos((lat1+lat2)/2.)
-            y = deltaLat
-            d2km = radius * np.sqrt(x**2. + y**2.)
-
-            xx, yy = np.unravel_index(d2km.argmin(), d2km.shape)
-            
-            idxx.append(xx)
-            idyy.append(yy)
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        for i in range(len(self.stt_lon)):
+            x, y = data_crs.transform_point(self.stt_lon[i], self.stt_lat[i], src_crs=ccrs.PlateCarree())
+            xx.append(x)
+            yy.append(y)
               
         if self.check_plot:
             # figure to check if the right area was selected
-            lon_min = np.nanmin([self.static_fields["lon"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])-1.
-            lon_max = np.nanmax([self.static_fields["lon"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])+1.
-            lat_min = np.nanmin([self.static_fields["lat"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])-0.5
-            lat_max = np.nanmax([self.static_fields["lat"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])+0.5
+            lon_min = np.nanmin([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["longitude"] for i in range(len(self.stt_name))])-1.
+            lon_max = np.nanmax([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["longitude"] for i in range(len(self.stt_name))])+1.
+            lat_min = np.nanmin([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["latitude"] for i in range(len(self.stt_name))])-0.5
+            lat_max = np.nanmax([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["latitude"] for i in range(len(self.stt_name))])+0.5
             plt.close("all")
             plt.ion()
             fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
@@ -341,7 +328,7 @@ class MET_model_download_class():
             ax.set_title(None)
             for i, (lon, lat) in enumerate(zip(self.stt_lon, self.stt_lat)):
                 ax.scatter(lon, lat, s=10., c="r", marker="x", transform=ccrs.PlateCarree())
-                ax.scatter(self.static_fields["lon"][idxx[i], idyy[i]], self.static_fields["lat"][idxx[i], idyy[i]], s=10., c="k", marker="o", transform=ccrs.PlateCarree())
+                ax.scatter(self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["longitude"], self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["latitude"], s=10., c="k", marker="o", transform=ccrs.PlateCarree())
             plt.show(block=False)
             plt.pause(5.)
 
@@ -353,69 +340,78 @@ class MET_model_download_class():
 
             if switch_continue != "Y":
                 sys.exit(1)
+                
+            print("Starting data download...")
         
         
         chunks = []
         for filename in self.fileurls:
+            stations = []
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy, hybrid=np.arange(-self.model_levels,0,1))[model_varis].squeeze()
-                
-            ap, b, sp = xr.broadcast(data["ap"], data["b"], data["surface_air_pressure"])
-            data["air_pressure_ml"] = ap + b*sp
-            
-            data["z"] = xr.zeros_like(data["air_pressure_ml"])
-            
-            for c, n in enumerate(range(1,len(data["hybrid"])+1)):
-                if c == 0:
-                    p_d = data["surface_air_pressure"].values/data["air_pressure_ml"].isel(hybrid=-n).values
-                    Tm = np.nanmean([data["air_temperature_0m"].values, data["air_temperature_ml"].isel(hybrid=-n).values])
-                else:
-                    p_d = data["air_pressure_ml"].isel(hybrid=-n+1).values/data["air_pressure_ml"].isel(hybrid=-n).values
-                    Tm = 0.5 * (data["air_temperature_ml"].isel(hybrid=-n+1).values + data["air_temperature_ml"].isel(hybrid=-n).values)
-                data["z"][dict(hybrid=-n)] = data["z"].isel(hybrid=-n+1).values + 287.*Tm/9.81*np.log(p_d)
-
-                
-            if "x_wind_ml" in model_varis:
-                # Wind u and v components in the original data are grid-related.
-                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
-
-                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
-                data["diffn"].values[data["diffn"].values > 180.] -= 360
-                data["diffn"].values[data["diffn"].values < -180.] += 360
-
-                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
-
-                data["eastward_wind_ml"] = data['x_wind_ml'] * np.cos(data["alpha"]) - data['y_wind_ml'] * np.sin(data["alpha"])
-                data["northward_wind_ml"] = data['y_wind_ml'] * np.cos(data["alpha"]) + data['x_wind_ml'] * np.sin(data["alpha"])
-
-                # Calculating wind direction
-                data['wind_direction_ml'] = (np.rad2deg(np.arctan2(-data['eastward_wind_ml'], -data['northward_wind_ml']))+360.) % 360.
-
-                # Calculating wind speed
-                data['wind_speed_ml'] = np.sqrt((data['eastward_wind_ml']**2.) + (data['northward_wind_ml']**2.))
-
-                del data['x_wind_ml']
-                del data['y_wind_ml']
-                del data['diffn']
-                del data['alpha']
-                
-                
-            # Calculating potential temperature
-            data['air_potential_temperature_ml'] = (data['air_temperature_ml'])*((1.e5/(data['air_pressure_ml']))**(287./1005.))
-
-            if 'specific_humidity_ml' in model_varis:
-                T = data["air_temperature_ml"] - 273.15
-                e = (data['specific_humidity_ml']*data['air_pressure'])/(0.622 + 0.378*data['specific_humidity_ml'])
-                data['relative_humidty_ml'] = e/(611.2 * np.exp((17.62*T)/(243.12+T)))
-                
-            
-            del data["surface_air_pressure"]
-            del data["air_temperature_0m"]
+                for i in range(len(self.stt_lon)):
+                    stations.append(full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    
+            data = xr.concat(stations, dim="station")
             
             chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
         
         ds = xr.concat(chunks, dim="time")
+        ds["stations"] = xr.DataArray(self.stt_name, dims=['station'])
+                                
+        ap, b, sp = xr.broadcast(ds["ap"], ds["b"], ds["surface_air_pressure"])
+        ds["air_pressure_ml"] = ap + b*sp
+        
+        ds["z"] = xr.zeros_like(ds["air_pressure_ml"])
+        
+        for c, n in enumerate(range(1,len(ds["hybrid"])+1)):
+            if c == 0:
+                p_d = (ds["surface_air_pressure"]/ds["air_pressure_ml"].isel(hybrid=-n))
+                Tm = (0.5 * (ds["air_temperature_0m"] + ds["air_temperature_ml"].isel(hybrid=-n)))
+            else:
+                p_d = (ds["air_pressure_ml"].isel(hybrid=-n+1)/ds["air_pressure_ml"].isel(hybrid=-n))
+                Tm = (0.5 * (ds["air_temperature_ml"].isel(hybrid=-n+1) + ds["air_temperature_ml"].isel(hybrid=-n)))
+            ds["z"][dict(hybrid=-n)] = ds["z"].isel(hybrid=-n+1) + 287.*Tm/9.81*np.log(p_d)
+
+            
+        if "x_wind_ml" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_ml"] = ds['x_wind_ml'] * np.cos(ds["alpha"]) - ds['y_wind_ml'] * np.sin(ds["alpha"])
+            ds["northward_wind_ml"] = ds['y_wind_ml'] * np.cos(ds["alpha"]) + ds['x_wind_ml'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_ml'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_ml'], -ds['northward_wind_ml']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_ml'] = np.sqrt((ds['eastward_wind_ml']**2.) + (ds['northward_wind_ml']**2.))
+
+            del ds['x_wind_ml']
+            del ds['y_wind_ml']
+            del ds['diffn']
+            del ds['alpha']
+            
+            
+        # Calculating potential temperature
+        ds['air_potential_temperature_ml'] = (ds['air_temperature_ml'])*((1.e5/(ds['air_pressure_ml']))**(287./1005.))
+
+        if 'specific_humidity_ml' in model_varis:
+            T = ds["air_temperature_ml"] - 273.15
+            e = (ds['specific_humidity_ml']*ds['air_pressure_ml'])/(0.622 + 0.378*ds['specific_humidity_ml'])
+            ds['relative_humidty_ml'] = e/(611.2 * np.exp((17.62*T)/(243.12+T)))
+            
+        del ds["ap"]
+        del ds["b"]
+            
         ds.to_netcdf(self.out_path)
 
         return
@@ -469,19 +465,20 @@ class MET_model_download_class():
                 
         model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]
 
-        idxx = []
-        idyy = []
-        for i, (stat, lon, lat) in enumerate(zip(self.stt_name, self.stt_lon, self.stt_lat)):
-            coords_xx, coords_yy, _, _ = unisacsi.lonlat2xy(lon, lat, self.static_fields['lon'], self.static_fields['lat'], 1)
-            idxx.append(coords_xx)
-            idyy.append(coords_yy)
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        for i in range(len(self.stt_lon)):
+            x, y = data_crs.transform_point(self.stt_lon[i], self.stt_lat[i], src_crs=ccrs.PlateCarree())
+            xx.append(x)
+            yy.append(y)
             
         if self.check_plot:
             # figure to check if the right area was selected
-            lon_min = np.nanmin([self.static_fields["lon"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])-1.
-            lon_max = np.nanmax([self.static_fields["lon"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])+1.
-            lat_min = np.nanmin([self.static_fields["lat"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])-0.5
-            lat_max = np.nanmax([self.static_fields["lat"][idxx[i], idyy[i]] for i in range(len(self.stt_name))])+0.5
+            lon_min = np.nanmin([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["longitude"] for i in range(len(self.stt_name))])-1.
+            lon_max = np.nanmax([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["longitude"] for i in range(len(self.stt_name))])+1.
+            lat_min = np.nanmin([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["latitude"] for i in range(len(self.stt_name))])-0.5
+            lat_max = np.nanmax([self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["latitude"] for i in range(len(self.stt_name))])+0.5
             plt.close("all")
             plt.ion()
             fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
@@ -498,7 +495,7 @@ class MET_model_download_class():
             ax.set_title(None)
             for i, (lon, lat) in enumerate(zip(self.stt_lon, self.stt_lat)):
                 ax.scatter(lon, lat, s=10., c="r", marker="x", transform=ccrs.PlateCarree())
-                ax.scatter(self.static_fields["lon"][idxx[i], idyy[i]], self.static_fields["lat"][idxx[i], idyy[i]], s=10., c="k", marker="o", transform=ccrs.PlateCarree())
+                ax.scatter(self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["longitude"], self.static_fields.sel(x=xx[i], y=yy[i], method='nearest')["latitude"], s=10., c="k", marker="o", transform=ccrs.PlateCarree())
             plt.show(block=False)
             plt.pause(5.)
 
@@ -510,71 +507,81 @@ class MET_model_download_class():
 
             if switch_continue != "Y":
                 sys.exit(1)
+                
+            print("Starting data download...")
             
             
         chunks = []
         for filename in self.fileurls:
+            stations = []
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy)[model_varis].squeeze()
+                for i in range(len(self.stt_lon)):
+                    stations.append(full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    
+            data = xr.concat(stations, dim="station")
                 
             for vari in model_varis:
                 if vari[:8] == "integral":
-                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data[vari] /= (3600.*self.int_h)
                     data = data.rename({vari: vari[12:-9]})
                 elif vari[-3:] == "acc":
-                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data = data.rename({vari: vari[:-4]})
-
-            if "integral_of_surface_net_downward_shortwave_flux_wrt_time" in model_varis:
-                # Converting radiative fluxes from net into up
-                data["surface_upwelling_shortwave_flux_in_air"] = data["surface_downwelling_shortwave_flux_in_air"] - data["surface_net_downward_shortwave_flux"]
-                data["surface_upwelling_longwave_flux_in_air"] = data["surface_downwelling_longwave_flux_in_air"] - data["surface_net_downward_longwave_flux"]
-
-                del data['surface_net_downward_shortwave_flux']
-                del data['surface_net_downward_longwave_flux']
-                
-            if "x_wind_10m" in model_varis:
-                # Wind u and v components in the original data are grid-related.
-                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
-
-                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
-                data["diffn"].values[data["diffn"].values > 180.] -= 360
-                data["diffn"].values[data["diffn"].values < -180.] += 360
-
-                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
-
-                data["eastward_wind_10m"] = data['x_wind_10m'] * np.cos(data["alpha"]) - data['y_wind_10m'] * np.sin(data["alpha"])
-                data["northward_wind_10m"] = data['y_wind_10m'] * np.cos(data["alpha"]) + data['x_wind_10m'] * np.sin(data["alpha"])
-
-                # Calculating wind direction
-                data['wind_direction_10m'] = (np.rad2deg(np.arctan2(-data['eastward_wind_10m'], -data['northward_wind_10m']))+360.) % 360.
-
-                # Calculating wind speed
-                data['wind_speed_10m'] = np.sqrt((data['eastward_wind_10m']**2.) + (data['northward_wind_10m']**2.))
-
-                del data['x_wind_10m']
-                del data['y_wind_10m']
-                del data['diffn']
-                del data['alpha']
-                
-                
-            # Calculating potential temperature
-            if (('air_temperature_2m' in model_varis) & ("surface_air_pressure" in model_varis)):
-                data['air_potential_temperature_2m'] = (data['air_temperature_2m'])*((1.e5/(data['surface_air_pressure']))**(287./1005.))
-
-            if 'specific_humidity_2m' in model_varis:
-                T = data["air_temperature_2m"] - 273.15
-                e = (data['specific_humidity_2m']*data['surface_air_pressure'])/(0.622 + 0.378*data['specific_humidity_2m'])
-                data['relative_humidty_2m'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
-            
-                
+                    
             chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
         
         ds = xr.concat(chunks, dim="time")
+        
+        ds["stations"] = xr.DataArray(self.stt_name, dims=['station'])
+
+        if "integral_of_surface_net_downward_shortwave_flux_wrt_time" in model_varis:
+            # Converting radiative fluxes from net into up
+            ds["surface_upwelling_shortwave_flux_in_air"] = ds["surface_downwelling_shortwave_flux_in_air"] - ds["surface_net_downward_shortwave_flux"]
+            ds["surface_upwelling_longwave_flux_in_air"] = ds["surface_downwelling_longwave_flux_in_air"] - ds["surface_net_downward_longwave_flux"]
+
+            del ds['surface_net_downward_shortwave_flux']
+            del ds['surface_net_downward_longwave_flux']
+            
+        if "x_wind_10m" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_10m"] = ds['x_wind_10m'] * np.cos(ds["alpha"]) - ds['y_wind_10m'] * np.sin(ds["alpha"])
+            ds["northward_wind_10m"] = ds['y_wind_10m'] * np.cos(ds["alpha"]) + ds['x_wind_10m'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_10m'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_10m'], -ds['northward_wind_10m']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_10m'] = np.sqrt((ds['eastward_wind_10m']**2.) + (ds['northward_wind_10m']**2.))
+
+            del ds['x_wind_10m']
+            del ds['y_wind_10m']
+            del ds['diffn']
+            del ds['alpha']
+            
+        # Calculating potential temperature
+        if (('air_temperature_2m' in model_varis) & ("surface_air_pressure" in model_varis)):
+            ds['air_potential_temperature_2m'] = (ds['air_temperature_2m'])*((1.e5/(ds['surface_air_pressure']))**(287./1005.))
+
+            if 'specific_humidity_2m' in model_varis:
+                T = ds["air_temperature_2m"] - 273.15
+                e = (ds['specific_humidity_2m']*ds['surface_air_pressure'])/(0.622 + 0.378*ds['specific_humidity_2m'])
+                ds['relative_humidty_2m'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
+            
+            
         ds.to_netcdf(self.out_path)
         
         
@@ -625,50 +632,35 @@ class MET_model_download_class():
                 sys.exit(1)
                 
         model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]
-
-        lon_corners  = [self.lon_lims[0], self.lon_lims[1], self.lon_lims[1], self.lon_lims[0]]
-        lat_corners  = [self.lat_lims[0], self.lat_lims[0], self.lat_lims[1], self.lat_lims[1]]
-
-        coords_xx = np.zeros(len(lon_corners))
-        coords_yy = np.zeros(len(lon_corners))
-
-        for qq in range(len(lon_corners)):
-            lonn1 = lon_corners[qq]
-            latt1 = lat_corners[qq]
-
-            radius = 6378.137
-            lat1 = latt1 * (np.pi/180.)
-            lat2 = self.static_fields["lat"] * (np.pi/180.)
-            lon1 = lonn1 * (np.pi/180.)
-            lon2 = self.static_fields["lon"] * (np.pi/180.)
-            deltaLat = lat2 - lat1
-            deltaLon = lon2 - lon1
-
-            x = deltaLon * np.cos((lat1+lat2)/2.)
-            y = deltaLat
-            d2km = radius * np.sqrt(x**2. + y**2.)
-
-            coords_xx[qq], coords_yy[qq] = np.unravel_index(d2km.argmin(), d2km.shape)
-
-        lonmin_id = int(np.min(coords_xx))
-        lonmax_id = int(np.max(coords_xx))
-        latmin_id = int(np.min(coords_yy))
-        latmax_id = int(np.max(coords_yy))
-
-        start_lonlat = np.array([lonmin_id, latmin_id])
-        count_lonlat = np.array([np.abs(lonmax_id-lonmin_id), np.abs(latmax_id-latmin_id)])
         
-        idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
-        idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
-        idxx = idx[::self.int_x]
-        idyy = idy[::self.int_y]
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        x, y = data_crs.transform_point(self.lon_lims[0], self.lat_lims[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[1], self.lat_lims[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[1], self.lat_lims[1], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[0], self.lat_lims[1], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+
+        x = np.arange(np.nanmin(xx), (np.nanmax(xx)+1), self.dxdy)
+        y = np.arange(np.nanmin(yy), (np.nanmax(yy)+1), self.dxdy)
+        x = x[::self.int_x]
+        y = y[::self.int_y]
+                
         
         if self.check_plot:
             # figure to check if the right area was selected
             plt.close("all")
             plt.ion()
             fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
-            ax.set_extent([self.lon_lims[0]-2., self.lon_lims[1]+2., self.lat_lims[0]-.5, self.lat_lims[1]+.5], crs=ccrs.PlateCarree())
+            ax.set_extent([x[0]-0.1*abs(x[-1]-x[0]), x[-1]+0.1*abs(x[-1]-x[0]), y[0]-0.1*abs(y[-1]-y[0]), y[-1]+0.1*abs(y[-1]-y[0])], crs=data_crs)
             ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
             gl = ax.gridlines(draw_labels=False)
             gl.left_labels = True
@@ -679,7 +671,9 @@ class MET_model_download_class():
             ax.set_xlabel(None)
             ax.set_ylabel(None)
             ax.set_title(None)
-            ax.pcolormesh(self.static_fields['lon'][idxx,:][:,idyy], self.static_fields['lat'][idxx,:][:,idyy], self.static_fields['orog'][idxx,:][:,idyy], cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            pic = ax.pcolormesh(self.static_fields['longitude'].sel(x=x, y=y), self.static_fields['latitude'].sel(x=x, y=y), (self.static_fields['surface_geopotential'].sel(x=x, y=y))/9.81, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            cbar = plt.colorbar(pic, ax=ax)
+            cbar.ax.set_ylabel("model grid elevation [m]")
             plt.show(block=False)
             plt.pause(5.)
 
@@ -691,75 +685,80 @@ class MET_model_download_class():
 
             if switch_continue != "Y":
                 sys.exit(1)
+                
+            print("Starting data download...")
             
             
         chunks = []
         for filename in self.fileurls:
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy)[model_varis].squeeze()
+                data = full_file.isel(time=self.time_ind).sel(x=x, y=y)[model_varis].squeeze()
                 
             for vari in model_varis:
                 if vari[:8] == "integral":
-                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data[vari] /= (3600.*self.int_h)
                     data = data.rename({vari: vari[12:-9]})
                 elif vari[-3:] == "acc":
-                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data = data.rename({vari: vari[:-4]})
-
-            if "integral_of_surface_net_downward_shortwave_flux_wrt_time" in model_varis:
-                # Converting radiative fluxes from net into up
-                data["surface_upwelling_shortwave_flux_in_air"] = data["surface_downwelling_shortwave_flux_in_air"] - data["surface_net_downward_shortwave_flux"]
-                data["surface_upwelling_longwave_flux_in_air"] = data["surface_downwelling_longwave_flux_in_air"] - data["surface_net_downward_longwave_flux"]
-
-                del data['surface_net_downward_shortwave_flux']
-                del data['surface_net_downward_longwave_flux']
-                
-            if "x_wind_10m" in model_varis:
-                # Wind u and v components in the original data are grid-related.
-                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
-
-                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
-                data["diffn"].values[data["diffn"].values > 180.] -= 360
-                data["diffn"].values[data["diffn"].values < -180.] += 360
-
-                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
-
-                data["eastward_wind_10m"] = data['x_wind_10m'] * np.cos(data["alpha"]) - data['y_wind_10m'] * np.sin(data["alpha"])
-                data["northward_wind_10m"] = data['y_wind_10m'] * np.cos(data["alpha"]) + data['x_wind_10m'] * np.sin(data["alpha"])
-
-                # Calculating wind direction
-                data['wind_direction_10m'] = (np.rad2deg(np.arctan2(-data['eastward_wind_10m'], -data['northward_wind_10m']))+360.) % 360.
-
-                # Calculating wind speed
-                data['wind_speed_10m'] = np.sqrt((data['eastward_wind_10m']**2.) + (data['northward_wind_10m']**2.))
-
-                del data['x_wind_10m']
-                del data['y_wind_10m']
-                del data['diffn']
-                del data['alpha']
-                
-                
-            # Calculating potential temperature
-            if (("air_temperature_2m" in model_varis) & ("surface_air_pressure" in model_varis)):
-                data['air_potential_temperature_2m'] = (data['air_temperature_2m'])*((1.e5/(data['surface_air_pressure']))**(287./1005.))
-
-            if 'specific_humidity_2m' in model_varis:
-                T = data["air_temperature_2m"] - 273.15
-                e = (data['specific_humidity_2m']*data['surface_air_pressure'])/(0.622 + 0.378*data['specific_humidity_2m'])
-                data['relative_humidty_2m'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
-            
-                
+                        
             chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
         
         ds = xr.concat(chunks, dim="time")
+
+        if "integral_of_surface_net_downward_shortwave_flux_wrt_time" in model_varis:
+            # Converting radiative fluxes from net into up
+            ds["surface_upwelling_shortwave_flux_in_air"] = ds["surface_downwelling_shortwave_flux_in_air"] - ds["surface_net_downward_shortwave_flux"]
+            ds["surface_upwelling_longwave_flux_in_air"] = ds["surface_downwelling_longwave_flux_in_air"] - ds["surface_net_downward_longwave_flux"]
+
+            del ds['surface_net_downward_shortwave_flux']
+            del ds['surface_net_downward_longwave_flux']
+            
+        if "x_wind_10m" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_10m"] = ds['x_wind_10m'] * np.cos(ds["alpha"]) - ds['y_wind_10m'] * np.sin(ds["alpha"])
+            ds["northward_wind_10m"] = ds['y_wind_10m'] * np.cos(ds["alpha"]) + ds['x_wind_10m'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_10m'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_10m'], -ds['northward_wind_10m']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_10m'] = np.sqrt((ds['eastward_wind_10m']**2.) + (ds['northward_wind_10m']**2.))
+
+            del ds['x_wind_10m']
+            del ds['y_wind_10m']
+            del ds['diffn']
+            del ds['alpha']
+            
+        # Calculating potential temperature
+        if (("air_temperature_2m" in model_varis) & ("surface_air_pressure" in model_varis)):
+            ds['air_potential_temperature_2m'] = (ds['air_temperature_2m'])*((1.e5/(ds['surface_air_pressure']))**(287./1005.))
+
+            if 'specific_humidity_2m' in model_varis:
+                T = ds["air_temperature_2m"] - 273.15
+                e = (ds['specific_humidity_2m']*ds['surface_air_pressure'])/(0.622 + 0.378*ds['specific_humidity_2m'])
+                ds['relative_humidty_2m'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
+        
         ds.to_netcdf(self.out_path)
         
         
         return
+    
+    
     
     
     
@@ -800,49 +799,33 @@ class MET_model_download_class():
             
         model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction", "ap", "b"]
 
-        lon_corners  = [self.lon_lims[0], self.lon_lims[1], self.lon_lims[1], self.lon_lims[0]]
-        lat_corners  = [self.lat_lims[0], self.lat_lims[0], self.lat_lims[1], self.lat_lims[1]]
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        x, y = data_crs.transform_point(self.lon_lims[0], self.lat_lims[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[1], self.lat_lims[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[1], self.lat_lims[1], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[0], self.lat_lims[1], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
 
-        coords_xx = np.zeros(len(lon_corners))
-        coords_yy = np.zeros(len(lon_corners))
-
-        for qq in range(len(lon_corners)):
-            lonn1 = lon_corners[qq]
-            latt1 = lat_corners[qq]
-
-            radius = 6378.137
-            lat1 = latt1 * (np.pi/180.)
-            lat2 = self.static_fields["lat"] * (np.pi/180.)
-            lon1 = lonn1 * (np.pi/180.)
-            lon2 = self.static_fields["lon"] * (np.pi/180.)
-            deltaLat = lat2 - lat1
-            deltaLon = lon2 - lon1
-
-            x = deltaLon * np.cos((lat1+lat2)/2.)
-            y = deltaLat
-            d2km = radius * np.sqrt(x**2. + y**2.)
-
-            coords_xx[qq], coords_yy[qq] = np.unravel_index(d2km.argmin(), d2km.shape)
-
-        lonmin_id = int(np.min(coords_xx))
-        lonmax_id = int(np.max(coords_xx))
-        latmin_id = int(np.min(coords_yy))
-        latmax_id = int(np.max(coords_yy))
-
-        start_lonlat = np.array([lonmin_id, latmin_id])
-        count_lonlat = np.array([np.abs(lonmax_id-lonmin_id), np.abs(latmax_id-latmin_id)])
-        
-        idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
-        idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
-        idxx = idx[::self.int_x]
-        idyy = idy[::self.int_y]
+        x = np.arange(np.nanmin(xx), (np.nanmax(xx)+1), self.dxdy)
+        y = np.arange(np.nanmin(yy), (np.nanmax(yy)+1), self.dxdy)
+        x = x[::self.int_x]
+        y = y[::self.int_y]
         
         if self.check_plot:
             # figure to check if the right area was selected
             plt.close("all")
             plt.ion()
             fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
-            ax.set_extent([self.lon_lims[0]-2., self.lon_lims[1]+2., self.lat_lims[0]-.5, self.lat_lims[1]+.5], crs=ccrs.PlateCarree())
+            ax.set_extent([x[0]-0.1*abs(x[-1]-x[0]), x[-1]+0.1*abs(x[-1]-x[0]), y[0]-0.1*abs(y[-1]-y[0]), y[-1]+0.1*abs(y[-1]-y[0])], crs=data_crs)
             ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
             gl = ax.gridlines(draw_labels=False)
             gl.left_labels = True
@@ -853,7 +836,9 @@ class MET_model_download_class():
             ax.set_xlabel(None)
             ax.set_ylabel(None)
             ax.set_title(None)
-            ax.pcolormesh(self.static_fields['lon'][idxx,:][:,idyy], self.static_fields['lat'][idxx,:][:,idyy], self.static_fields['orog'][idxx,:][:,idyy], cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            pic = ax.pcolormesh(self.static_fields['longitude'].sel(x=x, y=y), self.static_fields['latitude'].sel(x=x, y=y), (self.static_fields['surface_geopotential'].sel(x=x, y=y))/9.81, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            cbar = plt.colorbar(pic, ax=ax)
+            cbar.ax.set_ylabel("model grid elevation [m]")
             plt.show(block=False)
             plt.pause(5.)
 
@@ -865,68 +850,75 @@ class MET_model_download_class():
 
             if switch_continue != "Y":
                 sys.exit(1)
+                
+            print("Starting data download...")
             
             
         chunks = []
         for filename in self.fileurls:
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy, hybrid=np.arange(-self.model_levels,0,1))[model_varis].squeeze()
-                
-            ap, b, sp = xr.broadcast(data["ap"], data["b"], data["surface_air_pressure"])
-            data["air_pressure_ml"] = ap + b*sp
-            
-            data["z"] = xr.zeros_like(data["air_pressure_ml"])
-            
-            for c, n in enumerate(range(1,len(data["hybrid"])+1)):
-                if c == 0:
-                    p_d = data["surface_air_pressure"].values/data["air_pressure_ml"].isel(hybrid=-n).values
-                    Tm = np.nanmean([data["air_temperature_0m"].values, data["air_temperature_ml"].isel(hybrid=-n).values])
-                else:
-                    p_d = data["air_pressure_ml"].isel(hybrid=-n+1).values/data["air_pressure_ml"].isel(hybrid=-n).values
-                    Tm = 0.5 * (data["air_temperature_ml"].isel(hybrid=-n+1).values + data["air_temperature_ml"].isel(hybrid=-n).values)
-                data["z"][dict(hybrid=-n)] = data["z"].isel(hybrid=-n+1).values + 287.*Tm/9.81*np.log(p_d)
-
-                
-                
-            if "x_wind_ml" in model_varis:
-                # Wind u and v components in the original data are grid-related.
-                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
-
-                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
-                data["diffn"].values[data["diffn"].values > 180.] -= 360
-                data["diffn"].values[data["diffn"].values < -180.] += 360
-
-                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
-
-                data["eastward_wind_ml"] = data['x_wind_ml'] * np.cos(data["alpha"]) - data['y_wind_ml'] * np.sin(data["alpha"])
-                data["northward_wind_ml"] = data['y_wind_ml'] * np.cos(data["alpha"]) + data['x_wind_ml'] * np.sin(data["alpha"])
-
-                # Calculating wind direction
-                data['wind_direction_ml'] = (np.rad2deg(np.arctan2(-data['eastward_wind_ml'], -data['northward_wind_ml']))+360.) % 360.
-
-                # Calculating wind speed
-                data['wind_speed_ml'] = np.sqrt((data['eastward_wind_ml']**2.) + (data['northward_wind_ml']**2.))
-
-                del data['x_wind_ml']
-                del data['y_wind_ml']
-                del data['diffn']
-                del data['alpha']
-                
-                
-            # Calculating potential temperature
-            if 'air_temperature_ml' in model_varis:
-                data['air_potential_temperature_ml'] = (data['air_temperature_ml'])*((1.e5/(data['air_pressure_ml']))**(287./1005.))
-
-            if 'specific_humidity_ml' in model_varis:
-                T = data["air_temperature_ml"] - 273.15
-                e = (data['specific_humidity_ml']*data['air_pressure_ml'])/(0.622 + 0.378*data['specific_humidity_ml'])
-                data['relative_humidty_ml'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
-            
+                data = full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
                 
             chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
         
         ds = xr.concat(chunks, dim="time")
+                
+                
+        ap, b, sp = xr.broadcast(ds["ap"], ds["b"], ds["surface_air_pressure"])
+        ds["air_pressure_ml"] = ap + b*sp
+        
+        ds["z"] = xr.zeros_like(ds["air_pressure_ml"])
+        
+        for c, n in enumerate(range(1,len(ds["hybrid"])+1)):
+            if c == 0:
+                p_d = (ds["surface_air_pressure"]/ds["air_pressure_ml"].isel(hybrid=-n))
+                Tm = (0.5 * (ds["air_temperature_0m"] + ds["air_temperature_ml"].isel(hybrid=-n)))
+            else:
+                p_d = (ds["air_pressure_ml"].isel(hybrid=-n+1)/ds["air_pressure_ml"].isel(hybrid=-n))
+                Tm = (0.5 * (ds["air_temperature_ml"].isel(hybrid=-n+1) + ds["air_temperature_ml"].isel(hybrid=-n)))
+            ds["z"][dict(hybrid=-n)] = ds["z"].isel(hybrid=-n+1) + 287.*Tm/9.81*np.log(p_d)
+            
+            
+        if "x_wind_ml" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_ml"] = ds['x_wind_ml'] * np.cos(ds["alpha"]) - ds['y_wind_ml'] * np.sin(ds["alpha"])
+            ds["northward_wind_ml"] = ds['y_wind_ml'] * np.cos(ds["alpha"]) + ds['x_wind_ml'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_ml'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_ml'], -ds['northward_wind_ml']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_ml'] = np.sqrt((ds['eastward_wind_ml']**2.) + (ds['northward_wind_ml']**2.))
+
+            del ds['x_wind_ml']
+            del ds['y_wind_ml']
+            del ds['diffn']
+            del ds['alpha']
+            
+            
+        # Calculating potential temperature
+        if 'air_temperature_ml' in model_varis:
+            ds['air_potential_temperature_ml'] = (ds['air_temperature_ml'])*((1.e5/(ds['air_pressure_ml']))**(287./1005.))
+
+            if 'specific_humidity_ml' in model_varis:
+                T = ds["air_temperature_ml"] - 273.15
+                e = (ds['specific_humidity_ml']*ds['air_pressure_ml'])/(0.622 + 0.378*ds['specific_humidity_ml'])
+                ds['relative_humidty_ml'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
+            
+        del ds["ap"]
+        del ds["b"]
+        
         ds.to_netcdf(self.out_path)
         
         
@@ -935,7 +927,7 @@ class MET_model_download_class():
     
     
     
-    def download_cross_section_data(self):
+    def download_vertical_cross_section_data(self):
         """
         Method to download a (vertical) cross section.
 
@@ -972,23 +964,40 @@ class MET_model_download_class():
             
         model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction", "ap", "b"]
 
+
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        x, y = data_crs.transform_point(self.start_point[1], self.start_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.end_point[1], self.end_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+
+        x = np.arange(np.nanmin(xx)-3*self.dxdy, (np.nanmax(xx)+3*self.dxdy+1), self.dxdy)
+        y = np.arange(np.nanmin(yy)-3*self.dxdy, (np.nanmax(yy)+3*self.dxdy+1), self.dxdy)
+        x = x[::self.int_x]
+        y = y[::self.int_y]
         
-        lat_lims = [np.min([self.start_point[0], self.end_point[0]]), np.max([self.start_point[0], self.end_point[0]])]
-        lon_lims = [np.min([self.start_point[1], self.end_point[1]]), np.max([self.start_point[1], self.end_point[1]])]
-        start_lonlat, count_lonlat, _, _ = unisacsi.lonlat2xy(lon_lims, lat_lims, self.static_fields["lon"], self.static_fields["lat"], 2)
-        start_lonlat -= 2
-        count_lonlat += 5
-        idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
-        idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
-        idxx = idx[::self.int_x]
-        idyy = idy[::self.int_y]
+        xp, yp = data_crs.transform_point(self.end_point[1], self.start_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=xp, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=yp, method="nearest"))
+        xp, yp = data_crs.transform_point(self.start_point[1], self.end_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=xp, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=yp, method="nearest"))
+        
+        xp = np.arange(np.nanmin(xx)-3*self.dxdy, (np.nanmax(xx)+3*self.dxdy+1), self.dxdy)
+        yp = np.arange(np.nanmin(yy)-3*self.dxdy, (np.nanmax(yy)+3*self.dxdy+1), self.dxdy)
+        xp = xp[::self.int_x]
+        yp = yp[::self.int_y]
         
         if self.check_plot:
             # figure to check if the right area was selected
             plt.close("all")
             plt.ion()
             fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
-            ax.set_extent([self.lon_lims[0]-2., self.lon_lims[1]+2., self.lat_lims[0]-.5, self.lat_lims[1]+.5], crs=ccrs.PlateCarree())
+            ax.set_extent([xp[0]-0.1*abs(xp[-1]-xp[0]), xp[-1]+0.1*abs(xp[-1]-xp[0]), yp[0]-0.1*abs(yp[-1]-yp[0]), yp[-1]+0.1*abs(yp[-1]-yp[0])], crs=data_crs)
             ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
             gl = ax.gridlines(draw_labels=False)
             gl.left_labels = True
@@ -999,8 +1008,10 @@ class MET_model_download_class():
             ax.set_xlabel(None)
             ax.set_ylabel(None)
             ax.set_title(None)
-            ax.pcolormesh(self.static_fields['lon'][idxx,:][:,idyy], self.static_fields['lat'][idxx,:][:,idyy], self.static_fields['orog'][idxx,:][:,idyy], cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            pic = ax.pcolormesh(self.static_fields['longitude'].sel(x=xp, y=yp), self.static_fields['latitude'].sel(x=xp, y=yp), (self.static_fields['surface_geopotential'].sel(x=xp, y=yp))/9.81, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
             ax.plot([self.start_point[1], self.end_point[1]], [self.start_point[0], self.end_point[0]], 'r-', transform=ccrs.PlateCarree())
+            cbar = plt.colorbar(pic, ax=ax)
+            cbar.ax.set_ylabel("model grid elevation [m]")
             plt.show(block=False)
             plt.pause(5.)
 
@@ -1012,70 +1023,288 @@ class MET_model_download_class():
 
             if switch_continue != "Y":
                 sys.exit(1)
+                
+            print("Starting data download...")
             
             
         chunks = []
         for filename in self.fileurls:
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy, hybrid=np.arange(-self.model_levels,0,1))[model_varis].squeeze()
-                
-            ap, b, sp = xr.broadcast(data["ap"], data["b"], data["surface_air_pressure"])
-            data["air_pressure_ml"] = ap + b*sp
-            
-            data["z"] = xr.zeros_like(data["air_pressure_ml"])
-            
-            for c, n in enumerate(range(1,len(data["hybrid"])+1)):
-                if c == 0:
-                    p_d = data["surface_air_pressure"].values/data["air_pressure_ml"].isel(hybrid=-n).values
-                    Tm = np.nanmean([data["air_temperature_0m"].values, data["air_temperature_ml"].isel(hybrid=-n).values])
-                else:
-                    p_d = data["air_pressure_ml"].isel(hybrid=-n+1).values/data["air_pressure_ml"].isel(hybrid=-n).values
-                    Tm = 0.5 * (data["air_temperature_ml"].isel(hybrid=-n+1).values + data["air_temperature_ml"].isel(hybrid=-n).values)
-                data["z"][dict(hybrid=-n)] = data["z"].isel(hybrid=-n+1).values + 287.*Tm/9.81*np.log(p_d)
-
-                
-                
-            if "x_wind_ml" in model_varis:
-                # Wind u and v components in the original data are grid-related.
-                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
-
-                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
-                data["diffn"].values[data["diffn"].values > 180.] -= 360
-                data["diffn"].values[data["diffn"].values < -180.] += 360
-
-                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
-
-                data["eastward_wind_ml"] = data['x_wind_ml'] * np.cos(data["alpha"]) - data['y_wind_ml'] * np.sin(data["alpha"])
-                data["northward_wind_ml"] = data['y_wind_ml'] * np.cos(data["alpha"]) + data['x_wind_ml'] * np.sin(data["alpha"])
-
-                # Calculating wind direction
-                data['wind_direction_ml'] = (np.rad2deg(np.arctan2(-data['eastward_wind_ml'], -data['northward_wind_ml']))+360.) % 360.
-
-                # Calculating wind speed
-                data['wind_speed_ml'] = np.sqrt((data['eastward_wind_ml']**2.) + (data['northward_wind_ml']**2.))
-
-                del data['x_wind_ml']
-                del data['y_wind_ml']
-                del data['diffn']
-                del data['alpha']
-                
-                
-            # Calculating potential temperature
-            if 'air_temperature_ml' in model_varis:
-                data['air_potential_temperature_ml'] = (data['air_temperature_ml'])*((1.e5/(data['air_pressure_ml']))**(287./1005.))
-
-            if 'specific_humidity_ml' in model_varis:
-                T = data["air_temperature_ml"] - 273.15
-                e = (data['specific_humidity_ml']*data['air_pressure_ml'])/(0.622 + 0.378*data['specific_humidity_ml'])
-                data['relative_humidty_ml'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
-            
+                data = full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
                 
             chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
+        
+        ds = xr.concat(chunks, dim="time", data_vars="minimal")
+                
+        ap, b, sp = xr.broadcast(ds["ap"], ds["b"], ds["surface_air_pressure"])
+        ds["air_pressure_ml"] = ap + b*sp
+        
+        ds["z"] = xr.zeros_like(ds["air_pressure_ml"])
+        
+        for c, n in enumerate(range(1,len(ds["hybrid"])+1)):
+            if c == 0:
+                p_d = (ds["surface_air_pressure"]/ds["air_pressure_ml"].isel(hybrid=-n))
+                Tm = (0.5 * (ds["air_temperature_0m"] + ds["air_temperature_ml"].isel(hybrid=-n)))
+            else:
+                p_d = (ds["air_pressure_ml"].isel(hybrid=-n+1)/ds["air_pressure_ml"].isel(hybrid=-n))
+                Tm = (0.5 * (ds["air_temperature_ml"].isel(hybrid=-n+1) + ds["air_temperature_ml"].isel(hybrid=-n)))
+            ds["z"][dict(hybrid=-n)] = ds["z"].isel(hybrid=-n+1) + 287.*Tm/9.81*np.log(p_d)
+            
+            
+        if "x_wind_ml" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_ml"] = ds['x_wind_ml'] * np.cos(ds["alpha"]) - ds['y_wind_ml'] * np.sin(ds["alpha"])
+            ds["northward_wind_ml"] = ds['y_wind_ml'] * np.cos(ds["alpha"]) + ds['x_wind_ml'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_ml'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_ml'], -ds['northward_wind_ml']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_ml'] = np.sqrt((ds['eastward_wind_ml']**2.) + (ds['northward_wind_ml']**2.))
+
+            del ds['x_wind_ml']
+            del ds['y_wind_ml']
+            del ds['diffn']
+            del ds['alpha']
+            
+            
+        # Calculating potential temperature
+        if 'air_temperature_ml' in model_varis:
+            ds['air_potential_temperature_ml'] = (ds['air_temperature_ml'])*((1.e5/(ds['air_pressure_ml']))**(287./1005.))
+
+            if 'specific_humidity_ml' in model_varis:
+                T = ds["air_temperature_ml"] - 273.15
+                e = (ds['specific_humidity_ml']*ds['air_pressure_ml'])/(0.622 + 0.378*ds['specific_humidity_ml'])
+                ds['relative_humidty_ml'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
+                
+        print("Starting cross section interpolations...")
+        ds = ds.metpy.parse_cf().squeeze()
+        cross_sections = []
+        for vari in list(ds.variables):
+            if vari not in ["longitude", "latitude"]:
+                if (("x" in ds[vari].dims) and ("y" in ds[vari].dims)):
+                    print(f"Calculating cross section for {vari}...")
+                    cross_sections.append(metpy.interpolate.cross_section(ds[vari], self.start_point, self.end_point))
+                
+        cross_section = xr.merge(cross_sections, compat='override')
+        del cross_section["metpy_crs"]
+        attributes = self.static_fields.attrs
+        attributes["comment"] = "Cross section data extracted from the full data files."
+        cross_section.attrs = attributes
+        cross_section["projection_lambert"] = self.static_fields["projection_lambert"]
+        cross_section["distance"] = 1.e-3*np.sqrt((cross_section.x-cross_section.x.values[0])**2. + (cross_section.y-cross_section.y.values[0])**2.)
+        cross_section = cross_section.set_coords(("distance"))
+        cross_section.to_netcdf(self.out_path)
+            
+        return
+    
+    
+    
+    def download_horizontal_near_surface_section_data(self):
+        """
+        Method to download 2D fields of near-surface variables.
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        if "Humidity" in self.varis:
+            self.varis.remove("Humidity")
+            self.varis += ["RH", "q"]
+            
+        model_varnames =    {'T': 'air_temperature_2m',
+                             'RH': 'relative_humidity_2m',
+                             'q': 'specific_humidity_2m',
+                             'ur': 'x_wind_10m',
+                             'vr': 'y_wind_10m',
+                             'p_surf': 'surface_air_pressure',
+                             'T_surf': 'air_temperature_0m',
+                             'MSLP': "air_pressure_at_sea_level",
+                             'tau_x': "downward_eastward_momentum_flux_in_air",
+                             'tau_y': "downward_northward_momentum_flux_in_air",
+                             'SW_net': "integral_of_surface_net_downward_shortwave_flux_wrt_time",
+                             'SW_down': "integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time",
+                             'LW_net': "integral_of_surface_net_downward_longwave_flux_wrt_time",
+                             'LW_down': "integral_of_surface_downwelling_longwave_flux_in_air_wrt_time",
+                             'LHF': "integral_of_surface_downward_latent_heat_flux_wrt_time",
+                             'SHF': "integral_of_surface_downward_sensible_heat_flux_wrt_time",
+                             'cloud_cover': 'cloud_area_fraction',
+                             'ABL_height': 'atmosphere_boundary_layer_thickness',
+                             'precip': "precipitation_amount_acc"}
+        
+        varis_to_load = {}
+        for v in self.varis:
+            try:
+                varis_to_load[v] = model_varnames[v]
+            except KeyError:
+                print(f"The variable {v} is unfortunately not available as {self.data_format}, please de-select in the configuration file and try again.")
+                sys.exit(1)
+                
+        model_varis = list(varis_to_load.values()) + ["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]
+        
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        x, y = data_crs.transform_point(self.start_point[1], self.start_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.end_point[1], self.end_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+
+        x = np.arange(np.nanmin(xx)-3*self.dxdy, (np.nanmax(xx)+3*self.dxdy+1), self.dxdy)
+        y = np.arange(np.nanmin(yy)-3*self.dxdy, (np.nanmax(yy)+3*self.dxdy+1), self.dxdy)
+        x = x[::self.int_x]
+        y = y[::self.int_y]
+        
+        xp, yp = data_crs.transform_point(self.end_point[1], self.start_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=xp, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=yp, method="nearest"))
+        xp, yp = data_crs.transform_point(self.start_point[1], self.end_point[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=xp, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=yp, method="nearest"))
+        
+        xp = np.arange(np.nanmin(xx)-3*self.dxdy, (np.nanmax(xx)+3*self.dxdy+1), self.dxdy)
+        yp = np.arange(np.nanmin(yy)-3*self.dxdy, (np.nanmax(yy)+3*self.dxdy+1), self.dxdy)
+        xp = xp[::self.int_x]
+        yp = yp[::self.int_y]
+        
+        if self.check_plot:
+            # figure to check if the right area was selected
+            plt.close("all")
+            plt.ion()
+            fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
+            ax.set_extent([xp[0]-0.1*abs(xp[-1]-xp[0]), xp[-1]+0.1*abs(xp[-1]-xp[0]), yp[0]-0.1*abs(yp[-1]-yp[0]), yp[-1]+0.1*abs(yp[-1]-yp[0])], crs=data_crs)
+            ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
+            gl = ax.gridlines(draw_labels=False)
+            gl.left_labels = True
+            gl.bottom_labels = True
+            gl.xformatter = LONGITUDE_FORMATTER
+            gl.yformatter = LATITUDE_FORMATTER
+            ax.set_title(None)
+            ax.set_xlabel(None)
+            ax.set_ylabel(None)
+            ax.set_title(None)
+            pic = ax.pcolormesh(self.static_fields['longitude'].sel(x=xp, y=yp), self.static_fields['latitude'].sel(x=xp, y=yp), (self.static_fields['surface_geopotential'].sel(x=xp, y=yp))/9.81, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            ax.plot([self.start_point[1], self.end_point[1]], [self.start_point[0], self.end_point[0]], 'r-', transform=ccrs.PlateCarree())
+            cbar = plt.colorbar(pic, ax=ax)
+            cbar.ax.set_ylabel("model grid elevation [m]")
+            plt.show(block=False)
+            plt.pause(5.)
+
+            print("Type 'Y' to proceed to the download. Any other input will terminate the script immediately.")
+            print("")
+            switch_continue = input("Your input:  ")
+
+            plt.close("all")
+
+            if switch_continue != "Y":
+                sys.exit(1)
+                
+            print("Starting data download...")
+            
+            
+            
+        chunks = []
+        for filename in self.fileurls:
+            with xr.open_dataset(filename) as full_file:
+                data = full_file.isel(time=self.time_ind).sel(x=x, y=y)[model_varis].squeeze()
+                
+            for vari in model_varis:
+                if vari[:8] == "integral":
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=0)] /= self.start_h
+                    data[vari] /= (3600.*self.int_h)
+                    data = data.rename({vari: vari[12:-9]})
+                elif vari[-3:] == "acc":
+                    data[vari][dict(time=range(1,len(data["time"])))] -= data[vari].diff(dim="time").values
+                    data[vari][dict(time=0)] /= self.start_h
+                    data = data.rename({vari: vari[:-4]})
+                        
+            chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
         
         ds = xr.concat(chunks, dim="time")
-        ds.to_netcdf(self.out_path)
 
+        if "integral_of_surface_net_downward_shortwave_flux_wrt_time" in model_varis:
+            # Converting radiative fluxes from net into up
+            ds["surface_upwelling_shortwave_flux_in_air"] = ds["surface_downwelling_shortwave_flux_in_air"] - ds["surface_net_downward_shortwave_flux"]
+            ds["surface_upwelling_longwave_flux_in_air"] = ds["surface_downwelling_longwave_flux_in_air"] - ds["surface_net_downward_longwave_flux"]
+
+            del ds['surface_net_downward_shortwave_flux']
+            del ds['surface_net_downward_longwave_flux']
+            
+        if "x_wind_10m" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_10m"] = ds['x_wind_10m'] * np.cos(ds["alpha"]) - ds['y_wind_10m'] * np.sin(ds["alpha"])
+            ds["northward_wind_10m"] = ds['y_wind_10m'] * np.cos(ds["alpha"]) + ds['x_wind_10m'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_10m'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_10m'], -ds['northward_wind_10m']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_10m'] = np.sqrt((ds['eastward_wind_10m']**2.) + (ds['northward_wind_10m']**2.))
+
+            del ds['x_wind_10m']
+            del ds['y_wind_10m']
+            del ds['diffn']
+            del ds['alpha']
+            
+        # Calculating potential temperature
+        if (("air_temperature_2m" in model_varis) & ("surface_air_pressure" in model_varis)):
+            ds['air_potential_temperature_2m'] = (ds['air_temperature_2m'])*((1.e5/(ds['surface_air_pressure']))**(287./1005.))
+
+            if 'specific_humidity_2m' in model_varis:
+                T = ds["air_temperature_2m"] - 273.15
+                e = (ds['specific_humidity_2m']*ds['surface_air_pressure'])/(0.622 + 0.378*ds['specific_humidity_2m'])
+                ds['relative_humidty_2m'] = (e/(611.2 * np.exp((17.62*T)/(243.12+T))))
+                
+            
+        print("Starting cross section interpolations...")
+        ds = ds.metpy.parse_cf().squeeze()
+        cross_sections = []
+        for vari in list(ds.variables):
+            if vari not in ["longitude", "latitude"]:
+                if (("x" in ds[vari].dims) and ("y" in ds[vari].dims)):
+                    print(f"Calculating cross section for {vari}...")
+                    cross_sections.append(metpy.interpolate.cross_section(ds[vari], self.start_point, self.end_point))
+                
+        cross_section = xr.merge(cross_sections, compat='override')
+        del cross_section["metpy_crs"]
+        attributes = self.static_fields.attrs
+        attributes["comment"] = "Cross section data extracted from the full data files."
+        cross_section.attrs = attributes
+        cross_section["projection_lambert"] = self.static_fields["projection_lambert"]
+        cross_section["distance"] = 1.e-3*np.sqrt((cross_section.x-cross_section.x.values[0])**2. + (cross_section.y-cross_section.y.values[0])**2.)
+        cross_section = cross_section.set_coords(("distance"))
+        cross_section.to_netcdf(self.out_path)
+        
+        cross_section.to_netcdf(self.out_path)
+        
+        
         return
     
     
@@ -1119,49 +1348,33 @@ class MET_model_download_class():
         plevels = [l.split("_")[0] for l in self.p_levels]
         ind_p_levels = [np.where(model_p_levels == l)[0][0] for l in plevels]
 
-        lon_corners  = [self.lon_lims[0], self.lon_lims[1], self.lon_lims[1], self.lon_lims[0]]
-        lat_corners  = [self.lat_lims[0], self.lat_lims[0], self.lat_lims[1], self.lat_lims[1]]
+        data_crs = ccrs.CRS(self.static_fields.projection_lambert.attrs["proj4"])
+        xx = []
+        yy = []
+        x, y = data_crs.transform_point(self.lon_lims[0], self.lat_lims[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[1], self.lat_lims[0], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[1], self.lat_lims[1], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
+        x, y = data_crs.transform_point(self.lon_lims[0], self.lat_lims[1], src_crs=ccrs.PlateCarree())
+        xx.append(self.static_fields['x'].sel(x=x, method="nearest"))
+        yy.append(self.static_fields['y'].sel(y=y, method="nearest"))
 
-        coords_xx = np.zeros(len(lon_corners))
-        coords_yy = np.zeros(len(lon_corners))
-
-        for qq in range(len(lon_corners)):
-            lonn1 = lon_corners[qq]
-            latt1 = lat_corners[qq]
-
-            radius = 6378.137
-            lat1 = latt1 * (np.pi/180.)
-            lat2 = self.static_fields["lat"] * (np.pi/180.)
-            lon1 = lonn1 * (np.pi/180.)
-            lon2 = self.static_fields["lon"] * (np.pi/180.)
-            deltaLat = lat2 - lat1
-            deltaLon = lon2 - lon1
-
-            x = deltaLon * np.cos((lat1+lat2)/2.)
-            y = deltaLat
-            d2km = radius * np.sqrt(x**2. + y**2.)
-
-            coords_xx[qq], coords_yy[qq] = np.unravel_index(d2km.argmin(), d2km.shape)
-
-        lonmin_id = int(np.min(coords_xx))
-        lonmax_id = int(np.max(coords_xx))
-        latmin_id = int(np.min(coords_yy))
-        latmax_id = int(np.max(coords_yy))
-
-        start_lonlat = np.array([lonmin_id, latmin_id])
-        count_lonlat = np.array([np.abs(lonmax_id-lonmin_id), np.abs(latmax_id-latmin_id)])
-        
-        idx = np.arange(start_lonlat[0], (start_lonlat[0]+count_lonlat[0]+1))
-        idy = np.arange(start_lonlat[1], (start_lonlat[1]+count_lonlat[1]+1))
-        idxx = idx[::self.int_x]
-        idyy = idy[::self.int_y]
+        x = np.arange(np.nanmin(xx), (np.nanmax(xx)+1), self.dxdy)
+        y = np.arange(np.nanmin(yy), (np.nanmax(yy)+1), self.dxdy)
+        x = x[::self.int_x]
+        y = y[::self.int_y]
         
         if self.check_plot:
             # figure to check if the right area was selected
             plt.close("all")
             plt.ion()
             fig, ax = plt.subplots(1,1,subplot_kw={'projection': ccrs.Mercator()})
-            ax.set_extent([self.lon_lims[0]-2., self.lon_lims[1]+2., self.lat_lims[0]-.5, self.lat_lims[1]+.5], crs=ccrs.PlateCarree())
+            ax.set_extent([x[0]-0.1*abs(x[-1]-x[0]), x[-1]+0.1*abs(x[-1]-x[0]), y[0]-0.1*abs(y[-1]-y[0]), y[-1]+0.1*abs(y[-1]-y[0])], crs=data_crs)
             ax.coastlines(resolution="10m", linewidth=0.5, zorder=30)
             gl = ax.gridlines(draw_labels=False)
             gl.left_labels = True
@@ -1172,7 +1385,9 @@ class MET_model_download_class():
             ax.set_xlabel(None)
             ax.set_ylabel(None)
             ax.set_title(None)
-            ax.pcolormesh(self.static_fields['lon'][idxx,:][:,idyy], self.static_fields['lat'][idxx,:][:,idyy], self.static_fields['orog'][idxx,:][:,idyy], cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            pic = ax.pcolormesh(self.static_fields['longitude'].sel(x=x, y=y), self.static_fields['latitude'].sel(x=x, y=y), (self.static_fields['surface_geopotential'].sel(x=x, y=y))/9.81, cmap=mpl.cm.terrain, shading="nearest", transform=ccrs.PlateCarree())
+            cbar = plt.colorbar(pic, ax=ax)
+            cbar.ax.set_ylabel("model grid elevation [m]")
             plt.show(block=False)
             plt.pause(5.)
 
@@ -1185,43 +1400,47 @@ class MET_model_download_class():
             if switch_continue != "Y":
                 sys.exit(1)
                 
+            print("Starting data download...")
+                
                 
         chunks = []
         for filename in self.fileurls:
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, x=idxx, y=idyy, pressure=ind_p_levels)[model_varis].squeeze()
+                data = full_file.isel(time=self.time_ind, pressure=ind_p_levels).sel(x=x, y=y)[model_varis].squeeze()
                 
-                
-            if "x_wind_pl" in model_varis:
-                # Wind u and v components in the original data are grid-related.
-                # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
-                cone = np.sin(np.abs(np.deg2rad(data.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
-
-                data["diffn"] = data.projection_lambert.attrs["longitude_of_central_meridian"] - data.longitude
-                data["diffn"].values[data["diffn"].values > 180.] -= 360
-                data["diffn"].values[data["diffn"].values < -180.] += 360
-
-                data["alpha"]  = np.deg2rad(data["diffn"]) * cone
-
-                data["eastward_wind_pl"] = data['x_wind_pl'] * np.cos(data["alpha"]) - data['y_wind_pl'] * np.sin(data["alpha"])
-                data["northward_wind_pl"] = data['y_wind_pl'] * np.cos(data["alpha"]) + data['x_wind_pl'] * np.sin(data["alpha"])
-
-                # Calculating wind direction
-                data['wind_direction_pl'] = (np.rad2deg(np.arctan2(-data['eastward_wind_pl'], -data['northward_wind_pl']))+360.) % 360.
-
-                # Calculating wind speed
-                data['wind_speed_pl'] = np.sqrt((data['eastward_wind_pl']**2.) + (data['northward_wind_pl']**2.))
-
-                del data['x_wind_pl']
-                del data['y_wind_pl']
-                del data['diffn']
-                del data['alpha']
+            chunks.append(data)
+            
+            print(f"Done downloading {filename}.")
         
         ds = xr.concat(chunks, dim="time")
+                
+        if "x_wind_pl" in model_varis:
+            # Wind u and v components in the original ds are grid-related.
+            # Therefore, we rotate here the wind components from grid- to earth-related coordinates.
+            cone = np.sin(np.abs(np.deg2rad(ds.projection_lambert.attrs["latitude_of_projection_origin"]))) # cone factor
+
+            ds["diffn"] = ds.projection_lambert.attrs["longitude_of_central_meridian"] - ds.longitude
+            ds["diffn"].values[ds["diffn"].values > 180.] -= 360
+            ds["diffn"].values[ds["diffn"].values < -180.] += 360
+
+            ds["alpha"]  = np.deg2rad(ds["diffn"]) * cone
+
+            ds["eastward_wind_pl"] = ds['x_wind_pl'] * np.cos(ds["alpha"]) - ds['y_wind_pl'] * np.sin(ds["alpha"])
+            ds["northward_wind_pl"] = ds['y_wind_pl'] * np.cos(ds["alpha"]) + ds['x_wind_pl'] * np.sin(ds["alpha"])
+
+            # Calculating wind direction
+            ds['wind_direction_pl'] = (np.rad2deg(np.arctan2(-ds['eastward_wind_pl'], -ds['northward_wind_pl']))+360.) % 360.
+
+            # Calculating wind speed
+            ds['wind_speed_pl'] = np.sqrt((ds['eastward_wind_pl']**2.) + (ds['northward_wind_pl']**2.))
+
+            del ds['x_wind_pl']
+            del ds['y_wind_pl']
+            del ds['diffn']
+            del ds['alpha']
+        
         ds.to_netcdf(self.out_path)
         
-        
-
         
         return
     
