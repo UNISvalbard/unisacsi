@@ -21,3 +21,4 @@ dask
 utm
 git
 pip
+metpy
