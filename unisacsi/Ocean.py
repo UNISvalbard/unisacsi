@@ -623,7 +623,11 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
 
         # get the interesting header fields and append it to the dict
         p.update(profile.attrs)
-
+        
+        # get the UNIS station number
+        with open(file, encoding = "ISO-8859-1") as f:
+            unis_station = int(([next(f) for x in range(28)][-1].split(":"))[-1])
+        
         # if time is present: convert to dnum
         try:
             p['dnum'] = date2num(p['datetime'])
@@ -645,9 +649,10 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         p['CT'] = gsw.CT_from_t(p['SA'],p['T'],p['P'])
         p['SIGTH'] = gsw.sigma0(p['SA'],p['CT'])
         p['st'] = int(p['filename'].split('.')[0].split('_')[0][-4::])
+        p["unis_st"] = unis_station
         if 'OX' in p:
             p['OX'] = oxy_corr[0] * p['OX'] + oxy_corr[1]
-        CTD_dict[p['st']]= p
+        CTD_dict[p['unis_st']]= p
 
     # save data if outpath was given
     if outpath is not None:
