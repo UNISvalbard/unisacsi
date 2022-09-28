@@ -1015,7 +1015,7 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
 
 
 def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
-                     x_type='distance',interp_opt = 1,z_fine=False):
+                     x_type='distance',interp_opt = 1,bottom=False,z_fine=False):
     '''
     This function plots a CTD section of Temperature and Salinity,
     given CTD data either directly or via a file.
@@ -1073,7 +1073,10 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
     CTD = {key:CTD[key] for key in stations}
 
     # extract Bottom Depth
-    BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
+    if type(bottom) == bool:
+        BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
+    else:
+        BDEPTH = bottom
 
     # put the fields (the vector data) on a regular, common pressure and X grid
     # by interpolating.
