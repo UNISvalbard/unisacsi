@@ -1108,7 +1108,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
 
 def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
                      x_type='distance',parameter='T',clabel='Temperature [˚C]',
-                     cmap=cmocean.cm.thermal,clevels=20,interp_opt = 1,
+                     cmap=cmocean.cm.thermal,clevels=20,interp_opt = 1,bottom=False,
                      tlocator=None,z_fine=False):
     '''
     This function plots a CTD section of a chosen variable,
@@ -1137,6 +1137,9 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     clevels : array-like or number, optional
         The levels of the filled contourf. Either a number of levels,
         or the specific levels. The defauls is 20.
+    bottom : array-like or False, optional
+        The bottom topography, either an array with values extracted from a bathymetry file, or False (default).
+        If False, the bottom depth from the CTD profiles will be used.
     interp_opt: int, optional
         Integer which interpolation method to use for gridding
                      0: no interpolation,
@@ -1173,7 +1176,10 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     CTD = {key:CTD[key] for key in stations}
 
     # extract Bottom Depth
-    BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
+    if bottom:
+        BDEPTH = bottom
+    else:
+        BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
 
     # put the fields (the vector data) on a regular, common pressure and X grid
     # by interpolating.
