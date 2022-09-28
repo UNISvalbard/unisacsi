@@ -894,7 +894,7 @@ def read_mooring(file):
 
 def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contours=None,
                     clabel='',bottom_depth=None,clevels=20,station_text='',
-                    interp_opt=1,tlocator=None):
+                    interp_opt=1,tlocator=None, cbar=True):
     '''
     Plots a filled contour plot of *Z*, with contourf of *Z2* on top to
     the axes *ax*. It also displays the position of stations, if given in
@@ -989,7 +989,9 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
     else:
         cSIG = None
 
-    plt.colorbar(cT,ax = ax,label=clabel,pad=0.01) # add colorbar
+    if cbar:
+        plt.colorbar(cT,ax = ax,label=clabel,pad=0.01) # add colorbar
+    
     ax.set_ylim(y_limits)
     ax.invert_yaxis()
 
@@ -1119,7 +1121,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
 def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
                      x_type='distance',parameter='T',clabel='Temperature [˚C]',
                      cmap=cmocean.cm.thermal,clevels=20,interp_opt = 1,bottom=False,
-                     tlocator=None,z_fine=False):
+                     tlocator=None,z_fine=False, cbar=True):
     '''
     This function plots a CTD section of a chosen variable,
     given CTD data either directly (through `CTD`) or via a file (through)
@@ -1159,6 +1161,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
         special locator for the colorbar. For example logarithmic values,
         for that use matplotlib.ticker.LogLocator(). Default is None.
     z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
+    cbar: switch to enable/disable the colorbar
 
     Returns
     -------
@@ -1205,7 +1208,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
                           station_pos=station_locs,cmap=cmap,
                           clabel=clabel,bottom_depth=BDEPTH,
                           station_text=section_name,clevels=clevels,
-                          interp_opt=interp_opt,tlocator=tlocator)
+                          interp_opt=interp_opt,tlocator=tlocator, cbar=cbar)
     # Add x and y labels
     ax.set_ylabel('Depth [m]')
     if x_type == 'distance':
