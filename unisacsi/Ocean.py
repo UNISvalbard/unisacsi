@@ -1176,7 +1176,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     CTD = {key:CTD[key] for key in stations}
 
     # extract Bottom Depth
-    if bottom:
+    if bottom != False:
         BDEPTH = bottom
     else:
         BDEPTH = np.asarray([d['BottomDepth'] for d in CTD.values()])
