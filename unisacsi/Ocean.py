@@ -290,6 +290,8 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
                 fCTD[field] = griddata((X_orig[mask],Z_orig[mask]), # old grid
                                      temp_array[mask], # data
                                      tuple(np.meshgrid(X_int,Z_int))) # new grid
+            if field == "water_mass":
+                fCTD[field] = np.round(fCTD[field])
         except:
             print('Warning: No gridding possible for '+field+'. Maybe ' \
                       'no valid data? Setting to nan...')
@@ -1193,6 +1195,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     # by interpolating.
     fCTD,Z,X,station_locs = CTD_to_grid(CTD,x_type=x_type,
                                         interp_opt=interp_opt,z_fine=z_fine)
+    
 
     # plot the figure
     fig,ax = plt.subplots(1,1,figsize=(8,5))
