@@ -1153,7 +1153,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
                                         interp_opt=interp_opt,z_fine=z_fine)
 
     # plot the figure
-    fig,[axT,axS] = plt.subplots(2,1,figsize=(8,9))
+    fig,[axT,axS] = plt.subplots(2,1,figsize=(8,9), sharex=True)
 
     # Temperature
     _,Ct_T,C_T = contour_section(X,Z,fCTD['T'],fCTD['SIGTH'],ax = axT,
