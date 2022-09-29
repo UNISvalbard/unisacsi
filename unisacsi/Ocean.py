@@ -265,8 +265,8 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
 
     # this X vector is where the stations are located, so save that
     station_locs = X[:]
-    fields = set([field for field in CTD[stations[0]]
-                        if np.size(CTD[stations[0]][field]) > 1])
+    fields = list(set([field for field in CTD[stations[0]]
+                        if np.size(CTD[stations[0]][field]) > 1]))
     
     if "water_mass" in fields:
         fields.remove("water_mass")     # ensure that the water mass is the last field in the list
