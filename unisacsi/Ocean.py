@@ -228,6 +228,17 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     station_locs : array_like
         locations of the stations as X units.
     '''
+    
+    # water masses
+    water_mass_def = pd.DataFrame([["IW", "Intermediate Water", 1., 20., 34., 34.7, 34.16, 34.87,	"#DDB1A6"],
+                                   ["TAW", "Transformed Atlantic Water", 1., 20., 34.7, 40., 34.87, 40., "#B33826"],
+                                   ["AW", "Atlantic Water", 3., 20., 34.9, 40., 35.07, 40., "#3C0912"],
+                                   ["SW", "Surface Water",	1., 20., 20., 34., 20., 34.16,	"#00CCFF"],
+                                   ["LW", "Local Water", -5., 1., 25., 40., 25., 40., "#1670BC"],
+                                   ["WCW", "Winter-Cooled Water", -5.,	-0.5, 34.4, 40., 34.56, 40., "#181C41"],
+                                   ["ArW",	"Arctic Water", -5., 0., 34.3, 34.8, 34.46, 34.97, "#AAC2CC"]],
+                                    columns=["Abbr", "Name", "T_min", "T_max", "S_psu_min", "S_psu_max", "SA_min", "SA_max", "color"])
+
 
     # if no stations are given, take all stations available
     if stations is None:
@@ -256,6 +267,10 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     station_locs = X[:]
     fields = set([field for field in CTD[stations[0]]
                         if np.size(CTD[stations[0]][field]) > 1])
+    
+    if "water_mass" in fields:
+        fields.remove("water_mass")     # ensure that the water mass is the last field in the list
+        fields.append("water_mass")
 
     # original grids
     X_orig,Z_orig = [f.ravel() for f in np.meshgrid(X,Z)]
@@ -290,8 +305,15 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
                 fCTD[field] = griddata((X_orig[mask],Z_orig[mask]), # old grid
                                      temp_array[mask], # data
                                      tuple(np.meshgrid(X_int,Z_int))) # new grid
+            
             if field == "water_mass":
-                fCTD[field] = np.round(fCTD[field])
+                for index, row in water_mass_def.iterrows():
+                    if row["Abbr"] != "ArW":
+                        ind = np.all(np.array([fCTD["T"] > row['T_min'],
+                                                fCTD["T"] <= row['T_max'],
+                                                fCTD["S"] > row['S_psu_min'],
+                                                fCTD["S"] <= row['S_psu_max']]))
+                        fCTD["water_mass"][ind] = index
         except:
             print('Warning: No gridding possible for '+field+'. Maybe ' \
                       'no valid data? Setting to nan...')
@@ -500,7 +522,50 @@ def present_dict(d,offset=''):
                 print(offset,i,':',type(k),', size:',np.size(k))
 
 
+def ctd_identify_water_masses(CTD, stations=None):
+    """
+    Function to assign each ctd measurement tuple of T and S the corresponding water mass (AW, TAW, LW etc.)
 
+    Parameters
+    ----------
+    CTD : dict
+        CTD data. Is created by `read_CTD`
+    stations : array_like, optional
+        list of stations to select from `CTD`.
+
+    Returns
+    -------
+    CTD : dict
+        dict with the ctd data, each station has a new variable 'water_mass'
+    """
+    
+    # if no stations are given, take all stations available
+    if stations is None:
+        stations = list(CTD.keys())
+    else:
+        CTD = {key:CTD[key] for key in stations}
+        
+    # water masses
+    water_mass_def = pd.DataFrame([["IW", "Intermediate Water", 1., 20., 34., 34.7, 34.16, 34.87,	"#DDB1A6"],
+                                   ["TAW", "Transformed Atlantic Water", 1., 20., 34.7, 40., 34.87, 40., "#B33826"],
+                                   ["AW", "Atlantic Water", 3., 20., 34.9, 40., 35.07, 40., "#3C0912"],
+                                   ["SW", "Surface Water",	1., 20., 20., 34., 20., 34.16,	"#00CCFF"],
+                                   ["LW", "Local Water", -5., 1., 25., 40., 25., 40., "#1670BC"],
+                                   ["WCW", "Winter-Cooled Water", -5.,	-0.5, 34.4, 40., 34.56, 40., "#181C41"],
+                                   ["ArW",	"Arctic Water", -5., 0., 34.3, 34.8, 34.46, 34.97, "#AAC2CC"]],
+                                    columns=["Abbr", "Name", "T_min", "T_max", "S_psu_min", "S_psu_max", "SA_min", "SA_max", "color"])
+
+    for s in stations:
+        CTD[s]["water_mass"] = np.ones_like(CTD[s]["T"]) * np.nan
+        for index, row in water_mass_def.iterrows():
+            if row["Abbr"] != "ArW":
+                ind = np.all(np.array([CTD[s]["T"] > row['T_min'],
+                                        CTD[s]["T"] <= row['T_max'],
+                                        CTD[s]["S"] > row['S_psu_min'],
+                                        CTD[s]["S"] <= row['S_psu_max']]), axis=0)
+                CTD[s]["water_mass"][ind] = index
+    
+    return CTD
 
 
 
