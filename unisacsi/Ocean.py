@@ -663,11 +663,8 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
     # If a folder is given, read single cnv files.
     # create a dict that converts the variable names in the cnv files to
     # the variable names used by us:
-    var_names = {'PRES':'P','temperature':'T','t168C':'T2','CNDC':'C',
-                 'CNDC2':'C2','PSAL':'S','PSAL2':'S2','oxygen_ml_L':'OX',
-                 'flC':'flC','par':'PAR','altM':'Z','timeJ':'time',
-                 'timeK':'time','timeS':'elapsedtime','longitude':'lon',
-                 'latitude':'lat','TEMP':'T','oxsolML/L':'OX','flSP':'flC'}
+    var_names = {'DEPTH': "D", 'PRES': "P", 'TEMP': "T", 'CNDC': "C", 'PSAL': "S", 'sigma_t': 'SIGTH', 'soundspeed': "Cs", 'sbeox0PS': "OXsat", 'seaTurbMtr': "TURB", 'par/sat/log': "PAR", 'oxygen_ml_L': "OX", 'potemperature': "Tpot", 'oxsolML/L': "OXsol"}
+
     # get all CTD station files in inpath
     files = glob.glob(inpath+'*.cnv')
     #If stations are provided, select the ones that exist
