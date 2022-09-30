@@ -1075,15 +1075,15 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
     if station_pos is not None:
         for i,pos in enumerate(station_pos):
             ax.text(pos,0,'v',ha='center',fontweight='bold')
-            if station_text != '':
-                ax.annotate(station_text+str(i+1),(pos,0),xytext=(0,10),
+            if len(station_text) == len(station_pos):
+                ax.annotate(str(station_text[i]),(pos,0),xytext=(0,10),
                         textcoords='offset points',ha='center')
 
     return ax, cT, cSIG
 
 
 
-def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
+def plot_CTD_section(CTD,stations,section_name = '',
                      x_type='distance',interp_opt = 1,bottom=False,z_fine=False):
     '''
     This function plots a CTD section of Temperature and Salinity,
@@ -1098,8 +1098,6 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
         stations to plot (station numbers have to be found inside the CTD data!).
     section_name : str, optional
         name of the Section, will appear in the plot title. The default is ''.
-    cruise_name : str, optional
-        name of the Cruise, will also appear in the title. The default is ''.
     x_type : str, optional
         Wheter to use 'distance' or 'time' as the x-axis. The default is 'distance'.
     interp_opt: int, optional
@@ -1159,7 +1157,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
     _,Ct_T,C_T = contour_section(X,Z,fCTD['T'],fCTD['SIGTH'],ax = axT,
                           station_pos=station_locs,cmap=cmocean.cm.thermal,
                           clabel='Temperature [˚C]',bottom_depth=BDEPTH,
-                          station_text=section_name,interp_opt=interp_opt)
+                          station_text=stations,interp_opt=interp_opt)
     # Salinity
     _,Ct_S,C_S = contour_section(X,Z,fCTD['S'],fCTD['SIGTH'],ax=axS,
                           station_pos=station_locs,cmap=cmocean.cm.haline,
@@ -1174,7 +1172,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
         axS.set_xlabel('Time [h]')
 
     # add title
-    fig.suptitle(cruise_name+' Section '+section_name,fontweight='bold')
+    fig.suptitle(section_name,fontweight='bold')
 
     # tight_layout
     fig.tight_layout(h_pad=0.1,rect=[0,0,1,0.95])
@@ -1183,7 +1181,7 @@ def plot_CTD_section(CTD,stations,section_name='',cruise_name = '',
 
 
 
-def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
+def plot_CTD_single_section(CTD,stations,section_name='',
                      x_type='distance',parameter='T',clabel='Temperature [˚C]',
                      cmap=cmocean.cm.thermal,clevels=20,interp_opt = 1,bottom=False,
                      tlocator=None,z_fine=False, cbar=True):
@@ -1200,8 +1198,6 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
         stations to plot (station numbers have to be found inside the CTD data!).
     section_name : str, optional
         name of the Section, will appear in the plot title. The default is ''.
-    cruise_name : str, optional
-        name of the Cruise, will also appear in the title. The default is ''.
     x_type : str, optional
         Wheter to use 'distance' or 'time' as the x-axis. The default is 'distance'.
     parameter : str, optional
@@ -1272,7 +1268,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
     _,Ct,C = contour_section(X,Z,fCTD[parameter],fCTD['SIGTH'],ax = ax,
                           station_pos=station_locs,cmap=cmap,
                           clabel=clabel,bottom_depth=BDEPTH,
-                          station_text=section_name,clevels=clevels,
+                          station_text=stations,clevels=clevels,
                           interp_opt=interp_opt,tlocator=tlocator, cbar=cbar)
     # Add x and y labels
     ax.set_ylabel('Depth [m]')
@@ -1282,7 +1278,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',cruise_name = '',
         ax.set_xlabel('Time [h]')
 
     # add title
-    fig.suptitle(cruise_name+' Section '+section_name,fontweight='bold')
+    fig.suptitle(section_name,fontweight='bold')
 
     # tight_layout
     fig.tight_layout(h_pad=0.1,rect=[0,0,1,0.95])
