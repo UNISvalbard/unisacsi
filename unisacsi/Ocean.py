@@ -1083,7 +1083,7 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
 
 
 
-def plot_CTD_section(CTD,stations,section_name = '',
+def plot_CTD_section(CTD,stations,section_name = '',clevels_T=20,clevels_S=20,
                      x_type='distance',interp_opt = 1,bottom=False,z_fine=False):
     '''
     This function plots a CTD section of Temperature and Salinity,
@@ -1098,6 +1098,9 @@ def plot_CTD_section(CTD,stations,section_name = '',
         stations to plot (station numbers have to be found inside the CTD data!).
     section_name : str, optional
         name of the Section, will appear in the plot title. The default is ''.
+    clevels_T : array-like or number, optional
+        The levels of the filled contourf for the temperature plot. Either a number of levels,
+        or the specific levels. The defauls is 20.
     x_type : str, optional
         Wheter to use 'distance' or 'time' as the x-axis. The default is 'distance'.
     interp_opt: int, optional
@@ -1156,12 +1159,12 @@ def plot_CTD_section(CTD,stations,section_name = '',
     # Temperature
     _,Ct_T,C_T = contour_section(X,Z,fCTD['T'],fCTD['SIGTH'],ax = axT,
                           station_pos=station_locs,cmap=cmocean.cm.thermal,
-                          clabel='Temperature [˚C]',bottom_depth=BDEPTH,
+                          clabel='Temperature [˚C]',bottom_depth=BDEPTH,clevels=clevels_T,
                           station_text=stations,interp_opt=interp_opt)
     # Salinity
     _,Ct_S,C_S = contour_section(X,Z,fCTD['S'],fCTD['SIGTH'],ax=axS,
                           station_pos=station_locs,cmap=cmocean.cm.haline,
-                          clabel='Salinity [g kg$^{-1}$]',bottom_depth=BDEPTH,
+                          clabel='Salinity [g kg$^{-1}$]',bottom_depth=BDEPTH,clevels=clevels_S,
                           interp_opt=interp_opt)
     # Add x and y labels
     axT.set_ylabel('Depth [m]')
