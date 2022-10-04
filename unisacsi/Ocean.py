@@ -29,6 +29,7 @@ import cartopy.feature
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 import pandas as pd
 from adjustText import adjust_text as adj_txt
+from pyrsktools import RSK
 
 
 
@@ -920,6 +921,189 @@ def read_mooring(file):
         raw_data = np.load(file,allow_pickle=True).item()
 
     return raw_data
+
+
+
+
+def read_Seaguard(filename):
+    '''
+    Reads data from one data file from a Seaguard.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+    
+    df = pd.read_csv(filename, sep="\t", header=4, parse_dates=["Time tag (Gmt)"], dayfirst=True)
+    df.rename({"Time tag (Gmt)": "TIMESTAMP"}, axis=1, inplace=True)
+    df = df.set_index("TIMESTAMP")
+    df.sort_index(axis=0, inplace=True)
+    
+    return df
+
+
+def read_Minilog(filename):
+    '''
+    Reads data from one data file from a Minilog temperature sensor.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and temperature as column.
+    '''
+    
+    df = pd.read_csv(filename, sep=",", skiprows=8, names=["Date", "Time", "T"], parse_dates=[["Date", "Time"]], dayfirst=True, encoding = "ISO-8859-1")
+    df.rename({"Date_Time": "TIMESTAMP"}, axis=1, inplace=True)
+    df = df.set_index("TIMESTAMP")
+    df.sort_index(axis=0, inplace=True)
+    
+    return df
+    
+
+def read_SB37(filename):
+    '''
+    Reads data from one data file from a SB37 Microcat sensor.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+    
+    var_names = {'cond0S/m': "C", 'sigma-�00': "SIGTH", 'prdM': "P", 'potemperature': "Tpot", 'tv290C': "T", 'timeK': "Time", 'PSAL': "S"}
+    
+    data = fCNV(filename)
+    
+    d = {var_names[name]:data[name]
+        for name in data.keys() if name in var_names}
+    
+    d.update(data.attrs)
+    
+    d["TIMESTAMP"] = pd.to_datetime(d["Time"], unit='s', origin=pd.Timestamp('1990-01-01'))
+
+    df = pd.DataFrame(0., index=d["TIMESTAMP"], columns=list(set([field for field in d if ((np.size(d[field]) > 1) and (field not in ["Time", "TIMESTAMP"]))])))
+    for k in df.columns:
+        df[k] = d[k]
+    df.sort_index(axis=0, inplace=True)
+    
+    return df
+
+
+def read_RBR(filename):
+    '''
+    Reads data from a .rsk data file from a RBR logger (concerto, solo, ...).
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+    
+    with RSK(filename) as rsk:
+        rsk.deriveseapressure()
+        variables = list(rsk.channelNames)
+        time = pd.to_datetime(rsk.data["timestamp"])
+        
+        if "conductivity" in variables:
+            rsk.derivesalinity()
+            rsk.derivesigma()
+            variables.append("salinity", "density")
+        
+        data = rsk.data[variables]
+        
+        df = pd.DataFrame(data, index=time, columns=variables)
+        
+        df.rename({"condictivity": "C", "temperature": "T", "salinity": "S", "pressure": "P", "seapressure": "Ps", "density": "SIGTH"}, axis=1)
+        df.sort_index(axis=0, inplace=True)
+        
+    return df
+
+
+
+
+
+def read_WinADCP(filename):
+    '''
+    Reads data from a .mat data file processed with WinADCP.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+
+
+    data = myloadmat(filename)
+        
+    depth = np.round(data['RDIBin1Mid'] + (data["SerBins"]-1)*data["RDIBinSize"])
+        
+    time = [pd.Timestamp(year=2000+y, month=m, day=d, hour=H, minute=M, second=s) for y,m,d,H,M,s in 
+            zip(data["SerYear"], data["SerMon"], data["SerDay"], data["SerHour"], data["SerMin"], data["SerSec"])]
+        
+    d = {}
+    
+    varis_1D = []
+    varis_2D = []
+    
+    for key, vari in data.items():
+        try:
+            if np.size(vari) == len(time):
+                varis_1D.append(key)
+            elif np.size(vari) == len(data["SerBins"]):
+                pass
+            elif len(vari.shape) == 2:
+                varis_2D.append(key)
+        except:
+            pass
+                    
+    
+    d["time_series"] = pd.DataFrame([data[vari] for vari in varis_1D], index=varis_1D, columns=time).transpose()
+    
+    d["time_series"]["lat_central"] = d["time_series"][["AnLLatDeg", "AnFLatDeg"]].mean(axis=1)
+    d["time_series"]["lon_central"] = d["time_series"][["AnLLonDeg", "AnFLonDeg"]].mean(axis=1)
+    d["time_series"]["T"] = d["time_series"]["AnT100thDeg"] / 100.
+    d["time_series"]["heading"] = (((np.rad2deg(np.arctan2(-d["time_series"]['AnNVEmmpersec'],
+                                                           -d["time_series"]['AnNVNmmpersec'])) + 360.) % 360.) + 180.) % 360.
+    
+    
+    for vari in varis_2D:
+        d[vari] = pd.DataFrame(data[vari], index=time, columns=depth)
+        
+    d["u_corr"] = pd.DataFrame(9999999., index=time, columns=depth)
+    d["v_corr"] = pd.DataFrame(9999999., index=time, columns=depth)
+    d["crossvel"] = pd.DataFrame(9999999., index=time, columns=depth)
+    for b in depth:
+        d["u_corr"][b] = d['SerEmmpersec'][b] - d["time_series"]['AnNVEmmpersec']
+        d["v_corr"][b] = d['SerNmmpersec'][b] - d["time_series"]['AnNVNmmpersec']
+        
+        d['crossvel'][b] = d["v_corr"][b]*np.sin(d["time_series"]['heading']*np.pi/180.) \
+                         - d["u_corr"][b]*np.cos(d["time_series"]['heading']*np.pi/180.)
+    
+    
+
+    return d
+
 
 
 
