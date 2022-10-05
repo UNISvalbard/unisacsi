@@ -22,14 +22,19 @@ Follow the instructions and be patient, this might take some time! Once the envi
 conda activate myenv
 ```
 
+One package you will need to process RBR data is only available via pip, therefore please install it with:
+```
+pip install pyrsktools
+```
+
 Now you can install the unisacsi toolbox with:
 ```
-path/to/your/local/anaconda/envs/myenv/bin/pip install git+https://github.com/UNISvalbard/unisacsi.git
+pip install git+https://github.com/UNISvalbard/unisacsi.git
 ```
 
 In case we find and fix a bug or add new functionalities to the toolbox during the course, we might tell you to update your local copy of the package:
 ```
-path/to/your/local/anaconda/envs/myenv/bin/pip install git+https://github.com/UNISvalbard/unisacsi.git --upgrade
+pip install git+https://github.com/UNISvalbard/unisacsi.git --upgrade
 ```
 
 ## Examples
