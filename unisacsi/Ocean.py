@@ -1017,6 +1017,7 @@ def read_RBR(filename):
     '''
     
     with RSK(filename) as rsk:
+        rsk.readdata()
         rsk.deriveseapressure()
         variables = list(rsk.channelNames)
         time = pd.to_datetime(rsk.data["timestamp"])
@@ -1024,13 +1025,15 @@ def read_RBR(filename):
         if "conductivity" in variables:
             rsk.derivesalinity()
             rsk.derivesigma()
-            variables.append("salinity", "density")
+            # variables.append("salinity")
+            # variables.append("density")
+        variables = list(rsk.channelNames)
         
         data = rsk.data[variables]
         
         df = pd.DataFrame(data, index=time, columns=variables)
         
-        df.rename({"condictivity": "C", "temperature": "T", "salinity": "S", "pressure": "P", "seapressure": "Ps", "density": "SIGTH"}, axis=1)
+        df.rename({"condictivity": "C", "temperature": "T", "salinity": "S", "pressure": "P", "sea_pressure": "Ps", "density_anomaly": "SIGTH"}, axis=1, inplace=True)
         df.sort_index(axis=0, inplace=True)
         
     return df
