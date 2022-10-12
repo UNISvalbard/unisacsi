@@ -1342,7 +1342,7 @@ def plot_CTD_section(CTD,stations,section_name = '',clevels_T=20,clevels_S=20,
 
 
 def plot_CTD_single_section(CTD,stations,section_name='',
-                     x_type='distance',parameter='T',clabel='Temperature [˚C]',
+                     x_type='distance',parameter='T',parameter_contourlines="SIGTH",clabel='Temperature [˚C]',
                      cmap=cmocean.cm.thermal,clevels=20,interp_opt = 1,bottom=False,
                      tlocator=None,z_fine=False, cbar=True):
     '''
@@ -1361,8 +1361,11 @@ def plot_CTD_single_section(CTD,stations,section_name='',
     x_type : str, optional
         Wheter to use 'distance' or 'time' as the x-axis. The default is 'distance'.
     parameter : str, optional
-        Which parameter to plot. Check what parameters are available
+        Which parameter to plot as filled contours. Check what parameters are available
         in `CTD`. The default is 'T'.
+    parameter_contourlines : str, optional
+        Which parameter to plot as contourlines. Check what parameters are available
+        in `CTD`. The default is 'SIGTH'.
     clabel : str, optional
         The label on the colorbar axis. The default is 'Temperature [˚C]'.
     cmap : array-like or str, optional
@@ -1424,8 +1427,8 @@ def plot_CTD_single_section(CTD,stations,section_name='',
     # plot the figure
     fig,ax = plt.subplots(1,1,figsize=(8,5))
 
-    # Temperature
-    _,Ct,C = contour_section(X,Z,fCTD[parameter],fCTD['SIGTH'],ax = ax,
+    # plot the cross section
+    _,Ct,C = contour_section(X,Z,fCTD[parameter],fCTD[parameter_contourlines],ax = ax,
                           station_pos=station_locs,cmap=cmap,
                           clabel=clabel,bottom_depth=BDEPTH,
                           station_text=stations,clevels=clevels,
