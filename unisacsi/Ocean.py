@@ -1118,7 +1118,7 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
                     clabel='',bottom_depth=None,clevels=20,station_text='',
                     interp_opt=1,tlocator=None, cbar=True):
     '''
-    Plots a filled contour plot of *Z*, with contourf of *Z2* on top to
+    Plots a filled contour plot of *Z*, with contour lines of *Z2* on top to
     the axes *ax*. It also displays the position of stations, if given in
     *station_pos*, adds labels to the contours of Z2, given in
     *Z2_contours*. If no labels are given, it assumes Z2 is density (sigma0)
@@ -1343,7 +1343,7 @@ def plot_CTD_section(CTD,stations,section_name = '',clevels_T=20,clevels_S=20,
 
 def plot_CTD_single_section(CTD,stations,section_name='',
                      x_type='distance',parameter='T',parameter_contourlines="SIGTH",clabel='Temperature [˚C]',
-                     cmap=cmocean.cm.thermal,clevels=20,interp_opt = 1,bottom=False,
+                     cmap=cmocean.cm.thermal,clevels=20,contourlevels=5,interp_opt = 1,bottom=False,
                      tlocator=None,z_fine=False, cbar=True):
     '''
     This function plots a CTD section of a chosen variable,
@@ -1373,6 +1373,9 @@ def plot_CTD_single_section(CTD,stations,section_name='',
     clevels : array-like or number, optional
         The levels of the filled contourf. Either a number of levels,
         or the specific levels. The defauls is 20.
+    contourlevels : array-like or number, optional
+        The levels of the contourlines. Either a number of levels,
+        or the specific levels. The defauls is 5.
     bottom : array-like or False, optional
         The bottom topography, either an array with values extracted from a bathymetry file, or False (default).
         If False, the bottom depth from the CTD profiles will be used.
@@ -1431,7 +1434,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',
     _,Ct,C = contour_section(X,Z,fCTD[parameter],fCTD[parameter_contourlines],ax = ax,
                           station_pos=station_locs,cmap=cmap,
                           clabel=clabel,bottom_depth=BDEPTH,
-                          station_text=stations,clevels=clevels,
+                          station_text=stations,clevels=clevels,Z2_contours=contourlevels,
                           interp_opt=interp_opt,tlocator=tlocator, cbar=cbar)
     # Add x and y labels
     ax.set_ylabel('Depth [m]')
