@@ -1813,7 +1813,7 @@ def create_empty_ts(T_extent,S_extent,p_ref = 0):
 
 
 
-def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiver_depth=0.,
+def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiver_depth=None,
                           geostr=False,levels_2 = np.linspace(-0.5,0.5,11),
                           topography = None,z_fine=False):
     '''
@@ -1855,8 +1855,12 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiv
     # interpolate ADCP data to CTD time
     depth = np.nanmean(ADCP['depth'], axis=0)
     
-    quiver_depth_ind = np.where(abs(depth-quiver_depth) == np.nanmin(abs(depth-quiver_depth)))[0][0]
-    print(f"Quiver depth: {depth[quiver_depth_ind]}; corresponding index: {quiver_depth_ind}")
+    if quiver_depth is None:
+        quiver_depth_ind = list(np.arange(len(depth)))
+    else:   
+        quiver_depth_ind = np.where(abs(depth-quiver_depth) == np.nanmin(abs(depth-quiver_depth)))[0][0]
+        print(f"Quiver depth: {depth[quiver_depth_ind]}; corresponding index: {quiver_depth_ind}")
+    
         
     try:
         lon = interp1d(ADCP['time'],ADCP['lon'])(time_section)
@@ -1873,7 +1877,7 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiv
     print('Ship speed at the CTD stations in m/s:')
     print(shipspeed)
 
-    # calculate the angle of the section between each CTD station
+    # calculate the angle of the section between each CTD stations
     angle = np.arctan2(np.diff(lat),np.cos(lat[1:]*np.pi/180)*np.diff(lon))
     angle = np.array([angle[0]] + list(angle)+ [angle[-1]])
     angle = (angle[1:]+angle[0:-1])/2
@@ -1891,14 +1895,14 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiv
     labels = ['S'+str(i) for i in range(1,len(stations)+1)]
     plot_CTD_map(CTD,stations,st_labels=labels,topography=topography)
     plt.plot(lon,lat)
-    q = plt.quiver(lon,lat,u[:,quiver_depth_ind],v[:,quiver_depth_ind])
+    q = plt.quiver(lon,lat,np.nanmean(u[:,quiver_depth_ind], axis=1),np.nanmean(v[:,quiver_depth_ind], axis=1))
     qk = plt.quiverkey(q,0.92,0.9,0.2,'20 cm/s',color='blue',labelcolor='blue',
                   transform=plt.gca().transAxes,zorder=1000)
     qk.text.set_backgroundcolor('w')
 
     # section
     fig2 = plt.figure()
-    contour_section(x,depth,crossvel.transpose(),cmap='RdBu',clevels=levels,
+    contour_section(x,depth,crossvel.transpose(),cmap='RdBu_r',clevels=levels,
                     bottom_depth=BDEPTH,station_pos=x,station_text='S')
 
     plt.xlabel('Distance [km]')
