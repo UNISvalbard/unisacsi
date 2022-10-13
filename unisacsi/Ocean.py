@@ -1813,7 +1813,7 @@ def create_empty_ts(T_extent,S_extent,p_ref = 0):
 
 
 
-def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
+def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiver_depth=0.,
                           geostr=False,levels_2 = np.linspace(-0.5,0.5,11),
                           topography = None,z_fine=False):
     '''
@@ -1831,6 +1831,8 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     levels : array-like, optional
         The filled contour levels for the velocity. The default is
         np.linspace(-0.1,0.1,11).
+    quiver_depth : float, optional
+        The depth in meters from which the currents are plotted as quiver plot.
     geostr : bool, optional
         Wether to also plot geostrphic velocity estimates. The default is False.
     levels_2 : array-like, optional
@@ -1851,7 +1853,10 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     BDEPTH = np.asarray([float(CTD[st]['BottomDepth']) for st in stations])
 
     # interpolate ADCP data to CTD time
-    depth = ADCP['depth'][0,:]
+    depth = np.nanmean(ADCP['depth'], axis=0)
+    
+    quiver_depth_ind = np.where(abs(depth-quiver_depth) == np.nanmin(abs(depth-quiver_depth)))[0][0]
+    print(f"Quiver depth: {depth[quiver_depth_ind]}; corresponding index: {quiver_depth_ind}")
         
     try:
         lon = interp1d(ADCP['time'],ADCP['lon'])(time_section)
@@ -1886,7 +1891,7 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     labels = ['S'+str(i) for i in range(1,len(stations)+1)]
     plot_CTD_map(CTD,stations,st_labels=labels,topography=topography)
     plt.plot(lon,lat)
-    q = plt.quiver(lon,lat,np.nanmean(u[:,0:1],1),np.nanmean(v[:,0:1],1))
+    q = plt.quiver(lon,lat,u[:,quiver_depth_ind],v[:,quiver_depth_ind])
     qk = plt.quiverkey(q,0.92,0.9,0.2,'20 cm/s',color='blue',labelcolor='blue',
                   transform=plt.gca().transAxes,zorder=1000)
     qk.text.set_backgroundcolor('w')
