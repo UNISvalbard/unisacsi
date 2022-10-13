@@ -1851,10 +1851,7 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     BDEPTH = np.asarray([float(CTD[st]['BottomDepth']) for st in stations])
 
     # interpolate ADCP data to CTD time
-    if len(ADCP['depth'].shape) > 1:
-        depth = ADCP['depth'][0,:]
-    else:
-        depth = ADCP["depth"][:]
+    depth = ADCP['depth'][0,:]
         
     try:
         lon = interp1d(ADCP['time'],ADCP['lon'])(time_section)
@@ -1872,9 +1869,9 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     print(shipspeed)
 
     # calculate the angle of the section between each CTD station
-    angle = np.arctan2(np.diff(lat),np.cos(lat[1::]*np.pi/180)*np.diff(lon))
+    angle = np.arctan2(np.diff(lat),np.cos(lat[1:]*np.pi/180)*np.diff(lon))
     angle = np.array([angle[0]] + list(angle)+ [angle[-1]])
-    angle = (angle[1::]+angle[0:-1])/2
+    angle = (angle[1:]+angle[0:-1])/2
     print('The angle (from due east) of the section is:')
     print(angle*180/np.pi)
     print('Note: Please check if that matches with the map!')
