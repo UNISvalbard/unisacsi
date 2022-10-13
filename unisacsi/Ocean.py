@@ -1851,7 +1851,11 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),
     BDEPTH = np.asarray([float(CTD[st]['BottomDepth']) for st in stations])
 
     # interpolate ADCP data to CTD time
-    depth = ADCP['depth'][0,:]
+    if len(ADCP['depth'].shape) > 1:
+        depth = ADCP['depth'][0,:]
+    else:
+        depth = ADCP["depth"][:]
+        
     try:
         lon = interp1d(ADCP['time'],ADCP['lon'])(time_section)
         lat = interp1d(ADCP['time'],ADCP['lat'])(time_section)
