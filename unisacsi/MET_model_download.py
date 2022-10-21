@@ -1406,7 +1406,7 @@ class MET_model_download_class():
         chunks = []
         for filename in self.fileurls:
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, pressure=ind_p_levels).sel(x=x, y=y)[model_varis].squeeze()
+                data = full_file.isel(time=self.time_ind, hybrid=ind_p_levels).sel(x=x, y=y)[model_varis].squeeze()
                 
             chunks.append(data)
             
