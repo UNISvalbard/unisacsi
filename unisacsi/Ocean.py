@@ -1436,6 +1436,8 @@ def plot_CTD_single_section(CTD,stations,section_name='',
                           clabel=clabel,bottom_depth=BDEPTH,
                           station_text=stations,clevels=clevels,Z2_contours=contourlevels,
                           interp_opt=interp_opt,tlocator=tlocator, cbar=cbar)
+    
+    
     # Add x and y labels
     ax.set_ylabel('Depth [m]')
     if x_type == 'distance':

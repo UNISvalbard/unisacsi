@@ -622,7 +622,7 @@ def map_add_bathymetry(fig, ax, option, color, resolution, lat_limits, lon_limit
 
 
 
-def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits, path_mapdata):
+def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits, path_mapdata, color_contourlines="k"):
     """
     Function to plot either contour lines of the total topography (above and below sea level)
     with the specified color or colored contours of the total topography.
@@ -640,8 +640,6 @@ def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits
             0 : Topography as contour lines
             1 : Topography as filled contours, no colorbar
             2 : Topography as filled contours, with colorbar
-    color : str or RGB
-        Color for the topography contour lines (only used with option 0)
     resolution: float
         Resolution (distance between contour levels) of the topography
     lat_limits : list
@@ -650,6 +648,8 @@ def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits
         List with two elements: [lon_min, lon_max]
     path_mapdata : str
         Absolute or relative path to the directory including the map data.
+    color_contourlines : str or RGB
+        Color for the topography contour lines (only used with option 0)
 
     Returns
     -------
@@ -668,7 +668,7 @@ def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits
 
 
     if option == 0:
-        pic = bathy.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors='k',
+        pic = bathy.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors=color_contourlines,
                                  levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), resolution * np.ceil(np.nanmax(bathy)/resolution)+1., resolution))
         ax.clabel(pic, pic.levels, inline=True, fmt="%.0f", fontsize=10)
     elif option == 1:
@@ -690,7 +690,7 @@ def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits
     return fig, ax
 
 
-def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path_mapdata):
+def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path_mapdata, color_contourlines="k"):
     """
     Function to plot either contour lines of the topography
     with the specified color or colored contours of the topography.
@@ -711,8 +711,6 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
             3 : Topography as filled contours, no colorbar, high resolution
             4 : Topography as filled contours, with colorbar, low resolution
             5 : Topography as filled contours, with colorbar, high resolution
-    color : str or RGB
-        Color for the topography contour lines (only used with option 0)
     resolution: float
         Resolution (distance between contour levels) of the topography
     lat_limits : list
@@ -721,6 +719,8 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
         List with two elements: [lon_min, lon_max]
     path_mapdata : str
         Absolute or relative path to the directory including the map data.
+    color_contourlines : str or RGB
+        Color for the topography contour lines (only used with options 0 or 1)
 
     Returns
     -------
@@ -746,7 +746,7 @@ def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path
 
     if ((option == 0) | (option == 1)):
         dem = dem.where(dem >= 0.)
-        pic = dem.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors='k',
+        pic = dem.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors=color_contourlines,
                                  levels=np.arange(0, resolution * np.ceil(np.nanmax(dem)/resolution)+1., resolution))
         ax.clabel(pic, pic.levels, inline=True, fmt="%.0f", fontsize=10)
     elif ((option == 2) | (option == 3)):
