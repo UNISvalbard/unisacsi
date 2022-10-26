@@ -22,3 +22,5 @@ utm
 git
 pip
 metpy
+windrose
+yaml
