@@ -669,7 +669,10 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                 line = f.readline()
                 if (("unis station" in line.lower()) or ("unis-station" in line.lower())):
                     found_unis_station = True
-                    unis_station = int((line.split(":"))[-1])
+                    try:
+                        unis_station = int((line.split(":"))[-1])
+                    except ValueError:
+                        unis_station = int((line.split(" "))[-1])
         
         # if time is present: convert to dnum
         try:
