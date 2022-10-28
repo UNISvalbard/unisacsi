@@ -663,8 +663,13 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         p.update(profile.attrs)
         
         # get the UNIS station number
+        found_unis_station = False
         with open(file, encoding = "ISO-8859-1") as f:
-            unis_station = int(([next(f) for x in range(28)][-1].split(":"))[-1])
+            while not found_unis_station:
+                line = f.readline()
+                if (("unis station" in line.lower()) or ("unis-station" in line.lower())):
+                    found_unis_station = True
+                    unis_station = int((line.split(":"))[-1])
         
         # if time is present: convert to dnum
         try:
