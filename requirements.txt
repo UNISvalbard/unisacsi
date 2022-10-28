@@ -24,3 +24,4 @@ pip
 metpy
 windrose
 yaml
+nco
