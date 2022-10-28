@@ -1213,7 +1213,7 @@ def contour_section(X,Y,Z,Z2=None,ax=None,station_pos=None,cmap='jet',Z2_contour
     if Z2 is not None:
         cSIG = ax.contour(X,Y,Z2,levels = Z2_contours,
                            colors='k',linewidths=[1],alpha=0.6) # draw Z2
-        clabels = plt.clabel(cSIG, Z2_contours,fontsize=8,fmt = '%1.1f') # add contour labels
+        clabels = plt.clabel(cSIG, cSIG.levels, fontsize=8,fmt = '%1.1f') # add contour labels
         [txt.set_bbox(dict(facecolor='white', edgecolor='none',
                            pad=0,alpha=0.6)) for txt in clabels]
     else:
