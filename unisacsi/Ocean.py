@@ -669,6 +669,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                 line = f.readline()
                 if (("unis station" in line.lower()) or ("unis-station" in line.lower())):
                     found_unis_station = True
+                    print(file, line)
                     try:
                         unis_station = int((line.split(":"))[-1])
                     except ValueError:
