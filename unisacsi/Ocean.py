@@ -687,6 +687,8 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         p['LON'] = p.pop('LONGITUDE')
         p['z'] = gsw.z_from_p(p['P'],p['LAT'])
         p['BottomDepth'] = np.round(np.nanmax(np.abs(p['z']))+8)
+        if np.nanmin(p["C"]) > 10.:
+            p["C"] /= 10.
         p['C'][p['C']<1] = np.nan
         p['C'] = salt_corr[0] * p['C']*10 + salt_corr[1] # apply correction
         p['T'][p['T']<-2] = np.nan
