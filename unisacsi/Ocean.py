@@ -670,9 +670,9 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                 if (("unis station" in line.lower()) or ("unis-station" in line.lower())):
                     found_unis_station = True
                     try:
-                        unis_station = (line.split(":"))[-1]
+                        unis_station = ((line.split(":"))[-1]).strip()
                     except ValueError:
-                        unis_station = (line.split(" "))[-1]
+                        unis_station = ((line.split(" "))[-1]).strip()
         if not found_unis_station:
             unis_station = "unknown"
         
