@@ -670,9 +670,11 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                 if (("unis station" in line.lower()) or ("unis-station" in line.lower())):
                     found_unis_station = True
                     try:
-                        unis_station = int((line.split(":"))[-1])
+                        unis_station = (line.split(":"))[-1]
                     except ValueError:
-                        unis_station = int((line.split(" "))[-1])
+                        unis_station = (line.split(" "))[-1]
+        if not found_unis_station:
+            unis_station = "unknown"
         
         # if time is present: convert to dnum
         try:
@@ -699,6 +701,20 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         if 'OX' in p:
             p['OX'] = oxy_corr[0] * p['OX'] + oxy_corr[1]
         CTD_dict[p['unis_st']]= p
+        
+        
+    # if all keys are integers (original UNIS station numbers) --> change str keys to int
+    all_keys_int = True
+    for sta in CTD_dict.keys():
+        try:
+            int(unis_station)
+        except ValueError:
+            all_keys_int = False
+            break
+        
+    if all_keys_int:
+        CTD_dict = dict((k_int,v) for k_int, v in zip([int(i) for i in CTD_dict.keys()], CTD_dict.values()))
+    
 
     # save data if outpath was given
     if outpath is not None:
