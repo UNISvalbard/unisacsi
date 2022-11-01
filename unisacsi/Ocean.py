@@ -661,7 +661,6 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
 
         # get the interesting header fields and append it to the dict
         p.update(profile.attrs)
-        
         # get the UNIS station number
         found_unis_station = False
         with open(file, encoding = "ISO-8859-1") as f:
@@ -669,9 +668,9 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                 line = f.readline()
                 if (("unis station" in line.lower()) or ("unis-station" in line.lower())):
                     found_unis_station = True
-                    try:
+                    if ":" in line:
                         unis_station = ((line.split(":"))[-1]).strip()
-                    except ValueError:
+                    else:
                         unis_station = ((line.split(" "))[-1]).strip()
         if not found_unis_station:
             unis_station = "unknown"
