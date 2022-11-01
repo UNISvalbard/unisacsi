@@ -707,7 +707,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
     all_keys_int = True
     for sta in CTD_dict.keys():
         try:
-            int(unis_station)
+            int(sta)
         except ValueError:
             all_keys_int = False
             break
