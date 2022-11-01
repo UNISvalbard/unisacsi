@@ -126,6 +126,7 @@ class MET_model_download_class():
 
     def __init__(self, config_settings):
 
+        self.latest = config_settings["latest"]
         self.start_time = config_settings["start_day"]
         self.end_time = config_settings["end_day"]
         self.int_h = config_settings["int_h"]
@@ -173,14 +174,18 @@ class MET_model_download_class():
         if self.model == "AA":
             self.full_model_name = "AROME_Arctic"
             if self.resolution == "2p5km":
-                for t in self.time_vec:
-                    if t < pd.Timestamp("2022-02-01"):
-                        if config_settings["data_format"] == 5:
-                            self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                if self.latest:
+                    self.fileurls.append("https://thredds.met.no/thredds/dodsC/aromearcticlatest/archive/arome_arctic_det_2_5km_latest.nc")
+                else:
+                    for t in self.time_vec:
+                        if t < pd.Timestamp("2022-02-01"):
+                            if config_settings["data_format"] == 5:
+                                self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                            else:
+                                self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
                         else:
-                            self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
-                    else:
-                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                            self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+            
             elif self.resolution == "500m":
                 for t in self.time_vec:
                     self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_{t.strftime("%Y%m%d")}00.nc')
