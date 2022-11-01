@@ -45,8 +45,15 @@ def download_MET_model_data(config_file):
         
     if config_settings["model"] == "MC":
         config_settings["resolution"] = "2p5km"
-
-    if config_settings["save_daily_files"]:
+        
+        
+    if config_settings["latest"]:
+        config_settings["out_path"] = f"{config_settings['out_path']}_{config_settings['resolution']}.nc"
+        print("############################################################")
+        print("start downloading latest data")
+        print("############################################################")
+        MET_model_download_class(config_settings)
+    elif config_settings["save_daily_files"]:
         days = pd.date_range(config_settings["start_day"], config_settings["end_day"], freq="1D")
         daily_config = copy.copy(config_settings)
         for d in days:
