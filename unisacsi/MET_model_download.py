@@ -537,6 +537,7 @@ class MET_model_download_class():
                     data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data[vari] /= (3600.*self.int_h)
+                    data[vari].attrs["standard_name"] = data[vari].attrs["standard_name"][12:-9]
                     data[vari].attrs["units"] = "W/m^2"
                     data[vari].attrs["long_name"] = data[vari].attrs["long_name"][12:]
                     data = data.rename({vari: vari[12:-9]})
@@ -715,6 +716,7 @@ class MET_model_download_class():
                     data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data[vari] /= (3600.*self.int_h)
+                    data[vari].attrs["standard_name"] = data[vari].attrs["standard_name"][12:-9]
                     data[vari].attrs["units"] = "W/m^2"
                     data[vari].attrs["long_name"] = data[vari].attrs["long_name"][12:]
                     data = data.rename({vari: vari[12:-9]})
