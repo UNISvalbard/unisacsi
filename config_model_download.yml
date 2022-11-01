@@ -7,6 +7,8 @@ data_format: 2 # 2D near-surface data fields
 #data_format: 5 # horizontal near-surface section
 #data_format: 6 # pressure levels
 #
+latest: False
+#
 start_day: "2022-09-11"
 end_day: "2022-09-18"
 save_daily_files: True # if True, data from end_day gets saved; if False, times after end_day are not included
