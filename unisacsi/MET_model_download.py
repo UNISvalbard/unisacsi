@@ -538,10 +538,13 @@ class MET_model_download_class():
                     data[vari][dict(time=0)] /= self.start_h
                     data[vari] /= (3600.*self.int_h)
                     data = data.rename({vari: vari[12:-9]})
+                    data[vari].attrs["units"] = "W/m^2"
+                    data[vari].attrs["long_name"] = data[vari].attrs["long_name"][12:]
                 elif vari[-3:] == "acc":
                     data[vari][dict(time=range(1,len(data["time"])))] -= data[vari][dict(time=range(0,len(data["time"])-1))].values
                     data[vari][dict(time=0)] /= self.start_h
                     data = data.rename({vari: vari[:-4]})
+                    data[vari].attrs["long_name"] = data[vari].attrs["long_name"][12:]
                     
             chunks.append(data)
             

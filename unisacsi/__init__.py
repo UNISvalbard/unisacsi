@@ -1,4 +1,4 @@
-__version__ = '0.1.49'
+__version__ = '0.1.50'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
