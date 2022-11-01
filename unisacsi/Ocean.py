@@ -637,7 +637,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
     # If a folder is given, read single cnv files.
     # create a dict that converts the variable names in the cnv files to
     # the variable names used by us:
-    var_names = {'DEPTH': "D", 'PRES': "P", 'TEMP': "T", 'CNDC': "C", 'PSAL': "S", 'sigma_t': 'SIGTH', 'soundspeed': "Cs", 'sbeox0PS': "OXsat", 'seaTurbMtr': "TURB", 'par/sat/log': "PAR", 'oxygen_ml_L': "OX", 'potemperature': "Tpot", 'oxsolML/L': "OXsol"}
+    var_names = {'DEPTH': "D", 'PRES': "P", 'TEMP': "T", 'CNDC': "C", 'c0mS/cm': "C", 'PSAL': "S", 'sigma_t': 'SIGTH', 'soundspeed': "Cs", 'sbeox0PS': "OXsat", 'seaTurbMtr': "TURB", 'par/sat/log': "PAR", 'oxygen_ml_L': "OX", 'potemperature': "Tpot", 'oxsolML/L': "OXsol"}
 
     # get all CTD station files in inpath
     files = glob.glob(inpath+'*.cnv')
@@ -656,7 +656,6 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
     for file in files:
         # get all the fields, construct a dict with the fields
         profile = fCNV(file)
-        print(profile.keys())
         p = {var_names[name]:profile[name]
             for name in profile.keys() if name in var_names}
 
