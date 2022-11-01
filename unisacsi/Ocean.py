@@ -656,6 +656,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
     for file in files:
         # get all the fields, construct a dict with the fields
         profile = fCNV(file)
+        print(profile.keys())
         p = {var_names[name]:profile[name]
             for name in profile.keys() if name in var_names}
 
