@@ -697,7 +697,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         p['SA'] = gsw.SA_from_SP(p['S'],p['P'],p['LON'],p['LAT'])
         p['CT'] = gsw.CT_from_t(p['SA'],p['T'],p['P'])
         p['SIGTH'] = gsw.sigma0(p['SA'],p['CT'])
-        p['st'] = int(p['filename'].split('.')[0].split('_')[0][-4::])
+        p['st'] = int(p['filename'].split('.')[0].split('_')[-1][-4::])
         p["unis_st"] = unis_station
         if 'OX' in p:
             p['OX'] = oxy_corr[0] * p['OX'] + oxy_corr[1]
