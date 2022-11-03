@@ -1792,7 +1792,7 @@ def plot_CTD_ts(CTD,stations=None,pref = 0):
     # Plot the data in the empty TS-diagram
     for station in CTD.values():
         plt.plot(station['SA'],station['CT'],linestyle='none',marker='.',
-                 label=station['st'])
+                 label=station['unis_st'])
 
     if len(CTD.keys()) > 1:
         plt.legend(ncol=2,framealpha=1,columnspacing=0.7,handletextpad=0.4)
