@@ -25,3 +25,4 @@ metpy
 windrose
 yaml
 nco
+seaborn
