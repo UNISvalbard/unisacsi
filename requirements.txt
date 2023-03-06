@@ -2,7 +2,7 @@ matplotlib==3.5
 glob2
 jupyter
 seabird
-numpy
+numpy==1.23
 scipy
 pandas==1.2
 geopandas
