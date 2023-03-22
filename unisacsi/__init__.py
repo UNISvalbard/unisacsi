@@ -1,4 +1,4 @@
-__version__ = '0.2.6'
+__version__ = '0.2.7'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
@@ -36,7 +36,9 @@ from .Ocean import (
 	myloadmat,
 	mat2py_time,
 	present_dict,
-	read_ADCP_UNIS,
+	read_ADCP_CODAS,
+    split_ADCP_resolution,
+    read_WinADCP,
 	read_CTD,
 	read_CTD_from_mat,
 	read_mini_CTD,

@@ -30,6 +30,7 @@ from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 import pandas as pd
 from adjustText import adjust_text as adj_txt
 from pyrsktools import RSK
+import xarray as xr
 
 
 
@@ -549,46 +550,142 @@ def ctd_identify_water_masses(CTD, water_mass_def, stations=None):
 #READING FUNCTIONS
 ############################################################################
 
-def read_ADCP_UNIS(filename, correct_for_shipspeed=True):
+def read_ADCP_CODAS(filename):
     '''
-    Reads ADCP data from a netCDF file processed by CODAS.
-
+    Reads ADCP data from a netCDF file processed by CODAS. To be used with the *short* file!
     Parameters:
     -------
     filename: str
         String with path to filename
-    correct_for_shipspeed: bool, optional
-        Switch to enable/disable the correction of the velocity data for the ship's speed.
+    Returns
+    -------
+    ds : xarray dataset
+        Dataset containing the adcp data. Current velocities are adjusted for the ship's motion.'
     '''
-    # read data
-    try:
-        dset = Dataset(filename)
-    except:
-        assert False, 'File is not a valid netCDF file!'
+    
+    with xr.open_dataset(filename) as f:
+        ds = f[["u", "v", "lat", "lon", "depth", "amp", "pg", "heading", "uship", "vship"]].load()
+        
+    ds = ds.set_coords(("depth", "lon", "lat"))
+    
+    ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
+    ds["speed_ship"].attrs["name"] = "speed_ship"
+    ds["speed_ship"].attrs["units"] = "m/s"
+    ds["speed_ship"].attrs["long_name"] = "total ship speed"
+    
+    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
+    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
+    ds["crossvel"].attrs["name"] = "crossvel"
+    ds["crossvel"].attrs["units"] = "m/s"
+    ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
+    
+    return ds
 
-    variable_translation = {"u": "u", "v": "v", "lat": "lat", "lon": "lon", "depth": "depth",
-                            "vship": "ACCESS_V_ship_absolute", "uship": "ACCESS_U_ship_absolute",
-                            "heading": "ANCIL1_mn_heading"}
 
-    data= {}
-    # read all the variables
-    time = dset.variables['time']
-    data['time'] = num2date(time[:],time.units)
-    data['time'] = date2num(data['time'])
-    for var, inname in variable_translation.items():
-        data[var] = dset.variables[inname][:].data
-        data[var][data[var]>42e20] = np.nan
+def split_ADCP_resolution(ds):
+    """
+    Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
 
-    data['shipspeed'] = np.sqrt(data['uship']**2 + data['vship']**2)
+    Parameters
+    ----------
+    ds : xarray dataset
+        Dataset containing the full ADCP timeseries
 
-    if correct_for_shipspeed:
-        data["u"] += data["uship"][:,np.newaxis]
-        data["v"] += data["vship"][:,np.newaxis]
+    Returns
+    -------
+    list_of_ds : list
+        List of xarray datasets with different depth resolutions
 
-    data['crossvel'] = data['v']*np.sin(data['heading'][:,np.newaxis]*np.pi/180.) \
-                     - data['u']*np.cos(data['heading'][:,np.newaxis]*np.pi/180.)
+    """
+    
+    ds["depth_binsize"] = ds.depth.isel(depth_cell=slice(0,2)).diff(dim="depth_cell").squeeze("depth_cell", drop=True).drop("depth")
+    
+    depth_resolutions = sorted(list(ds.groupby("depth_binsize").groups.keys()))
+    
+    one_d_varis = ["heading", "uship", "vship", "speed_ship"]
+    
+    list_of_ds = []
+    for d in depth_resolutions:
+         ds_d = ds.where(ds.depth_binsize == d, np.nan)
+         ds_d["depth"] = ds_d.depth.isel(time=0)
+         ds_d = ds_d.swap_dims({"depth_cell": "depth"}).drop("depth_binsize")
+         ds_dd = ds_d[one_d_varis]
+         ds_d = ds_d.where(ds_d.depth.notnull(), drop=True)
+         for vari in one_d_varis:
+             ds_d[vari] = ds_dd[vari]
+         list_of_ds.append(ds_d)
+        
+    return list_of_ds
+    
 
-    return data
+
+def read_WinADCP(filename):
+    '''
+    Reads data from a .mat data file processed with WinADCP.
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+
+
+    data = myloadmat(filename)
+        
+    depth = np.round(data['RDIBin1Mid'] + (data["SerBins"]-1)*data["RDIBinSize"])
+        
+    time = [pd.Timestamp(year=2000+y, month=m, day=d, hour=H, minute=M, second=s) for y,m,d,H,M,s in 
+            zip(data["SerYear"], data["SerMon"], data["SerDay"], data["SerHour"], data["SerMin"], data["SerSec"])]
+    
+    glattributes = {name: data[name] for name in ['RDIFileName', 'RDISystem', 'RDIBinSize', 'RDIPingsPerEns', 'RDISecPerPing']}
+        
+    ds = xr.Dataset(data_vars=dict(temperature=(["time"], data["AnT100thDeg"]/100., {'units':'degC', "name": "temperature", "long_name": "sea water temperature"}),
+                                  u_raw=(["time", "depth"], data["SerEmmpersec"]/1000., {'units':'m/s', "name": "u_raw", "long_name": "zonal velocity component (rel. to ship)"}),
+                                  v_raw=(["time", "depth"], data["SerNmmpersec"]/1000., {'units':'m/s', "name": "v_raw", "long_name": "meridional velocity component (rel. to ship)"}),
+                                  pg=(["time", "depth"], data['SerPG4']/100., {'units':'percent', "name": "pg", "long_name": "percent good"}),
+                                  uship=(["time"], data["AnNVEmmpersec"]/1000., {'units':'m/s', "name": "uship", "long_name": "ship zonal velocity component"}),
+                                  vship=(["time"], data["AnNVNmmpersec"]/1000., {'units':'m/s', "name": "vship", "long_name": "ship meridional velocity component"})),
+                   coords=dict(time=time,depth=depth,
+                               lat_start=(["time"], data["AnFLatDeg"]),
+                               lat_end=(["time"], data["AnLLatDeg"]),
+                               lon_start=(["time"], data["AnFLonDeg"]),
+                               lon_end=(["time"], data["AnLLonDeg"])),
+                   attrs=glattributes)
+    
+    
+    ds["lat_central"] = 0.5*(ds["lat_start"]+ds["lat_end"])
+    ds["lon_central"] = 0.5*(ds["lon_start"]+ds["lon_end"])
+    
+    
+    ds = ds.set_coords(("lat_central", "lon_central"))
+    
+    ds["u"] = ds["u_raw"] - ds["uship"]
+    ds["u"].attrs["name"] = "u"
+    ds["u"].attrs["units"] = "m/s"
+    ds["u"].attrs["long_name"] = "zonal velocity component"
+    
+    ds["v"] = ds["v_raw"] - ds["vship"]
+    ds["v"].attrs["name"] = "v"
+    ds["v"].attrs["units"] = "m/s"
+    ds["v"].attrs["long_name"] = "meridional velocity component"
+    
+    calc_heading = lambda u, v: (((np.rad2deg(np.arctan2(-u,-v)) + 360.) % 360.) + 180.) % 360.
+    ds["heading"] = xr.apply_ufunc(calc_heading, ds['u'], ds['v'])
+    ds["heading"].attrs["name"] = "heading"
+    ds["heading"].attrs["units"] = "deg"
+    ds["heading"].attrs["long_name"] = "ship heading"
+    
+    
+    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
+    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
+    ds["crossvel"].attrs["name"] = "crossvel"
+    ds["crossvel"].attrs["units"] = "m/s"
+    ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
+
+    return ds
 
 
 
@@ -1063,74 +1160,6 @@ def read_RBR(filename):
         
     return df
 
-
-
-
-
-def read_WinADCP(filename):
-    '''
-    Reads data from a .mat data file processed with WinADCP.
-
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
-
-
-    data = myloadmat(filename)
-        
-    depth = np.round(data['RDIBin1Mid'] + (data["SerBins"]-1)*data["RDIBinSize"])
-        
-    time = [pd.Timestamp(year=2000+y, month=m, day=d, hour=H, minute=M, second=s) for y,m,d,H,M,s in 
-            zip(data["SerYear"], data["SerMon"], data["SerDay"], data["SerHour"], data["SerMin"], data["SerSec"])]
-        
-    d = {}
-    
-    varis_1D = []
-    varis_2D = []
-    
-    for key, vari in data.items():
-        try:
-            if np.size(vari) == len(time):
-                varis_1D.append(key)
-            elif np.size(vari) == len(data["SerBins"]):
-                pass
-            elif len(vari.shape) == 2:
-                varis_2D.append(key)
-        except:
-            pass
-                    
-    
-    d["time_series"] = pd.DataFrame([data[vari] for vari in varis_1D], index=varis_1D, columns=time).transpose()
-    
-    d["time_series"]["lat_central"] = d["time_series"][["AnLLatDeg", "AnFLatDeg"]].mean(axis=1)
-    d["time_series"]["lon_central"] = d["time_series"][["AnLLonDeg", "AnFLonDeg"]].mean(axis=1)
-    d["time_series"]["T"] = d["time_series"]["AnT100thDeg"] / 100.
-    d["time_series"]["heading"] = (((np.rad2deg(np.arctan2(-d["time_series"]['AnNVEmmpersec'],
-                                                           -d["time_series"]['AnNVNmmpersec'])) + 360.) % 360.) + 180.) % 360.
-    
-    
-    for vari in varis_2D:
-        d[vari] = pd.DataFrame(data[vari], index=time, columns=depth)
-        
-    d["u_corr"] = pd.DataFrame(9999999., index=time, columns=depth)
-    d["v_corr"] = pd.DataFrame(9999999., index=time, columns=depth)
-    d["crossvel"] = pd.DataFrame(9999999., index=time, columns=depth)
-    for b in depth:
-        d["u_corr"][b] = d['SerEmmpersec'][b] - d["time_series"]['AnNVEmmpersec']
-        d["v_corr"][b] = d['SerNmmpersec'][b] - d["time_series"]['AnNVNmmpersec']
-        
-        d['crossvel'][b] = d["v_corr"][b]*np.sin(d["time_series"]['heading']*np.pi/180.) \
-                         - d["u_corr"][b]*np.cos(d["time_series"]['heading']*np.pi/180.)
-    
-    
-
-    return d
 
 
 
