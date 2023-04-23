@@ -31,6 +31,7 @@ import pandas as pd
 from adjustText import adjust_text as adj_txt
 from pyrsktools import RSK
 import xarray as xr
+import datetime
 
 
 
@@ -689,7 +690,7 @@ def read_WinADCP(filename):
 
 
 
-def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(1.,0.),oxy_corr = (1.,0.)):
+def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(1.,0.),oxy_corr = (1.,0.), use_system_time=False):
     '''
     This function reads in the CTD data from cnv files in `inpath`
     for the stations `stations` and returns a list of dicts containing
@@ -713,6 +714,9 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
     oxy_corr : tuple, optional
         tuple with 2 values containing (slope,intersect) of
                       linear correction model. The default is (1.,0.).
+    use_system_time : bool, optional
+        Switch to use the system upload time stamp instead of the NMEA one. By default, the NMEA time stamp is used.
+        
     Returns
     -------
     CTD_dict : dict
@@ -755,9 +759,11 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         profile = fCNV(file)
         p = {var_names[name]:profile[name]
             for name in profile.keys() if name in var_names}
+        
 
         # get the interesting header fields and append it to the dict
         p.update(profile.attrs)
+        
         # get the UNIS station number
         found_unis_station = False
         with open(file, encoding = "ISO-8859-1") as f:
@@ -771,6 +777,18 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                         unis_station = ((line.split(" "))[-1]).strip()
         if not found_unis_station:
             unis_station = "unknown"
+            
+        # if NMEA time is wrong, replace with system upload time (needs to be manually switched on)
+        if use_system_time:
+            found_system_time = False
+            with open(file, encoding = "ISO-8859-1") as f:
+                while not found_system_time:
+                    line = f.readline()
+                    if "system upload time" in line.lower():
+                        found_system_time = True
+                        p['datetime'] = datetime.datetime.strptime(((line.split("="))[-1]).strip(), '%b %d %Y %H:%M:%S')
+            if not found_system_time:
+                p['datetime'] = datetime.datetime(1970,1,1,0,0,0)
         
         # if time is present: convert to dnum
         try:
@@ -819,7 +837,6 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         np.save(outpath+cruise_name+'_CTD',CTD_dict)
 
     return CTD_dict
-
 
 
 def read_CTD_from_mat(matfile):
