@@ -128,6 +128,32 @@ def read_Campbell_radiation(filename):
 
 
 
+def read_miniAWS(filename):
+    '''
+    Reads data from one or several data files from the miniAWS output files.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file(s)
+        If several files shall be read, specify a string including UNIX-style wildcards
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+    
+    dtypes = {'VH_mps': 'float64', 'VR_gr': 'float64', 'LT_gr_C': 'float64', 'LF_prsnt': 'float64', "BattV": "float32"}
+    
+    df = ddf.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"], dtype=dtypes,  na_values=["NAN"])
+    df = df.compute()
+    df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(inplace=True)
+    
+    return df
+
+
+
 def read_Irgason_flux(filename):
     '''
     Reads data from a Irgason flux output file.
