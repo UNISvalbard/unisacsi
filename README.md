@@ -14,11 +14,15 @@ conda config --set channel_priority strict
 ```
 It is advised to install this toolbox into a virtual environment, as some of the functionality depends on older versions of common packages.
 
-Note for Apple users: The toolbox currently only works in an x86-environment (made for the old Intel chips). If you have installed anaconda recently on a Macbook with a new M1 chip, you have most likely gotten the arm64-native version. In that case, you need to force conda to create the new environment as x86 (command in brackets below).
+Note for Apple users: The toolbox currently only works in an x86-environment (made for the old Intel chips). If you have installed anaconda recently on a Macbook with a new M1 chip, you have most likely gotten the arm64-native version (check with "conda info" and look for what is specified after "__archspec="). In that case, you need to force conda to create the new environment as x86 (see below).
 
 Download the file requirements.txt directly from the github repository (open the file on the webpage, click on "Raw", right-click and Save as...), then type in a anaconda-prompt/terminal window:
 ```
-conda create -n myenv python=3.8 --file requirements.txt (CONDA_SUBDIR=osx-64 conda create -n myenv python=3.8 --file requirements.txt)
+conda create -n myenv python=3.8 --file requirements.txt
+```
+For Apple silicon users:
+```
+CONDA_SUBDIR=osx-64 conda create -n myenv python=3.8 --file requirements.txt
 ```
 
 Follow the instructions and be patient, this might take some time! Once the environment is created, activate it with:
