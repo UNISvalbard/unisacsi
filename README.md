@@ -20,7 +20,7 @@ Download the file requirements.txt directly from the github repository (open the
 ```
 conda create -n myenv python=3.8 --file requirements.txt
 ```
-For Apple silicon users:
+For Apple silicon users with arm64-native anaconda:
 ```
 CONDA_SUBDIR=osx-64 conda create -n myenv python=3.8 --file requirements.txt
 ```
