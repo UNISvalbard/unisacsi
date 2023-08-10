@@ -28,3 +28,4 @@ nco
 seaborn
 spectrum
 pytmd
+pytide
