@@ -32,7 +32,13 @@ from adjustText import adjust_text as adj_txt
 from pyrsktools import RSK
 import xarray as xr
 import datetime
+from __future__ import print_function, annotations
 
+import re
+import pathlib
+import zipfile
+import posixpath
+import pyTMD.utilities
 
 
 ############################################################################
@@ -1180,6 +1186,77 @@ def read_RBR(filename):
 
 
 
+############################################################################
+# TIDE FUNCTIONS
+############################################################################
+
+def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
+    """
+    Function to download a tidal model later used to calculate e.g. tidal currents at a certain location with the pyTMD package. This only needs to be done once.
+
+    Parameters
+    ----------
+    model : str, optional
+        String specifying the tidal model to download. Valid options are 'AODTM-5', 'AOTIM-5', 'AOTIM-5-2018', 'Arc2kmTM' and 'Gr1kmTM'. The default is "Arc2kmTM".
+    outpath : TYPE, optional
+        Path where a new folder with the tidal data will be created. The default is the current directory.
+
+    Returns
+    -------
+    None.
+
+    """
+
+    if pyTMD.utilities.check_connection('https://arcticdata.io'):
+        print("starting download...")
+        
+        # digital object identifier (doi) for each Arctic tide model
+        DOI = {}
+        DOI['AODTM-5'] = '10.18739/A2901ZG3N'
+        DOI['AOTIM-5'] = '10.18739/A2S17SS80'
+        DOI['AOTIM-5-2018'] = '10.18739/A21R6N14K'
+        DOI['Arc2kmTM'] = '10.18739/A2D21RK6K'
+        DOI['Gr1kmTM'] = '10.18739/A2B853K18'
+        # local subdirectory for each Arctic tide model
+        LOCAL = {}
+        LOCAL['AODTM-5'] = 'aodtm5_tmd'
+        LOCAL['AOTIM-5'] = 'aotim5_tmd'
+        LOCAL['AOTIM-5-2018'] = 'Arc5km2018'
+        LOCAL['Arc2kmTM'] = 'Arc2kmTM'
+        LOCAL['Gr1kmTM'] = 'Gr1kmTM'
+    
+        # recursively create directories if non-existent
+        DIRECTORY = pathlib.Path(outpath).expanduser().absolute()
+        local_dir = DIRECTORY.joinpath(LOCAL[model])
+        local_dir.mkdir(0o775, parents=True, exist_ok=True)
+    
+        # build host url for model
+        resource_map_doi = f'resource_map_doi:{DOI[model]}'
+        HOST = ['https://arcticdata.io','metacat','d1','mn','v2','packages',
+            pyTMD.utilities.quote_plus(posixpath.join('application','bagit-097')),
+            pyTMD.utilities.quote_plus(resource_map_doi)]
+        # download zipfile from host
+        zfile = zipfile.ZipFile(pyTMD.utilities.from_http(HOST, timeout=360))
+        # find model files within zip file
+        rx = re.compile(r'(grid|h[0]?|UV[0]?|Model|xy)_(.*?)',re.VERBOSE)
+        members = [m for m in zfile.filelist if rx.search(m.filename)]
+        # extract each member
+        for m in members:
+            # strip directories from member filename
+            m.filename = posixpath.basename(m.filename)
+            local_file = local_dir.joinpath(m.filename)
+            # extract file
+            zfile.extract(m, path=local_dir)
+            # change permissions mode
+            local_file.chmod(mode=0o775)
+        # close the zipfile object
+        zfile.close()
+        
+
+    return
+
+
+
 
 ############################################################################
 # PLOTTING FUNCTIONS
@@ -2011,3 +2088,4 @@ def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiv
         return fig1, fig2, fig3
     else:
         return fig1, fig2
+
