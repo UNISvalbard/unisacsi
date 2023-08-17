@@ -29,6 +29,9 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import rioxarray as rxr
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+import os
+import sys
+import datetime
 
 ############################################################################
 #READING FUNCTIONS
@@ -305,10 +308,10 @@ def read_IWIN(filename):
     files = sorted(glob.glob(filename))
 
     if len(files) == 1:
-        with xr.open_dataset(filename) as f:
+        with xr.open_dataset(files[0]) as f:
             ds = f.load()
     elif len(files) > 1:
-        with xr.open_mfdataset(filename) as f:
+        with xr.open_mfdataset(files) as f:
             ds = f.load()
     else:
         assert False, "No data found for the specified path."
@@ -411,7 +414,63 @@ def read_iMet(filename):
 
 
 
+############################################################################
+#DOWNLOADING FUNCTIONS
+############################################################################
 
+def download_IWIN_from_THREDDS(station_name, start_time, end_time, local_out_path=os.getcwd(), resolution="1min"):
+    """
+    Function to download data from one IWIN station and save it locally in a netCDF file.
+
+    Parameters
+    ----------
+    station_name : str
+        String specifying the station. Available options are MSBerg (2023-), MSBard (2021-2022), MSPolargirl, MSBillefjord, RVHannaResvoll (2024-), Bohemanneset (2021-), Narveneset (2022-), Daudmannsodden (2022-), Gåsøyane (2022-), KappThordsen (2023-)
+    start_time : str
+        String specifying the first hour to download. Format YYYY-MM-DD HH
+    end_time : TYPE
+        String specifying the last hour (included) to download. Format YYYY-MM-DD HH. If you wish to download data from exactly one day, set HH=23, 00 from the following day.
+    local_out_path : str, optional
+        String specifying the path to the folder where the data should be saved. The default is the current working directory. Don't add a file name here, the file name will be given automatically from the script.
+    resolution : str, optional
+        String specifying the temporal resolution of the time series to download. The default is "1min". Available options are '1min' and '10min' for lighthouse stations and additionally '20sec' for mobile stations.
+
+    Returns
+    -------
+    None.
+
+    """
+    
+    start_time_dt = datetime.datetime.strptime(start_time, '%Y-%m-%d %H').replace(tzinfo=datetime.timezone.utc)
+    end_time_dt = datetime.datetime.strptime(end_time, '%Y-%m-%d %H').replace(tzinfo=datetime.timezone.utc)
+
+    path_base = "https://thredds.met.no/thredds/dodsC/met.no/observations/unis/"
+
+    if station_name in ["MSBard", "MSBerg", "MSBillefjord", "MSPolargirl", "RVHannaResvoll"]:
+        if resolution in ["20sec", "1min", "10min"]:
+            path_data = f"{path_base}mobile_AWS_{station_name}_{resolution}"
+            path_out = os.path.join(local_out_path, f"mobile_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc")
+        else:
+            sys.exit(f"Requested resolution not available for {station_name}. Please choose '20sec', '1min' or '10min'.")
+    elif station_name in ["Narveneset", "Bohemanneset", "Daudmannsodden", "Gasoyane", "KappThordsen"]:
+        if resolution in ["1min", "10min"]:
+            path_data = f"{path_base}lighthouse_AWS_{station_name}_{resolution}"
+            path_out = os.path.join(local_out_path, f"mobile_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc")
+        else:
+            sys.exit(f"Requested resolution not available for {station_name}. Please choose '1min' or '10min'.")
+    else:
+        sys.exit("Requested station name not recognized. Please choose from 'MSBard', 'MSBerg', 'MSBillefjord', 'MSPolargirl', 'RVHannaResvoll', 'Narveneset', 'Bohemanneset', 'Daudmannsodden', 'Gasoyane', 'KappThordsen'.")
+        
+    print("Download starting...")
+    with xr.open_dataset(path_data) as f:
+        ds = f.sel(time=slice(start_time, end_time))
+        
+    ds.to_netcdf(path_out, unlimited_dims=["time"])
+    
+    print(f"The following dataset was successfully downloaded and saved in {path_out}.")
+    print(ds)
+
+    return
 
 
 
