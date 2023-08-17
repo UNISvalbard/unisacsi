@@ -455,7 +455,7 @@ def download_IWIN_from_THREDDS(station_name, start_time, end_time, local_out_pat
     elif station_name in ["Narveneset", "Bohemanneset", "Daudmannsodden", "Gasoyane", "KappThordsen"]:
         if resolution in ["1min", "10min"]:
             path_data = f"{path_base}lighthouse_AWS_{station_name}_{resolution}"
-            path_out = os.path.join(local_out_path, f"mobile_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc")
+            path_out = os.path.join(local_out_path, f"lighthouse_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc")
         else:
             sys.exit(f"Requested resolution not available for {station_name}. Please choose '1min' or '10min'.")
     else:
