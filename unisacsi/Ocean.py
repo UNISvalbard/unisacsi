@@ -11,6 +11,7 @@ University of Bergen, Norway. They were adapted for the file formats typically u
 in student cruises at UNIS.
 """
 
+from __future__ import print_function, annotations
 import unisacsi
 from seabird.cnv import fCNV
 import gsw
@@ -32,7 +33,6 @@ from adjustText import adjust_text as adj_txt
 from pyrsktools import RSK
 import xarray as xr
 import datetime
-from __future__ import print_function, annotations
 
 import re
 import pathlib
