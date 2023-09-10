@@ -1,4 +1,4 @@
-__version__ = '0.2.13'
+__version__ = '0.2.14'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
@@ -9,10 +9,12 @@ from .Meteo import (
 	read_CSAT3_flux,
 	read_Tinytag,
 	read_HOBO,
+    read_Raingauge,
 	read_IWIN,
 	read_AROME,
 	read_radiosonde,
 	read_iMet,
+    download_IWIN_from_THREDDS,
 	initialize_empty_map,
 	map_add_coastline,
 	map_add_land_filled,

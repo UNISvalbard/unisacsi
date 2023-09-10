@@ -268,7 +268,7 @@ def read_HOBO(filename):
         a pandas dataframe with time as index and the individual variables as columns.
     '''
 
-    df = ddf.read_csv(filename, delimiter=";", skiprows=1, parse_dates=["Date Time, GMT+00:00"], dayfirst=True, encoding = "ISO-8859-1")
+    df = ddf.read_csv(filename, delimiter=";", skiprows=1, parse_dates=["Date Time, GMT+00:00"], dayfirst=True, encoding = "ISO-8859-1", thousands=",")
     df = df.compute()
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
@@ -285,6 +285,45 @@ def read_HOBO(filename):
             sn = f"_sn{old_split[2].split(' ')[3]}"
             new_names.append(name+sn+unit)
     df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
+
+    return df
+
+
+
+def read_Raingauge(filename):
+    '''
+    Reads data from one or several data files from the raingauge output files.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file(s)
+        If several files shall be read, specify a string including UNIX-style wildcards
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+
+    df = ddf.read_csv(filename, delimiter=";", skiprows=1, parse_dates=["Date Time, GMT+00:00"], dayfirst=True, encoding = "ISO-8859-1", thousands=",")
+    df = df.compute()
+    df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
+    df.set_index("TIMESTAMP", inplace=True)
+    df.sort_index(inplace=True)
+
+    new_names = []
+    for i in list(df.columns):
+        old_split = i.split(",")
+        if len(old_split) == 1:
+            new_names.append(old_split[0])
+        else:
+            name = f"{old_split[0].replace(' ', '_')}"
+            unit = f"_{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}"
+            sn = f"_sn{old_split[2].split(' ')[3]}"
+            new_names.append(name+sn+unit)
+    df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
+    
+    df.fillna(method="ffill", inplace=True)
 
     return df
 
