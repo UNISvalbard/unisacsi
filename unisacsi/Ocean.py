@@ -1070,7 +1070,7 @@ def read_mooring(file):
 
 
 
-def read_Seaguard(filename):
+def read_Seaguard(filename, header_len=1):
     '''
     Reads data from one data file from a Seaguard.
 
@@ -1078,13 +1078,15 @@ def read_Seaguard(filename):
     -------
     filename: str
         String with path to file
+    header_len: int
+        Number of header lines that have to be skipped.
     Returns
     -------
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
     
-    df = pd.read_csv(filename, sep="\t", header=4, parse_dates=["Time tag (Gmt)"], dayfirst=True)
+    df = pd.read_csv(filename, sep="\t", header=header_len, parse_dates=["Time tag (Gmt)"], dayfirst=True)
     df.rename({"Time tag (Gmt)": "TIMESTAMP"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
