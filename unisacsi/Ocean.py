@@ -1183,7 +1183,7 @@ def read_mooring(file):
 
 
 
-def read_Seaguard(filename, header_len=1):
+def read_Seaguard(filename, header_len=4):
     '''
     Reads data from one data file from a Seaguard.
 
@@ -1198,7 +1198,6 @@ def read_Seaguard(filename, header_len=1):
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
     df = pd.read_csv(filename, sep="\t", header=header_len, parse_dates=["Time tag (Gmt)"], dayfirst=True)
     df.rename({"Time tag (Gmt)": "TIMESTAMP", 'East(cm/s)': "U", 'North(cm/s)': "V", 'Temperature(DegC)': "T", 'Pressure(kPa)': "P"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
