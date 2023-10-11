@@ -33,6 +33,7 @@ from adjustText import adjust_text as adj_txt
 from pyrsktools import RSK
 import xarray as xr
 import datetime
+import os
 
 import re
 import pathlib
@@ -318,6 +319,68 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     return fCTD,Z,X,station_locs
 
 
+def CTD_section_into_xarray(CTD, stations):
+    """
+    Function to store CTD data from one section in a xarray dataset.
+
+    Parameters
+    ----------
+    CTD : dict of dicts
+        CTD data. Is created by `read_CTD`
+    stations : array_like, optional
+        list of stations to select from `CTD`.
+
+    Returns
+    -------
+    ds : xarray dataset with two dimensions depth and distance along the section, and all measured variables
+
+    """
+
+    CTD_i,Z,X,_ = CTD_to_grid(CTD,stations,interp_opt=0)
+    list_da = []
+    for vari in CTD_i.keys():
+        list_da.append(xr.DataArray(data=CTD_i[vari], dims=["depth", "distance"], coords={"depth": Z, "distance": X, "station": ("distance", stations)}, name=vari))
+    
+    ds = xr.merge(list_da)
+    
+    return ds
+
+
+def mooring_into_xarray(dict_of_instr):
+    """
+    Function to store mooring data (T, S, SIGTH) from a mooring in an xarray dataset. The returned dataset can be regridded onto a regular time/depth grid using the xarray methods interpolate_na and interp.
+
+    Parameters
+    ----------
+    dict_of_instr : dictionary with the dataframes returned from the respective read functions for the different instruments, keys: depth levels
+
+    Returns
+    -------
+    ds : xarray dataset with two dimensions depth and time, and three variables T, S and SIGTH.
+
+    """
+    
+    all_varis = ["T", "S", "SIGTH"]
+    
+    for d in dict_of_instr.keys():
+        varis_instr = [v for v in all_varis if v in list(dict_of_instr[d].columns)]
+        dict_of_instr[d] = dict_of_instr[d][varis_instr]
+    
+    
+    list_da = []
+    for vari in all_varis:
+        list_df = []
+        for d, df_instr in dict_of_instr.items():
+            if vari in list(df_instr.keys()):
+                list_df.append(df_instr[vari].rename(d))
+        df_vari = pd.concat(list_df, axis=1)
+        df_vari = df_vari.resample("20MIN").mean()
+                
+        list_da.append(xr.DataArray(data=df_vari, dims=["time", "depth"], coords={"depth": np.array(list(df_vari.columns), dtype=float), "time": df_vari.index.values}, name=vari))
+    
+    ds = xr.merge(list_da)
+    
+    return ds
 
 
 def mooring_to_grid(mooring, variable, temp_res, depth_res):
@@ -596,7 +659,7 @@ def split_ADCP_resolution(ds):
     Parameters
     ----------
     ds : xarray dataset
-        Dataset containing the full ADCP timeseries
+        Dataset containing the full (CODAS-processed) ADCP timeseries (the return from the function read_ADCP_CODAS)
 
     Returns
     -------
@@ -669,12 +732,12 @@ def read_WinADCP(filename):
     
     ds = ds.set_coords(("lat_central", "lon_central"))
     
-    ds["u"] = ds["u_raw"] - ds["uship"]
+    ds["u"] = ds["u_raw"] + ds["uship"]
     ds["u"].attrs["name"] = "u"
     ds["u"].attrs["units"] = "m/s"
     ds["u"].attrs["long_name"] = "zonal velocity component"
     
-    ds["v"] = ds["v_raw"] - ds["vship"]
+    ds["v"] = ds["v_raw"] + ds["vship"]
     ds["v"].attrs["name"] = "v"
     ds["v"].attrs["units"] = "m/s"
     ds["v"].attrs["long_name"] = "meridional velocity component"
@@ -691,6 +754,56 @@ def read_WinADCP(filename):
     ds["crossvel"].attrs["name"] = "crossvel"
     ds["crossvel"].attrs["units"] = "m/s"
     ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
+
+    return ds
+
+
+def read_LADCP(filename, station_dict):
+    """
+    Function to read the data from the LADCP-mat-files.
+
+    Parameters
+    ----------
+    filename : str
+        String with path to the datafile
+    station_dict : dict
+        dictionary connecting the ship station numbers to the UNIS station numbers. Can be generated from the CTD-dict with 'stations_dict = {CTD[i]["st"]: i for i in CTD.keys()}'.
+        Be aware that if a UNIS station has been measured several times and not named differently (e.g. 987_1, 987_2 etc.), only the last measurement will be present in the CTD dict and the previous station numbers are missing.
+        In this case, it is easiest to manually rename the UNIS station numbers in the respective CTD data files (.cnv)
+
+    Returns
+    -------
+    ds : xarray dataset containing the l-adcp data.
+
+    """
+
+    adcp = myloadmat(filename)
+    
+    list_of_das = []
+    for vari in ["U", "V", "U_detide", "V_detide"]:
+        list_of_dfs = []
+        for st in range(len(adcp["stnr"])):
+            max_depth = np.floor((np.nanmax(adcp["Z"][:,st])))
+            grid = np.arange(max_depth)
+            df = pd.DataFrame(adcp[vari][:,st], index=adcp["Z"][:,st], columns=[station_dict[adcp["stnr"][st]]])
+            df = df.drop_duplicates().dropna()
+            df_resampled = df.reindex(df.index.union(grid)).interpolate('values').loc[grid]
+            list_of_dfs.append(df_resampled)
+            
+        df_total = pd.concat(list_of_dfs, axis=1)
+            
+        list_of_das.append(xr.DataArray(data=df_total, dims=["depth", "station"], coords={"station": df_total.columns, "depth": df_total.index}, name=vari))
+        
+    ds = xr.merge(list_of_das)
+    ds["ship_station"] = adcp["stnr"]
+    
+    
+    aux_variables = {"LAT": "LAT", "LON": "LON", "ED": "Echodepth"}
+    
+    for vari_old, vari_new in aux_variables.items():
+        ds[vari_new] = xr.DataArray(adcp[vari_old], dims=["station"], coords={"station": ds.station})
+        
+    ds["time"] = pd.to_datetime(np.asarray(adcp["DT"])-719529., unit='D').round('1s')
 
     return ds
 
@@ -1087,7 +1200,7 @@ def read_Seaguard(filename, header_len=1):
     '''
     
     df = pd.read_csv(filename, sep="\t", header=header_len, parse_dates=["Time tag (Gmt)"], dayfirst=True)
-    df.rename({"Time tag (Gmt)": "TIMESTAMP"}, axis=1, inplace=True)
+    df.rename({"Time tag (Gmt)": "TIMESTAMP", 'East(cm/s)': "U", 'North(cm/s)': "V", 'Temperature(DegC)': "T", 'Pressure(kPa)': "P"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
     
@@ -1130,7 +1243,7 @@ def read_SB37(filename):
         a pandas dataframe with time as index and the individual variables as columns.
     '''
     
-    var_names = {'cond0S/m': "C", 'sigma-�00': "SIGTH", 'prdM': "P", 'potemperature': "Tpot", 'tv290C': "T", 'timeK': "Time", 'PSAL': "S"}
+    var_names = {'cond0S/m': "C", 'sigma-�00': "SIGTH", 'prdM': "P", 'potemperature': "Tpot", 'tv290C': "T", 'timeS': "Time", 'PSAL': "S"}
     
     data = fCNV(filename)
     
@@ -1139,7 +1252,7 @@ def read_SB37(filename):
     
     d.update(data.attrs)
     
-    d["TIMESTAMP"] = pd.to_datetime(d["Time"], unit='s', origin=pd.Timestamp('1990-01-01'))
+    d["TIMESTAMP"] = pd.to_datetime(d["Time"], unit='s', origin=pd.Timestamp(d["start_time"].split("[")[0].strip()))
 
     df = pd.DataFrame(0., index=d["TIMESTAMP"], columns=list(set([field for field in d if ((np.size(d[field]) > 1) and (field not in ["Time", "TIMESTAMP"]))])))
     for k in df.columns:
@@ -1184,6 +1297,67 @@ def read_RBR(filename):
         df.sort_index(axis=0, inplace=True)
         
     return df
+
+
+def read_Thermosalinograph(filename, use_system_time):
+    '''
+    Reads data from one data file from the Helmer Hanssen thermosalinograph.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file(s)
+        If several files shall be read, specify a string including UNIX-style wildcards
+    use_system_time : bool, optional
+        Switch to use the system upload time stamp instead of the NMEA one. By default, the NMEA time stamp is used.
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+    
+    var_names = {'CNDC': "C", 'sigma-�00': "SIGTH", 'prM': "P", 'potemperature': "Tpot", 'TEMP': "T", 'timeS': "Time", 'PSAL': "S", "LATITUDE": "LAT", "LONGITUDE": "LON"}
+    
+    if os.path.isfile(filename):
+        list_of_files = [filename]
+    else:
+        list_of_files = sorted(glob.glob(filename))
+    
+    
+    list_of_df = []
+    
+    for file in list_of_files:
+        data = fCNV(file)
+        
+        d = {var_names[name]:data[name]
+            for name in data.keys() if name in var_names}
+        
+        d.update(data.attrs)
+        
+        if use_system_time:
+            found_system_time = False
+            with open(file, encoding = "ISO-8859-1") as f:
+                while not found_system_time:
+                    line = f.readline()
+                    if "system upload time" in line.lower():
+                        found_system_time = True
+                        d['start_time'] = line.split("=")[-1].strip()
+        else:
+            d["start_time"] = d["start_time"].split("[")[0].strip()
+            
+        d["TIMESTAMP"] = pd.to_datetime(d["Time"], unit='s', origin=pd.Timestamp(d["start_time"]))
+    
+        df = pd.DataFrame(0., index=d["TIMESTAMP"], columns=list(set([field for field in d if ((np.size(d[field]) > 1) and (field not in ["Time", "TIMESTAMP"]))])))
+        for k in df.columns:
+            df[k] = d[k]
+        df.sort_index(axis=0, inplace=True)
+        
+        list_of_df.append(df)
+        
+    df_total = pd.concat(list_of_df)
+    df_total.sort_index(axis=0, inplace=True)
+    
+    return df_total
 
 
 
