@@ -319,16 +319,17 @@ def CTD_to_grid(CTD,stations=None,interp_opt= 1,x_type='distance',z_fine=False):
     return fCTD,Z,X,station_locs
 
 
-def CTD_section_into_xarray(CTD, stations):
+
+def CTD_to_xarray(CTD,switch_xdim='station'):
     """
-    Function to store CTD data from one section in a xarray dataset.
+    Function to store CTD data in a xarray dataset instead of a dictionary.
 
     Parameters
     ----------
     CTD : dict of dicts
         CTD data. Is created by `read_CTD`
-    stations : array_like, optional
-        list of stations to select from `CTD`.
+    switch_xdim : str	
+	Keyword to switch between time and station as x dimension for the returned data set. Default is station (UNIS station number). 
 
     Returns
     -------
@@ -336,14 +337,117 @@ def CTD_section_into_xarray(CTD, stations):
 
     """
 
-    CTD_i,Z,X,_ = CTD_to_grid(CTD,stations,interp_opt=0)
+    #CTD_i,Z,X,_ = CTD_to_grid(CTD,stations,interp_opt=0)
+
+# take all stations available
+    stations = list(CTD.keys())
+
+    # construct the Z-vector from the max and min depth of the given stations
+    maxdepth = np.nanmax([np.nanmax(-CTD[i]['z']) for i in stations])
+    mindepth = np.nanmin([np.nanmin(-CTD[i]['z']) for i in stations])
+
+    Z = np.linspace(mindepth,maxdepth,int(maxdepth-mindepth)+1)
+
+
+    # collect station numbers and other metadata
+    ship_station = np.array([d['st'] for d in CTD.values()])
+    station = np.array([d['unis_st'] for d in CTD.values()])
+    lat = np.array([d['LAT'] for d in CTD.values()])
+    lon = np.array([d['LON'] for d in CTD.values()])
+    bdepth = np.array([d['BottomDepth'] for d in CTD.values()])
+
+    # construct the X-vector
+    X = np.array([d['datetime'] for d in CTD.values()])
+    #X = pd.to_datetime(X-719529., unit='D').round('1s')
+
+    fields = list(set([field for field in CTD[stations[0]]
+                        if np.size(CTD[stations[0]][field]) > 1]))
+    
+    fCTD = {}
+    for field in fields:
+        try:
+            # grid over Z
+            temp_array = []
+            for value in CTD.values():
+                if field in value:
+                    temp_array.append(interp1d(-value['z'],value[field],
+                                            bounds_error=False)(Z))
+                else:
+                    temp_array.append(interp1d(Z,Z*np.nan,
+                                            bounds_error=False)(Z))
+            temp_array = np.array(temp_array).transpose()
+
+   
+            fCTD[field] = temp_array
+           
+            
+            if field == "water_mass":
+                fCTD["water_mass"] = np.round(fCTD["water_mass"])
+        except:
+            print('Warning: No gridding possible for '+field+'. Maybe ' \
+                      'no valid data? Setting to nan...')
+         
+            fCTD[field] = np.ones([len(X),len(Z)]) * np.nan
+
+
     list_da = []
-    for vari in CTD_i.keys():
-        list_da.append(xr.DataArray(data=CTD_i[vari], dims=["depth", "distance"], coords={"depth": Z, "distance": X, "station": ("distance", stations)}, name=vari))
+    for vari in fCTD.keys():
+        list_da.append(xr.DataArray(data=fCTD[vari], dims=["depth", "time"], coords={"depth": Z, "time": X, "station": ("time", station), "ship_station": ("time", ship_station), "lat": ("time", lat), "lon": ("time", lon), "bottom_depth": ("time", bdepth)}, name=vari))
     
     ds = xr.merge(list_da)
-    
+
+    ds = ds.sortby("time")
+    ds = ds.interp(depth=np.arange(np.ceil(ds.depth[0]), np.floor(ds.depth[-1])+1.))
+
+    if switch_xdim == 'station':
+    	ds = ds.swap_dims({'time':'station'})
+        
+    ds["SA"].attrs["long_name"] = "Absolute Salinity [g/kg]"
+    ds["S"].attrs["long_name"] = "Salinity [g/kg]"
+    ds["CT"].attrs["long_name"] = "Conservative Temperature [°C]"
+    ds["T"].attrs["long_name"] = "Temperature [°C]"
+    ds["C"].attrs["long_name"] = "Conductivity [S/cm]"
+    ds["P"].attrs["long_name"] = "Pressure [dbar]"
+    ds["SIGTH"].attrs["long_name"] = "Density (sigma-theta) [kg/m3]"
+    ds["OX"].attrs["long_name"] = "Oxygen [ml/l]"
+
     return ds
+
+
+def section_to_xarray(ds,stations=None,time_periods=None):
+
+    if ((stations == None) & (time_periods != None)):   # for VM-ADCP
+        ds_section = []
+        for (start, end) in time_periods:
+            ds_section.append(ds.sel(time=slice(start, end)))
+        ds_section = xr.concat(ds_section, dim="time")
+        if time_periods[0][0] > time_periods[-1][0]:
+            ds_section = ds_section.sortby('time', ascending =False) 	
+
+        ds_section['distance'] = xr.DataArray(np.insert(np.cumsum(gsw.distance(ds_section.lon.values,ds_section.lat.values)/1000),0,0),dims = ['time'],coords={'distance':ds_section.time})
+        ds_section = ds_section.swap_dims({'time':'distance'}).dropna("depth", "all")
+        ds_section = ds_section.transpose("depth", "distance")
+        return ds_section
+
+    
+    elif ((stations != None) & (time_periods == None)):       # for CTD and L-ADCP
+        ds_section = ds.sel(station = stations)	
+        ds_section['distance'] = xr.DataArray(np.insert(np.cumsum(gsw.distance(ds_section.lon.values,ds_section.lat.values)/1000),0,0),dims = ['station'],coords={'distance':ds_section.station})
+        ds_section = ds_section.swap_dims({'station':'distance'}).dropna("depth", "all")
+        ds_section = ds_section.transpose("depth", "distance")
+        return ds_section
+        
+    else:
+        print("Please specify either stations (for CTD and L-ADCP) or time_periods (for VM_ADCP)!")
+        return None
+    
+    
+    
+
+    
+    
+
+
 
 
 def mooring_into_xarray(dict_of_instr):
@@ -649,10 +753,19 @@ def read_ADCP_CODAS(filename):
     ds["crossvel"].attrs["units"] = "m/s"
     ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
     
+    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
+    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
+    ds["uship"].attrs["long_name"] = "Eastward ship speed [m/s]"
+    ds["vship"].attrs["long_name"] = "Northward ship speed [m/s]"
+    ds["pg"].attrs["long_name"] = "Percent good"
+    ds["heading"].attrs["long_name"] = "Ship heading [°]"
+    ds["speed_ship"].attrs["long_name"] = "Ship speed [m/s]"
+    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track [m/s]"
+    
     return ds
 
 
-def split_ADCP_resolution(ds):
+def split_CODAS_resolution(ds):
     """
     Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
 
@@ -683,6 +796,7 @@ def split_ADCP_resolution(ds):
          ds_d = ds_d.where(ds_d.depth.notnull(), drop=True)
          for vari in one_d_varis:
              ds_d[vari] = ds_dd[vari]
+         ds_d = ds_d.transpose("depth", "time")
          list_of_ds.append(ds_d)
         
     return list_of_ds
@@ -718,19 +832,19 @@ def read_WinADCP(filename):
                                   pg=(["time", "depth"], data['SerPG4']/100., {'units':'percent', "name": "pg", "long_name": "percent good"}),
                                   uship=(["time"], data["AnNVEmmpersec"]/1000., {'units':'m/s', "name": "uship", "long_name": "ship zonal velocity component"}),
                                   vship=(["time"], data["AnNVNmmpersec"]/1000., {'units':'m/s', "name": "vship", "long_name": "ship meridional velocity component"})),
-                   coords=dict(time=time,depth=depth,
-                               lat_start=(["time"], data["AnFLatDeg"]),
-                               lat_end=(["time"], data["AnLLatDeg"]),
-                               lon_start=(["time"], data["AnFLonDeg"]),
-                               lon_end=(["time"], data["AnLLonDeg"])),
+                   coords=dict(time=time,depth=depth),
+                               #lat_start=(["time"], data["AnFLatDeg"]),
+                               #lat_end=(["time"], data["AnLLatDeg"]),
+                               #lon_start=(["time"], data["AnFLonDeg"]),
+                               #lon_end=(["time"], data["AnLLonDeg"])),
                    attrs=glattributes)
     
     
-    ds["lat_central"] = 0.5*(ds["lat_start"]+ds["lat_end"])
-    ds["lon_central"] = 0.5*(ds["lon_start"]+ds["lon_end"])
+    ds["lat"] = xr.DataArray(0.5*(data["AnFLatDeg"]+data["AnLLatDeg"]),dims=['time'],coords={'time':ds.time})
+    ds["lon"] = xr.DataArray(0.5*(data["AnFLonDeg"]+data["AnLLonDeg"]),dims=['time'],coords={'time':ds.time})
     
     
-    ds = ds.set_coords(("lat_central", "lon_central"))
+    ds = ds.set_coords(("lat", "lon"))
     
     ds["u"] = ds["u_raw"] + ds["uship"]
     ds["u"].attrs["name"] = "u"
@@ -743,7 +857,7 @@ def read_WinADCP(filename):
     ds["v"].attrs["long_name"] = "meridional velocity component"
     
     calc_heading = lambda u, v: (((np.rad2deg(np.arctan2(-u,-v)) + 360.) % 360.) + 180.) % 360.
-    ds["heading"] = xr.apply_ufunc(calc_heading, ds['u'], ds['v'])
+    ds["heading"] = xr.apply_ufunc(calc_heading, ds['uship'], ds['vship'])
     ds["heading"].attrs["name"] = "heading"
     ds["heading"].attrs["units"] = "deg"
     ds["heading"].attrs["long_name"] = "ship heading"
@@ -755,10 +869,28 @@ def read_WinADCP(filename):
     ds["crossvel"].attrs["units"] = "m/s"
     ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
 
+    ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
+    ds["speed_ship"].attrs["name"] = "speed_ship"
+    ds["speed_ship"].attrs["units"] = "m/s"
+    ds["speed_ship"].attrs["long_name"] = "total ship speed"
+
+    ds = ds.transpose("depth", "time")
+    
+    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
+    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
+    ds["u_raw"].attrs["long_name"] = "Raw eastward current velocity [m/s]"
+    ds["v_raw"].attrs["long_name"] = "Raw northward current velocity [m/s]"
+    ds["uship"].attrs["long_name"] = "Eastward ship speed [m/s]"
+    ds["vship"].attrs["long_name"] = "Northward ship speed [m/s]"
+    ds["pg"].attrs["long_name"] = "Percent good"
+    ds["heading"].attrs["long_name"] = "Ship heading [°]"
+    ds["speed_ship"].attrs["long_name"] = "Ship speed [m/s]"
+    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track [m/s]"
+
     return ds
 
 
-def read_LADCP(filename, station_dict):
+def read_LADCP(filename, station_dict,switch_xdim='station'):
     """
     Function to read the data from the LADCP-mat-files.
 
@@ -770,7 +902,8 @@ def read_LADCP(filename, station_dict):
         dictionary connecting the ship station numbers to the UNIS station numbers. Can be generated from the CTD-dict with 'stations_dict = {CTD[i]["st"]: i for i in CTD.keys()}'.
         Be aware that if a UNIS station has been measured several times and not named differently (e.g. 987_1, 987_2 etc.), only the last measurement will be present in the CTD dict and the previous station numbers are missing.
         In this case, it is easiest to manually rename the UNIS station numbers in the respective CTD data files (.cnv)
-
+    switch_xdim : str	
+	Keyword to switch between time and station as x dimension for the returned data set. Default is station (UNIS station number).
     Returns
     -------
     ds : xarray dataset containing the l-adcp data.
@@ -795,16 +928,31 @@ def read_LADCP(filename, station_dict):
         list_of_das.append(xr.DataArray(data=df_total, dims=["depth", "station"], coords={"station": df_total.columns, "depth": df_total.index}, name=vari))
         
     ds = xr.merge(list_of_das)
-    ds["ship_station"] = adcp["stnr"]
+    ds["ship_station"] = xr.DataArray(adcp["stnr"],dims= ["station"], coords = {"station": ds.station})
     
     
-    aux_variables = {"LAT": "LAT", "LON": "LON", "ED": "Echodepth"}
+    aux_variables = {"LAT": "lat", "LON": "lon", "ED": "Echodepth"}
     
     for vari_old, vari_new in aux_variables.items():
         ds[vari_new] = xr.DataArray(adcp[vari_old], dims=["station"], coords={"station": ds.station})
         
-    ds["time"] = pd.to_datetime(np.asarray(adcp["DT"])-719529., unit='D').round('1s')
-
+    ds["time"] = xr.DataArray(pd.to_datetime(np.asarray(adcp["DT"])-719529., unit='D').round('1s'),dims= ["station"], coords = {"station": ds.station})
+    ds = ds.set_coords(['lat','lon','ship_station', "Echodepth"])
+    if switch_xdim == 'time':
+    	ds = ds.swap_dims({'station':'time'})
+        
+    ds = ds.rename({'U':'u','V':'v','U_detide':'u_detide','V_detide':'v_detide', "Echodepth": "bottom_depth"})
+    
+    ds["u"] = ds["u"] / 10.
+    ds["v"] = ds["v"] / 10.
+    ds["u_detide"] = ds["u_detide"] / 10.
+    ds["v_detide"] = ds["v_detide"] / 10.
+    
+    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
+    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
+    ds["u_detide"].attrs["long_name"] = "Detided eastward current velocity [m/s]"
+    ds["v_detide"].attrs["long_name"] = "Detided northward current velocity [m/s]"
+   
     return ds
 
 
@@ -916,6 +1064,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
             pass
         # rename the most important ones to the same convention used in MATLAB,
         # add other important ones
+                
         p['LAT'] = p.pop('LATITUDE')
         p['LON'] = p.pop('LONGITUDE')
         p['z'] = gsw.z_from_p(p['P'],p['LAT'])
@@ -923,9 +1072,8 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         if np.nanmin(p["C"]) > 10.:
             p["C"] /= 10.
         p['C'][p['C']<1] = np.nan
-        p['C'] = salt_corr[0] * p['C']*10 + salt_corr[1] # apply correction
         p['T'][p['T']<-2] = np.nan
-        p['S'] = gsw.SP_from_C(p['C'],p['T'],p['P'])
+        p['S'] = salt_corr[0] * p['S'] + salt_corr[1] # apply correction
         p['S'][p['S']<20] = np.nan
         p['C'][p['S']<20] = np.nan
         p['SA'] = gsw.SA_from_SP(p['S'],p['P'],p['LON'],p['LAT'])
@@ -1776,6 +1924,171 @@ def plot_CTD_single_section(CTD,stations,section_name='',
     return ax, Ct, C
 
 
+def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=None,
+                  contourlevels=5, interp=False, cbar=True, add_station_ticks=True):
+    """
+    Function to plot a variable number of variables from a section. Data can be from CTD or ADCP, but has to be provided as xarray datasets (see example notebook!)
+
+    Parameters
+    ----------
+    list_das : list
+        Each element of the list must be an xarray dataarray containing T, S, current data.
+    list_cmaps : list
+        Colormaps to be used for each subplot, order corresponding to the first list with the data.
+    list_clevels : list, optional
+        List with levels to use for the contourf plots, order corresponding to the first list with the data. Can bei either a integer (then it specifies the number of levels) or the explicit levels. The default is 20 levels.
+    da_contours : xarray data array, optional
+        Dataarray with data to plot as contour lines on top of the countourf. Typically used for density lines. The default is None (no contour lines).
+    contourlevels : int or array-like, optional
+        Sale as the clevels for the contourf plots, but for the contour lines. The default is 5.
+    interp : bool, optional
+        Switch to enable interpolation of the data onto a finer grid along the distance axis. The default is False.
+    cbar : bool, optional
+        Switch to enable adding a colorbar to each contourf plot. The default is True.
+    add_station_ticks : bool, optional
+        Switch to add ticks for the locations of the CTD stations along the section. The default is True.
+
+    Returns
+    -------
+    fig, ax
+        The handles for the figure and the axes, to be used for further adjustments.
+
+    """
+    
+    
+    if list_clevels == None:
+        list_clevels = len(list_das)*[20]
+    
+
+    N_subplots = len(list_das)
+
+    fig, axes = plt.subplots(N_subplots, 1, sharey=True, sharex=True, figsize=(12,N_subplots*4))
+    if N_subplots == 1:
+        axes = [axes]
+    for i, da in enumerate(list_das):
+        if interp:
+            X = da.distance.to_numpy()
+            Z = da.depth.to_numpy()
+            # original grids
+            X_orig,Z_orig = [f.ravel() for f in np.meshgrid(X,Z)]
+            # new grids
+            X_int = np.linspace(np.min(X),np.max(X),len(X)*20) # create fine X grid
+            Z_int = Z[:]
+            temp_array = da.to_numpy().ravel()
+            mask = np.where(~np.isnan(temp_array)) # NaN mask
+            # grid in X and Z
+            data_to_plot = griddata((X_orig[mask],Z_orig[mask]), # old grid
+                                 temp_array[mask], # data
+                                 tuple(np.meshgrid(X_int,Z_int))) # new grid
+            if da.name == "water_mass":
+                data_to_plot = np.round(data_to_plot)
+            pic = axes[i].contourf(X_int,Z_int,data_to_plot,cmap=list_cmaps[i],levels=list_clevels[i],extend='both')
+            cbar = plt.colorbar(pic, ax=axes[i])
+            cbar.ax.set_ylabel(da.attrs["long_name"])
+        else:
+            da.plot.pcolormesh(x="distance", y="depth", ax=axes[i], shading="nearest", cmap=list_cmaps[i], levels=list_clevels[i], add_colorbar=cbar, infer_intervals=False, robust=True, extend='both')
+
+        if da_contours is not None:
+            if interp:
+                X = da_contours.distance.to_numpy()
+                Z = da_contours.depth.to_numpy()
+                # original grids
+                X_orig,Z_orig = [f.ravel() for f in np.meshgrid(X,Z)]
+                # new grids
+                X_int = np.linspace(np.min(X),np.max(X),len(X)*20) # create fine X grid
+                Z_int = Z[:]
+                temp_array = da_contours.to_numpy().ravel()
+                mask = np.where(~np.isnan(temp_array)) # NaN mask
+                # grid in X and Z
+                data_to_plot = griddata((X_orig[mask],Z_orig[mask]), # old grid
+                                     temp_array[mask], # data
+                                     tuple(np.meshgrid(X_int,Z_int))) # new grid
+                contourlines = axes[i].contour(X_int, Z_int, data_to_plot, levels=contourlevels, colors="k", linewidths=[1], alpha=0.6)
+            else:
+                contourlines = da_contours.plot.contour(x="distance", y="depth", ax=axes[i], levels=contourlevels, colors="k", linewidths=[1], alpha=0.6)
+            clabels = plt.clabel(contourlines, contourlines.levels, fontsize=8, fmt = '%1.1f')
+            [txt.set_bbox(dict(facecolor='white', edgecolor='none',
+                               pad=0,alpha=0.6)) for txt in clabels]
+    
+        axes[i].set_xlabel("")
+        axes[i].set_ylabel("Depth [m]")
+                
+    
+    # extract bathymetry
+    bottom = None
+    found_bottom = False
+    i = 0
+    while ((found_bottom == False) & (i < len(list_das))):
+        if "bottom_depth" in list_das[i].coords:
+            bottom = list_das[i]["bottom_depth"].to_numpy()
+            bottom_x = list_das[i]["distance"].to_numpy()
+            found_bottom = True 
+        i += 1
+    if ((found_bottom == False) & (da_contours is not None)):
+        if "station" in da_contours.coords:
+            bottom = da_contours.coords["bottom_depth"].to_numpy()
+            bottom_x = da_contours.coords["distance"].to_numpy()
+            found_bottom = True 
+                
+    # get the axis limits
+    if bottom is not None:
+        y_limits = (0,np.nanmax(bottom))
+    else:
+        da_max_depths = [da.depth.max().values for da in list_das]
+        y_limits = (0,np.nanmax(da_max_depths))
+        
+    da_max_distances = [da.distance.max().values for da in list_das]
+    if da_contours is not None:
+        da_max_distances = da_max_distances + [da_contours.distance.max().values]
+    x_limits = (0,np.nanmin(da_max_distances))
+            
+    if bottom is not None:
+        for a in axes:
+            a.fill_between(bottom_x,bottom*0+y_limits[1]+10,bottom,
+                      zorder=999,color='gray')
+    else:
+        print("No bottom data found!")
+            
+            
+    # add station ticks
+    if add_station_ticks:
+        found_stations = False
+        i == 0
+        while ((found_stations == False) & (i < len(list_das))):
+            if "station" in list_das[i].coords:
+                stations = list_das[i]["station"].to_numpy()
+                distances = list_das[i]["distance"].to_numpy()
+                found_stations = True
+            i += 1
+        if ((found_stations == False) & (da_contours is not None)):
+            if "station" in da_contours.coords:
+                stations = da_contours["station"].to_numpy()
+                distances = da_contours["distance"].to_numpy()
+                found_stations = True
+            
+            
+            
+        if found_stations:
+            for s,d in zip(stations, distances):
+                for a in axes:
+                    a.text(d,0,'v',ha='center',fontweight='bold')
+                axes[0].annotate(str(s),(d,0),xytext=(0,10),
+                            textcoords='offset points',ha='center')
+        else:
+            print("Station ticks not possible when only VM-ADCP data is provided!")
+
+    for a in axes:
+        a.set_xlim(x_limits)
+        a.set_ylim(y_limits)
+        a.invert_yaxis()
+        a.yaxis.set_ticks_position('both')
+        
+        
+    axes[-1].set_xlabel("Distance [km]")
+
+    return fig, axes
+
+
 
 def plot_CTD_station(CTD,station,axes = None, add = False,linestyle='-'):
     '''
@@ -2138,129 +2451,27 @@ def create_empty_ts(T_extent,S_extent,p_ref = 0):
 
 
 
-def plot_ADCP_CTD_section(ADCP,CTD,stations,levels=np.linspace(-0.1,0.1,11),quiver_depth=None,
-                          geostr=False,levels_2 = np.linspace(-0.5,0.5,11),
-                          topography = None,z_fine=False):
-    '''
+def check_VM_ADCP_map(ds):
+    """
+    Small function to produce an interactive map of the VM-ADCP measurements. This can be used to easily determine the times to use in a section plot (see example notebook!).
 
-    Plots ADCP velocities along a CTD section given by *stations*. If wished,
-    also plots geostrophic velocities estimates calculated from CTD section
     Parameters
     ----------
-    ADCP : dict
-        dictionary with ADCP data.
-    CTD : dict
-        dictionary with CTD data.
-    stations : (n, ) array-like
-        The CTD stations of the section.
-    levels : array-like, optional
-        The filled contour levels for the velocity. The default is
-        np.linspace(-0.1,0.1,11).
-    quiver_depth : float, optional
-        The depth in meters from which the currents are plotted as quiver plot.
-    geostr : bool, optional
-        Wether to also plot geostrphic velocity estimates. The default is False.
-    levels_2 : array-like, optional
-        The filled contour levels for the geostrophicvelocity. The default is
-        np.linspace(-0.5,0.5,11).
-    topography : str or array-like, optional
-        The topography to use for the map of the section. See documentation of
-        Ocean.plot_CTD_map() . Default is None.
-    z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
+    ds : xarray dataset
+        Either from Codas or WinADCP.
 
     Returns
     -------
     None.
-    '''
-    # retrieve bottom depth and time of CTD stations
-    time_section = [CTD[st]['dnum'] for st in stations]
-    print(time_section)
-    BDEPTH = np.asarray([float(CTD[st]['BottomDepth']) for st in stations])
 
-    # interpolate ADCP data to CTD time
-    depth = np.nanmean(ADCP['depth'], axis=0)
+    """
     
-    if quiver_depth is None:
-        quiver_depth_ind = list(np.arange(len(depth)))
-    else:   
-        quiver_depth_ind = np.where(abs(depth-quiver_depth) == np.nanmin(abs(depth-quiver_depth)))[0][0]
-        print(f"Quiver depth: {depth[quiver_depth_ind]}; corresponding index: {quiver_depth_ind}")
+    df = ds[["time", "lat", "lon"]].to_pandas()
+    df["time"] = df.index
     
-        
-    try:
-        lon = interp1d(ADCP['time'],ADCP['lon'])(time_section)
-        lat = interp1d(ADCP['time'],ADCP['lat'])(time_section)
-        u = interp1d(ADCP['time'],ADCP['u'],axis=0)(time_section)
-        v = interp1d(ADCP['time'],ADCP['v'],axis=0)(time_section)
-    except:
-        raise ValueError('Cannot find ADCP data for at least one of the' \
-                         ' CTD stations. Check if the ADCP data is available' \
-                         ' for your CTD section!')
-    shipspeed = interp1d(ADCP['time'],ADCP['shipspeed'],axis=0)(time_section)
-
-    # printout of Ship Speed, to check
-    print('Ship speed at the CTD stations in m/s:')
-    print(shipspeed)
-
-    # calculate the angle of the section between each CTD stations
-    angle = np.arctan2(np.diff(lat),np.cos(lat[1:]*np.pi/180)*np.diff(lon))
-    angle = np.array([angle[0]] + list(angle)+ [angle[-1]])
-    angle = (angle[1:]+angle[0:-1])/2
-    print('The angle (from due east) of the section is:')
-    print(angle*180/np.pi)
-    print('Note: Please check if that matches with the map!')
-
-    # project u and v to the velocity perpendicular to the section
-    crossvel = u*np.sin(-angle)[:,np.newaxis] + v*np.cos(-angle)[:,np.newaxis]
-    # create the distance vector of the section
-    x = [0] + list(np.cumsum(gsw.distance(lon,lat)/1000))
-
-    # map
-    fig1 = plt.figure()
-    labels = ['S'+str(i) for i in range(1,len(stations)+1)]
-    plot_CTD_map(CTD,stations,st_labels=labels,topography=topography)
-    plt.plot(lon,lat)
-    q = plt.quiver(lon,lat,np.nanmean(u[:,quiver_depth_ind], axis=1),np.nanmean(v[:,quiver_depth_ind], axis=1))
-    qk = plt.quiverkey(q,0.92,0.9,0.2,'20 cm/s',color='blue',labelcolor='blue',
-                  transform=plt.gca().transAxes,zorder=1000)
-    qk.text.set_backgroundcolor('w')
-
-    # section
-    fig2 = plt.figure()
-    contour_section(x,depth,crossvel.transpose(),cmap='RdBu_r',clevels=levels,
-                    bottom_depth=BDEPTH,station_pos=x,station_text='S')
-
-    plt.xlabel('Distance [km]')
-    plt.ylabel('Depth [m]')
-    plt.ylim(bottom=np.max(BDEPTH))
-
-    if geostr:
-        # put the fields (the vector data) on a regular, common pressure and X grid
-        # by interpolating.
-        fCTD,Z,X,station_locs = CTD_to_grid(CTD,stations=stations,interp_opt=0,
-                                            z_fine=z_fine)
-
-        lat = [CTD[k]['LAT'] for k in stations]
-        lon = [CTD[k]['LON'] for k in stations]
-
-        geo_strf = gsw.geo_strf_dyn_height(fCTD['SA'],fCTD['CT'],fCTD['P'],p_ref=0)
-        geo_vel,mid_lon,mid_lat = gsw.geostrophic_velocity(geo_strf,lon,lat)
-        mid_X = [0] + list(np.cumsum(gsw.distance(mid_lon,mid_lat)/1000))
-        mid_X = np.asarray(mid_X) + np.diff(X)[0]/2
-        fig3 = plt.figure()
-        contour_section(mid_X,Z,geo_vel,station_pos=station_locs,
-                        clevels=levels_2,cmap='RdBu',bottom_depth=BDEPTH,
-                        station_text='S')
-        cSIG = plt.contour(X,Z,fCTD['SIGTH'],
-                           colors='k',linewidths=[1],alpha=0.6) # draw Z2
-        clabels = plt.clabel(cSIG,fontsize=8,fmt = '%1.1f') # add contour labels
-        [txt.set_bbox(dict(facecolor='white', edgecolor='none',
-                           pad=0,alpha=0.6)) for txt in clabels]
-        plt.xlim(0,np.max(X))
-        plt.xlabel('Distance [km]')
-        plt.ylabel('Depth [m]')
-
-        return fig1, fig2, fig3
-    else:
-        return fig1, fig2
+    fig = px.scatter_mapbox(df, lon="lon", lat="lat", hover_data="time")  
+    fig.update_layout(mapbox_style="open-street-map"),
+    pplot(fig)
+    
+    return
 
