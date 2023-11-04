@@ -1,10 +1,11 @@
-__version__ = '0.2.18'
+__version__ = '0.2.19'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
 	read_MET_AWS,
 	read_Campbell_AWS,
 	read_Campbell_radiation,
+    read_miniAWS,
 	read_Irgason_flux,
 	read_CSAT3_flux,
 	read_Tinytag,
@@ -33,29 +34,41 @@ from .Ocean import (
 	pol2cart,
 	create_latlon_text,
 	CTD_to_grid,
+    CTD_to_xarray,
+    section_to_xarray,
+    mooring_into_xarray,
 	mooring_to_grid,
 	calc_freshwater_content,
 	myloadmat,
 	mat2py_time,
 	present_dict,
+    ctd_identify_water_masses,
 	read_ADCP_CODAS,
-    split_ADCP_resolution,
+    split_CODAS_resolution,
     read_WinADCP,
+    read_LADCP,
 	read_CTD,
 	read_CTD_from_mat,
 	read_mini_CTD,
 	read_MSS,
 	read_mooring_from_mat,
 	read_mooring,
+    read_Seaguard,
+    read_Minilog,
+    read_SB37,
+    read_RBR,
+    read_Thermosalinograph,
+    download_tidal_model,
 	contour_section,
 	plot_CTD_section,
 	plot_CTD_single_section,
+    plot_xarray_sections,
 	plot_CTD_station,
 	plot_CTD_map,
 	plot_empty_map,
 	plot_CTD_ts,
 	create_empty_ts,
-	plot_ADCP_CTD_section
+    check_VM_ADCP_map
 )
 
 from .MET_model_download import download_MET_model_data, download_MET_model_static_fields, MET_model_download_class
