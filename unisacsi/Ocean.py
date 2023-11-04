@@ -417,6 +417,23 @@ def CTD_to_xarray(CTD,switch_xdim='station'):
 
 
 def section_to_xarray(ds,stations=None,time_periods=None):
+    """
+    Function to extract one section from the CTD/ADCP dataset from the whole cruise and return a new dataset, where distance along the section is the new dimension.
+    
+    Parameters
+    ----------
+    ds : xarray dataset
+        Data from CTD or ADCP, read and transformed with the respective functions (see example notebook).
+    stations : list	
+	    List with the UNIS station numbers in the section. This is used for CTD and LADCP.
+    time_preiods : list
+        List with the start and end points for each time period that contributes to the section. This is used for the VM-ADCPs. 
+
+    Returns
+    -------
+    ds : xarray dataset with two dimensions depth and distance along the section, and all measured variables
+
+    """
 
     if ((stations == None) & (time_periods != None)):   # for VM-ADCP
         ds_section = []
