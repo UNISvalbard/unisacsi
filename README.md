@@ -30,9 +30,10 @@ Follow the instructions and be patient, this might take some time! Once the envi
 conda activate myenv
 ```
 
-One package you will need to process RBR data is only available via pip, therefore please install it with:
+Two more packages can only be installed using pip. The first one you will need to process RBR data, the second one provides functionality to do tidal harmonic analyses.
 ```
 pip install pyrsktools
+pip install uptide
 ```
 
 Now you can install the unisacsi toolbox with:

@@ -29,3 +29,5 @@ seaborn
 spectrum
 pytmd
 pytide
+plotly
+python-kaleido
