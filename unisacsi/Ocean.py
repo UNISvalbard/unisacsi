@@ -1376,7 +1376,7 @@ def read_Minilog(filename):
     return df
     
 
-def read_SB37(filename):
+def read_SBE37(filename):
     '''
     Reads data from one data file from a SB37 Microcat sensor.
 
