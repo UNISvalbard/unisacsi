@@ -1,4 +1,4 @@
-__version__ = '0.2.25'
+__version__ = '0.2.26'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
@@ -58,6 +58,8 @@ from .Ocean import (
     	read_RBR,
     	read_Thermosalinograph,
     	download_tidal_model,
+        calculate_tidal_spectrum,
+        tidal_harmonic_analysis,
 	contour_section,
 	plot_CTD_section,
 	plot_CTD_single_section,
@@ -67,7 +69,9 @@ from .Ocean import (
 	plot_empty_map,
 	plot_CTD_ts,
 	create_empty_ts,
-    	check_VM_ADCP_map
+    	check_VM_ADCP_map,
+        plot_tidal_spectrum,
+        plot_map_tidal_ellipses
 )
 
 from .MET_model_download import download_MET_model_data, download_MET_model_static_fields, MET_model_download_class

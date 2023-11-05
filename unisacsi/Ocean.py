@@ -1563,7 +1563,7 @@ def calculate_tidal_spectrum(data, bandwidth=8):
     ----------
     data : pd.Series
         time Series of data
-    bandwidth : int
+    bandwidth : int, optional
         bandwidth for the multitaper smoothing. Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing) Default is 8.
 
     Returns
@@ -1599,9 +1599,9 @@ def tidal_harmonic_analysis(data, constituents=["M2"], remove_mean=False):
     ----------
     data : pd.Series
         time Series of time series data.
-    constituents : list
+    constituents : list, optional
         List with constituents to include in the analysis. Default is ['M2'].
-    remove_mean : bool
+    remove_mean : bool, optional
         Switch to enable substracting the mean of the time series. Default is False.
 
     Returns
@@ -1623,21 +1623,24 @@ def tidal_harmonic_analysis(data, constituents=["M2"], remove_mean=False):
         if "Z0" in constituents:
             constituents.remove("Z0")
 
-    time_seconds = np.array([(t-data.index[0]).seconds for t in data.index])
+    time_seconds = np.array([(t-data.index[0]).total_seconds() for t in data.index])
 
     tide = uptide.Tides(constituents)
     tide.set_initial_time(pd.Timestamp(data.index[0]).to_pydatetime())
     amp,pha = uptide.harmonic_analysis(tide, data.values, time_seconds)
-    amp = list(amp)
-    pha = list(pha)
 
     detid = data - pd.Series(tide.from_amplitude_phase(amp, pha, time_seconds), index=data.index)
 
+    
     if "Z0" in constituents:
+        amp = list(amp)
+        pha = list(pha)
         i = constituents.index("Z0")
         del amp[i]
         del pha[i]
         constituents.remove("Z0")
+        amp = np.asarray(amp)
+        pha = np.asarray(pha),
     tide = uptide.Tides(constituents)
     tide.set_initial_time(pd.Timestamp(data.index[0]).to_pydatetime())
 
@@ -1645,7 +1648,7 @@ def tidal_harmonic_analysis(data, constituents=["M2"], remove_mean=False):
     for a, p in zip(amp,pha):
         tidal_ts.append(pd.Series(tide.from_amplitude_phase([a], [p], time_seconds), index=data.index))
 
-    return np.asarray(amp), np.asarray(pha), detid, tidal_ts
+    return  amp, pha, detid, tidal_ts
 
 
 
@@ -2554,7 +2557,7 @@ def plot_tidal_spectrum(data, constituents=["M2"]):
     ----------
     data : pd.Series
         time Series of spectral data (output of the function 'calculate_tidal_spectrum')
-    constituents : list
+    constituents : list, optional
         List with constituents to add to the plot. Default is ['M2'].
 
     Returns
@@ -2579,7 +2582,7 @@ def plot_tidal_spectrum(data, constituents=["M2"]):
 
 
 
-def plot_map_tidal_ellipses(amp_major, amp_minor, inclin, theta, constituents, lat_center=78.122, lon_center=14.26, map_extent=[11., 16., 78., 78.3]):
+def plot_map_tidal_ellipses(amp_major, amp_minor, inclin, theta, constituents, lat_center=78.122, lon_center=14.26, map_extent=[11., 16., 78., 78.3], topography=None):
     """
     Function to plot tidal ellipses on a map.
     Parameters
@@ -2594,12 +2597,25 @@ def plot_map_tidal_ellipses(amp_major, amp_minor, inclin, theta, constituents, l
         Phase of the maximum current, one element for each specified tidal constituent (see below).
     constituents : list
         List with the names of the constituent, for the legend. 
-    lat_center : float
+    lat_center : float, optional
         Center position for the ellipses. Typically the position of the mooring that measured the data. Default is the approximate position of IS-E.
-    lon_center : float
+    lon_center : float, optional
         Center position for the ellipses. Typically the position of the mooring that measured the data. Default is the approximate position of IS-E.
-    map_extent : list
+    map_extent : list, optional
         List with order lon_min, lon_max, lat_min, lat_max. Specifies the area limits to plot on the map.
+    topography : str or array-like, optional
+        Either a file or an array with topography data.
+        If topography is given in a file, three filetypes are supported:
+            - .nc, in that case the file should contain the variables
+              'lat', 'lon', and 'z'
+            - .mat, in that case the file should contain the variables
+              'lat', 'lon', and 'D'
+            - .npy, in that case the file should contain an array with
+              lat, lon and elevation as columns (and total size 3 x lon x lat)
+        If topography is given as an array, it should be an array with
+              lat, lon and elevation as columns (and total size 3 x lon x lat)
+        The default is None, then no bathymetry
+        will be plotted.
     
     Returns
     -------
@@ -2609,7 +2625,7 @@ def plot_map_tidal_ellipses(amp_major, amp_minor, inclin, theta, constituents, l
 
     phi = np.linspace(0, 2*np.pi, 1000)
 
-    fig, ax_map = Oc.plot_empty_map(extent=map_extent, topography=f"{path_data}Svalbard_map_data/bathymetry_svalbard.mat")
+    fig, ax_map = plot_empty_map(extent=map_extent, topography=topography)
 
     inset_size = .3
     
