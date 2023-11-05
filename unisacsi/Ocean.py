@@ -2284,7 +2284,7 @@ def plot_empty_map(extent,topography=None,
     None.
     '''
 
-    fig, ax = plt.subplots(1,1, subplot_kw={'projection': ccrs.Mercator()})
+    fig, ax = plt.subplots(1,1, subplot_kw={'projection': ccrs.PlateCarree()})
     ax.set_extent(extent)
     if topography is not None:
         if type(topography) is str:
