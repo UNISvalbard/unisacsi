@@ -2283,7 +2283,8 @@ def plot_empty_map(extent,topography=None,
     -------
     None.
     '''
-    ax = plt.axes(projection=ccrs.PlateCarree())
+
+    fig, ax = plt.subplots(1,1, subplot_kw={'projection': ccrs.PlateCarree()})
     ax.set_extent(extent)
     if topography is not None:
         if type(topography) is str:
@@ -2334,7 +2335,7 @@ def plot_empty_map(extent,topography=None,
     plt.gcf().canvas.draw()
     plt.tight_layout()
 
-    return ax
+    return fig, ax
 
 
 
