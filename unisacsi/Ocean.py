@@ -36,6 +36,10 @@ import datetime
 import os
 import plotly.express as px
 from plotly.offline import plot as pplot
+from mpl_toolkits.axes_grid1.inset_locator import InsetPosition
+import uptide
+import spectrum
+from scipy import signal
 
 import re
 import pathlib
@@ -1551,6 +1555,99 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
     return
 
 
+def calculate_tidal_spectrum(data, bandwidth=8):
+    """
+    Function to calculate a spectrum for a given time series (e.g. pressure measurements from a SeaGuard). The raw periodogram is filtered using a multitapering approach.
+
+    Parameters
+    ----------
+    data : pd.Series
+        time Series of data
+    bandwidth : int
+        bandwidth for the multitaper smoothing. Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing) Default is 8.
+
+    Returns
+    -------
+    s_multitap : pd.Series
+        Series with the spectral data, the index is specifying the frequency.
+    """
+
+
+    timeseries = data.interpolate(method="linear").values
+    resolution = (data.index[1] - data.index[0]).seconds // 3600
+    delta = resolution*(1./24.)     #in days
+
+    N = len(timeseries)
+
+    # Periodogram
+    freq, _ = signal.periodogram(timeseries, fs=1./delta, return_onesided=False)
+
+    # Multitapering
+    Sk_complex, weights, eigenvalues = spectrum.mtm.pmtm(timeseries, NW=bandwidth, NFFT=N, k=int(2*bandwidth - 1), method='adapt', show=False)
+    Sk = np.abs(Sk_complex)**2.
+    Sk = Sk.T
+    multitap = np.mean(Sk*weights, axis=1) * delta
+
+    return pd.Series(multitap[freq>=0.], index=freq[freq>=0.])
+
+
+def tidal_harmonic_analysis(data, constituents=["M2"], remove_mean=False):
+    """
+    Function to perform a tidal harmonic analysis on a given time series, e.g. pressure or u/v current measurements from a SeaGuard.
+
+    Parameters
+    ----------
+    data : pd.Series
+        time Series of time series data.
+    constituents : list
+        List with constituents to include in the analysis. Default is ['M2'].
+    remove_mean : bool
+        Switch to enable substracting the mean of the time series. Default is False.
+
+    Returns
+    -------
+    amp : array
+        Array with the amplitudes of the constituents specified in the function call (in the respective order.)
+    pha : array
+        Array with the phases of the constituents specified in the function call (in the respective order.)
+    detid : pd.Series
+        Pandas Series with the residual (detided) time series.
+    tidal_ts : list
+        List of pd.Series, each of the series is the pure tidal time series of the respective constituent (in the same order as amp, pha and the constituents in the function call).
+    """
+
+    if remove_mean:
+        if "Z0" not in constituents:
+            constituents = ["Z0"] + constituents
+    else:
+        if "Z0" in constituents:
+            constituents.remove("Z0")
+
+    time_seconds = np.array([(t-data.index[0]).seconds for t in data.index])
+
+    tide = uptide.Tides(constituents)
+    tide.set_initial_time(pd.Timestamp(data.index[0]).to_pydatetime())
+    amp,pha = uptide.harmonic_analysis(tide, data.values, time_seconds)
+    amp = list(amp)
+    pha = list(pha)
+
+    detid = data - pd.Series(tide.from_amplitude_phase(amp, pha, time_seconds), index=data.index)
+
+    if "Z0" in constituents:
+        i = constituents.index("Z0")
+        del amp[i]
+        del pha[i]
+        constituents.remove("Z0")
+    tide = uptide.Tides(constituents)
+    tide.set_initial_time(pd.Timestamp(data.index[0]).to_pydatetime())
+
+    tidal_ts = []
+    for a, p in zip(amp,pha):
+        tidal_ts.append(pd.Series(tide.from_amplitude_phase([a], [p], time_seconds), index=data.index))
+
+    return np.asarray(amp), np.asarray(pha), detid, tidal_ts
+
+
 
 
 ############################################################################
@@ -2448,3 +2545,106 @@ def check_VM_ADCP_map(ds):
     
     return
 
+
+def plot_tidal_spectrum(data, constituents=["M2"]):
+    """
+    Function to plot a tidal spectrum and add indicators for a set of tidal frequencies. A complete list of all available tidal constituents can be printed with 'print(list(uptide.tidal.omega.keys()))'.
+
+    Parameters
+    ----------
+    data : pd.Series
+        time Series of spectral data (output of the function 'calculate_tidal_spectrum')
+    constituents : list
+        List with constituents to add to the plot. Default is ['M2'].
+
+    Returns
+    -------
+        fig, ax : Handles of the created figure.
+    """
+
+    tidal_freqs = np.array([uptide.tidal.omega[c] for c in constituents])
+
+    fig, ax = plt.subplots(1,1, figsize=(10,5))
+    data.plot(ax=ax, color="b", zorder=10)
+    ax.grid()
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xticks((24.*3600.)/((2.*np.pi)/tidal_freqs))
+    ax.set_xticklabels(constituents)
+    ax.minorticks_off()
+    ax.set_xlim(right=data.index[-1])
+    ax.set_ylabel('power spectral density')
+
+    return fig, ax
+
+
+
+def plot_map_tidal_ellipses(amp_major, amp_minor, inclin, theta, constituents, lat_center=78.122, lon_center=14.26, map_extent=[11., 16., 78., 78.3]):
+    """
+    Function to plot tidal ellipses on a map.
+    Parameters
+    ----------
+    amp_major : array
+        Amplitudes along the major axis, one element for each specified tidal constituent (see below).
+    amp_minor : array
+        Amplitudes along the minor axis, one element for each specified tidal constituent (see below).
+    inclin : array
+        Inclination of the ellipses, one element for each specified tidal constituent (see below).
+    theta : array
+        Phase of the maximum current, one element for each specified tidal constituent (see below).
+    constituents : list
+        List with the names of the constituent, for the legend. 
+    lat_center : float
+        Center position for the ellipses. Typically the position of the mooring that measured the data. Default is the approximate position of IS-E.
+    lon_center : float
+        Center position for the ellipses. Typically the position of the mooring that measured the data. Default is the approximate position of IS-E.
+    map_extent : list
+        List with order lon_min, lon_max, lat_min, lat_max. Specifies the area limits to plot on the map.
+    
+    Returns
+    -------
+        fig, ax_map, ellipse_inset : Handles of the created figure.
+    """
+
+
+    phi = np.linspace(0, 2*np.pi, 1000)
+
+    fig, ax_map = Oc.plot_empty_map(extent=map_extent, topography=f"{path_data}Svalbard_map_data/bathymetry_svalbard.mat")
+
+    inset_size = .3
+    
+    x, y = ax_map.projection.transform_point(lon_center, lat_center, ccrs.PlateCarree())
+    data2axes = (ax_map.transAxes + ax_map.transData.inverted()).inverted()
+    xp, yp = data2axes.transform((x, y))
+    ip = InsetPosition(ax_map, [xp - inset_size / 2, yp - inset_size / 2, inset_size, inset_size])
+    ellipse_inset = fig.add_axes((0, 0, 1, 1))
+    ellipse_inset.set_axes_locator(ip)
+    ellipse_inset.axis("off")
+    ellipse_inset.set_facecolor('none')
+    ellipse_inset.tick_params(labelleft=False, labelbottom=False)
+    ellipse_inset.grid(False)
+    ellipse_inset.set_aspect(1.)
+
+
+    for i, (a, b, t, g) in enumerate(zip(amp_major, amp_minor, inclin, theta)):
+        E = np.array([a*np.cos(phi) , b*np.sin(phi)])
+        R_rot = np.squeeze(np.array([[np.cos(t) , -np.sin(t)],[np.sin(t) , np.cos(t)]]))
+        E_rot = np.zeros((2,E.shape[1]))
+        for j in range(E.shape[1]):
+            E_rot[:,j] = np.dot(R_rot,E[:,j])
+
+        ellipse_inset.plot(E_rot[0,:] , E_rot[1,:], c=f"C{i}", label=constituents[i])
+
+        ind = np.where(abs(t-g) == np.nanmin(abs(t-g)))[0][0]
+
+        ellipse_inset.annotate("",
+                    xy=(E_rot[0,ind], E_rot[1,ind]), xycoords='data',
+                    xytext=(0., 0.), textcoords='data',
+                    arrowprops=dict(arrowstyle="-|>", connectionstyle="arc3", color=f"C{i}"),
+                    )
+        
+        ellipse_inset.legend(ncol=len(constituents), bbox_to_anchor=(1.65, 3.85),
+                         loc='upper right')
+
+
+    return fig, ax_map, ellipse_inset
