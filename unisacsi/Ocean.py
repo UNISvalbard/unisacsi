@@ -2062,7 +2062,7 @@ def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=No
                 cbar.ax.set_ylabel(da.attrs["long_name"])
         else:
             pic = da.plot.pcolormesh(x="distance", y="depth", ax=axes[i], shading="nearest", cmap=list_cmaps[i], levels=list_clevels[i], add_colorbar=switch_cbar, infer_intervals=False, robust=True, extend='both')
-            pic.append(pic)
+            pics.append(pic)
 
         if da_contours is not None:
             if interp:
