@@ -406,10 +406,10 @@ def CTD_to_xarray(CTD,switch_xdim='station'):
     ds = ds.interp(depth=np.arange(np.ceil(ds.depth[0]), np.floor(ds.depth[-1])+1.))
 
     if switch_xdim == 'station':
-    	ds = ds.swap_dims({'time':'station'})
-        
+        ds = ds.swap_dims({'time':'station'})
+
     ds["SA"].attrs["long_name"] = "Absolute Salinity [g/kg]"
-    ds["S"].attrs["long_name"] = "Salinity [g/kg]"
+    ds["S"].attrs["long_name"] = "Salinity [PSU]"
     ds["CT"].attrs["long_name"] = "Conservative Temperature [°C]"
     ds["T"].attrs["long_name"] = "Temperature [°C]"
     ds["C"].attrs["long_name"] = "Conductivity [S/cm]"
@@ -2063,7 +2063,7 @@ def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=No
         else:
             pic = da.plot.pcolormesh(x="distance", y="depth", ax=axes[i], shading="nearest", cmap=list_cmaps[i], levels=list_clevels[i], add_colorbar=switch_cbar, infer_intervals=False, robust=True, extend='both')
             pic.append(pic)
-            
+
         if da_contours is not None:
             if interp:
                 X = da_contours.distance.to_numpy()
