@@ -1997,7 +1997,7 @@ def plot_CTD_single_section(CTD,stations,section_name='',
 
 
 def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=None,
-                  contourlevels=5, interp=False, cbar=True, add_station_ticks=True):
+                  contourlevels=5, interp=False, switch_cbar=True, add_station_ticks=True):
     """
     Function to plot a variable number of variables from a section. Data can be from CTD or ADCP, but has to be provided as xarray datasets (see example notebook!)
 
@@ -2015,7 +2015,7 @@ def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=No
         Sale as the clevels for the contourf plots, but for the contour lines. The default is 5.
     interp : bool, optional
         Switch to enable interpolation of the data onto a finer grid along the distance axis. The default is False.
-    cbar : bool, optional
+    switch_cbar : bool, optional
         Switch to enable adding a colorbar to each contourf plot. The default is True.
     add_station_ticks : bool, optional
         Switch to add ticks for the locations of the CTD stations along the section. The default is True.
@@ -2037,6 +2037,7 @@ def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=No
     fig, axes = plt.subplots(N_subplots, 1, sharey=True, sharex=True, figsize=(12,N_subplots*4))
     if N_subplots == 1:
         axes = [axes]
+    pics = []
     for i, da in enumerate(list_das):
         if interp:
             X = da.distance.to_numpy()
@@ -2055,10 +2056,12 @@ def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=No
             if da.name == "water_mass":
                 data_to_plot = np.round(data_to_plot)
             pic = axes[i].contourf(X_int,Z_int,data_to_plot,cmap=list_cmaps[i],levels=list_clevels[i],extend='both')
-            cbar = plt.colorbar(pic, ax=axes[i])
-            cbar.ax.set_ylabel(da.attrs["long_name"])
+            pics.append(pic)
+            if switch_cbar:
+                cbar = plt.colorbar(pic, ax=axes[i])
+                cbar.ax.set_ylabel(da.attrs["long_name"])
         else:
-            da.plot.pcolormesh(x="distance", y="depth", ax=axes[i], shading="nearest", cmap=list_cmaps[i], levels=list_clevels[i], add_colorbar=cbar, infer_intervals=False, robust=True, extend='both')
+            da.plot.pcolormesh(x="distance", y="depth", ax=axes[i], shading="nearest", cmap=list_cmaps[i], levels=list_clevels[i], add_colorbar=switch_cbar, infer_intervals=False, robust=True, extend='both')
 
         if da_contours is not None:
             if interp:
@@ -2158,7 +2161,7 @@ def plot_xarray_sections(list_das, list_cmaps, list_clevels=None, da_contours=No
         
     axes[-1].set_xlabel("Distance [km]")
 
-    return fig, axes
+    return fig, axes, pics
 
 
 
