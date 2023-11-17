@@ -52,7 +52,10 @@ def download_MET_model_data(config_file):
         print("############################################################")
         print("start downloading latest data")
         print("############################################################")
-        MET_model_download_class(config_settings)
+        try:
+            MET_model_download_class(config_settings)
+        except:
+            print("ERROR! download failed, skipping file")
     elif config_settings["save_daily_files"]:
         days = pd.date_range(config_settings["start_day"], config_settings["end_day"], freq="1D")
         daily_config = copy.copy(config_settings)
@@ -65,10 +68,16 @@ def download_MET_model_data(config_file):
             print("############################################################")
             print(f"start downloading data from {d.strftime('%Y-%m-%d')}")
             print("############################################################")
-            MET_model_download_class(daily_config)
+                try:
+                    MET_model_download_class(daily_config)
+                except:
+                    print("ERROR! download failed, skipping file")
     else:
         config_settings["out_path"] = f"{config_settings['out_path']}_{config_settings['resolution']}.nc"
-        MET_model_download_class(config_settings)
+        try:
+            MET_model_download_class(config_settings)
+        except:
+            print("ERROR! download failed, skipping file")
 
 
     return
