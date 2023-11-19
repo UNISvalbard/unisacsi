@@ -919,10 +919,10 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
         
     ds = ds.rename({'U':'u','V':'v','U_detide':'u_detide','V_detide':'v_detide', "Echodepth": "bottom_depth"})
     
-    ds["u"] = ds["u"] / 10.
-    ds["v"] = ds["v"] / 10.
-    ds["u_detide"] = ds["u_detide"] / 10.
-    ds["v_detide"] = ds["v_detide"] / 10.
+    ds["u"] = ds["u"] / 100.
+    ds["v"] = ds["v"] / 100.
+    ds["u_detide"] = ds["u_detide"] / 100.
+    ds["v_detide"] = ds["v_detide"] / 100.
     
     ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
     ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
