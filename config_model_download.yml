@@ -19,8 +19,8 @@ out_path: "/Users/lukasf/Desktop/AA_test" # don't give a file extension!!! The f
 #
 start_h: 0 # (Python) index defining the first time step downloaded from each file. start_h = 0 means starting with the first available time step from each data file.
 num_h: 3 # Number of time steps to download from each file. num_h = 3 means that 3 time steps are downloaded from each file
-int_h: 1 # Time interval between data time steps in each data file (1 hour)
-int_f: 3 # Time interval in hours between each data file (3 hours)
+#
+shortest_leadtime: True # automatically use data with the shortest available leadtime and skip trying to load data from non-existing files
 #
 stations: # the station settings are only used when downloading timeseries or profile data
   LYR:
@@ -68,6 +68,9 @@ variables:
 #
 static_file: "/Users/lukasf/Desktop/AA_static_fields" # Full path (absolute or relative) of the file with the static model fields. This file can be downloaded with the function "download_static_fields". For AROME-Arctic: Depending on which resolution is specified below, the actual file will be called "./AA_static_fields_2p5km.nc" or "./AA_static_fields_500m.nc"
 model: "AA" # Switch to distinguish between the Arome-Arctic model for Svalbard ("AA") and the METCoOp model for mainland Norway ("MC")
+#
+int_h: 1 # Time interval between data time steps in each data file (1 hour)
+int_f: 3 # Time interval in hours between each data file (3 hours)
 #
 int_x: 1
 int_y: 1

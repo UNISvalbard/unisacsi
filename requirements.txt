@@ -30,3 +30,4 @@ pytmd
 pytide
 plotly
 dask-labextension
+threddsclient
