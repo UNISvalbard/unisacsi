@@ -9,11 +9,11 @@ data_format: 2 # 2D near-surface data fields
 #
 latest: False
 #
-start_day: "2022-09-11"
-end_day: "2022-09-18"
+start_day: "2022-10-22"
+end_day: "2022-10-24"
 save_daily_files: True # if True, data from end_day gets saved; if False, times after end_day are not included
 #
-check_plot: True # switch to enable first opening a plot to check that the correct area/points were selected
+check_plot: False # switch to enable first opening a plot to check that the correct area/points were selected
 #
 out_path: "/Users/lukasf/Desktop/AA_test" # don't give a file extension!!! The files will automatically be saved as .nc! If save_daily_files == True, the day will automatically be appended to the filename like "./model_data_resolution_20220506.nc"
 #

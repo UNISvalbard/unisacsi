@@ -5,7 +5,7 @@ of the Norwegian Meteorological Institute, AROME-Arctic and MetCoOp.
 The code is optimized for the use in the UNIS courses.
 """
 
-import unisacsi
+#import unisacsi
 from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
@@ -192,7 +192,7 @@ class MET_model_download_class():
                             if config_settings["data_format"] == 6:
                                 file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
                                 if self.shortest_leadtime:
-                                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
                                         self.fileurls.append(file)
                                         self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
                                     else:
@@ -204,7 +204,7 @@ class MET_model_download_class():
                             else:
                                 file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
                                 if self.shortest_leadtime:
-                                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
                                         self.fileurls.append(file)
                                         self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
                                     else:
@@ -216,7 +216,7 @@ class MET_model_download_class():
                         else:
                             file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
                             if self.shortest_leadtime:
-                                if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                                if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
                                     self.fileurls.append(file)
                                     self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
                                 else:
@@ -236,7 +236,7 @@ class MET_model_download_class():
             for t in self.time_vec:
                 file = f'https://thredds.met.no/thredds/dodsC/meps25epsarchive/{t.strftime("%Y/%m/%d")}/meps_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
                 if self.shortest_leadtime:
-                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/dodsC/meps25epsarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/meps25epsarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
                         self.fileurls.append(file)
                         self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
                     else:
@@ -1516,5 +1516,6 @@ class MET_model_download_class():
         
 
         
+if __name__ == "__main__":
 
-    
+    download_MET_model_data("/Users/lukasf/Documents/Github/unisacsi/config_model_download.yml")
