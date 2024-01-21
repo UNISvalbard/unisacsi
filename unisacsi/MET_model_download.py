@@ -136,6 +136,7 @@ class MET_model_download_class():
 
         self.latest = config_settings["latest"]
         self.shortest_leadtime = config_settings["shortest_leadtime"]
+        self.aa500_folder = config_settings["aa500_folder"]
         self.start_time = config_settings["start_day"]
         self.end_time = config_settings["end_day"]
         self.int_h = config_settings["int_h"]
@@ -157,6 +158,8 @@ class MET_model_download_class():
         self.end_point = [config_settings["section"]["end_lat"], config_settings["section"]["end_lon"]]
         self.model_levels = config_settings["model_levels"]
         self.p_levels = config_settings["pressure_levels"]
+
+        aa500_hour = {"N-FORCES": "00", "UNIS-2020": "00", "UNIS-2022": "21", "UNIS-2024": "00"}
 
         if self.model == "AA":
             if self.resolution == "2p5km":
@@ -228,7 +231,7 @@ class MET_model_download_class():
         
             elif self.resolution == "500m":
                 for t in self.time_vec:
-                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_{t.strftime("%Y%m%d")}00.nc')
+                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/AS500_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":

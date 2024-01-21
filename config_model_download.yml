@@ -76,3 +76,5 @@ int_x: 1
 int_y: 1
 #
 resolution: "2p5km" # switch to distinguish between 2.5km and 500m resolution (valid options: "2p5km" and "500m"). Applies only to AROME-Arctic!
+#
+aa500_folder: "UNIS-22" # name of the folder where the 500m-AROME-Arctic data is stored (check https://thredds.met.no/thredds/catalog/metusers/yuriib/catalog.html)
