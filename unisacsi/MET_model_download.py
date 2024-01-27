@@ -1290,6 +1290,7 @@ class MET_model_download_class():
             
             
         chunks = []
+        print(self.fileurls)
         for filename, time_ind in zip(self.fileurls, self.time_ind):
             print(filename)
             print(time_ind)
