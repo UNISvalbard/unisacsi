@@ -94,23 +94,32 @@ def download_MET_model_static_fields(config_file):
 
     model = config_settings["model"]
     resolution = config_settings["resolution"]
+    path = config_settings["static_file"].split("/")[:-1]
+    filename = config_settings["static_file"].split("/")[-1]
+    out_path = f"{'/'.join(path)}/{filename}_{resolution}.nc"
 
     if model == "AA":
         if resolution == "2p5km":
             file = 'https://thredds.met.no/thredds/dodsC/aromearcticarchive/2022/06/03/arome_arctic_det_2_5km_20220603T00Z.nc'
+            with xr.open_dataset(file) as static_fields:
+                static_fields.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
+        
         elif resolution == "500m":
-            file = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_2022090200.nc'
+            file_1 = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/UNIS-2024/AA_2024012400.nc'
+            file_2 = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/UNIS-2024/PGD.nc'
+            with xr.open_dataset(file_1) as f:
+                sf_1 = f.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().load()
+                sf_1 = sf_1.drop_vars("time")
+            with xr.open_dataset(file_2) as f:
+                sf_2 = f.isel(time=0).squeeze().load()
+                sf_2 = sf_2.drop_vars("time")
+            static_fields = xr.merge([sf_1, sf_2])
+            static_fields.to_netcdf(out_path)
+
     elif model == "MC":
         file = 'https://thredds.met.no/thredds/dodsC/meps25epsarchive/2022/02/20/meps_det_2_5km_20220220T00Z.nc'
-        resolution = "2p5km"
-
-    path = config_settings["static_file"].split("/")[:-1]
-    filename = config_settings["static_file"].split("/")[-1]
-    out_path = f"{'/'.join(path)}/{filename}_{resolution}.nc"
-    
-    with xr.open_dataset(file) as static_fields:
-        static_fields.isel(time=1)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
-
+        with xr.open_dataset(file) as static_fields:
+            static_fields.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
 
     print(f"Static fields were successfully saved into {out_path}.")
 
@@ -157,6 +166,7 @@ class MET_model_download_class():
         self.p_levels = config_settings["pressure_levels"]
 
         aa500_hour = {"N-FORCES": "00", "UNIS-2020": "00", "UNIS-2022": "21", "UNIS-2024": "00"}
+        aa500_filename = {"N-FORCES": "AS500", "UNIS-2020": "AS500", "UNIS-2022": "AS500", "UNIS-2024": "AA"}
 
         if self.model == "AA":
             if self.resolution == "2p5km":
@@ -228,7 +238,7 @@ class MET_model_download_class():
         
             elif self.resolution == "500m":
                 for t in self.time_vec:
-                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/AS500_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
+                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":
