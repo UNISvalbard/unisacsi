@@ -113,7 +113,7 @@ def download_MET_model_static_fields(config_file):
             with xr.open_dataset(file_2) as f:
                 sf_2 = f.isel(time=0).squeeze().load()
                 sf_2 = sf_2.drop_vars("time")
-            static_fields = xr.merge([sf_1, sf_2])
+            static_fields = xr.merge([sf_1, sf_2], join="left")
             static_fields.to_netcdf(out_path)
 
     elif model == "MC":
