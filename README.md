@@ -34,6 +34,7 @@ Two more packages can only be installed using pip. The first one you will need t
 ```
 pip install pyrsktools
 pip install uptide
+pip install seabird
 ```
 
 Now you can install the unisacsi toolbox with:
