@@ -170,13 +170,13 @@ class MET_model_download_class():
 
         if self.model == "AA":
             if self.resolution == "2p5km":
-                self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+                self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", inclusive="left")
             elif self.resolution == "500m":
-                self.time_vec = pd.date_range(self.start_time, self.end_time, freq="1D", closed="left")
+                self.time_vec = pd.date_range(self.start_time, self.end_time, freq="1D", inclusive="left")
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":
-            self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+            self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", inclusive="left")
         else:
             assert False, "Model name not recognized, specify either 'AA' or 'MC'."
 
