@@ -258,8 +258,8 @@ class MET_model_download_class():
         else:
             assert False, "Model name not recognized, specify either 'AA' or 'MC'."
 
-
-
+        print(self.time_vec)
+        print(self.fileurls)
 
         self.varis = [k for k, s in config_settings["variables"].items() if s == 1]
         if "wind" in self.varis:
