@@ -239,6 +239,7 @@ class MET_model_download_class():
             elif self.resolution == "500m":
                 for t in self.time_vec:
                     self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
+                    self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":
@@ -1290,10 +1291,7 @@ class MET_model_download_class():
             
             
         chunks = []
-        print(self.time_ind)
         for filename, time_ind in zip(self.fileurls, self.time_ind):
-            print(filename)
-            print(time_ind)
             with xr.open_dataset(filename) as full_file:
                 data = full_file.isel(time=time_ind).sel(x=x, y=y)[model_varis].squeeze()
                 
