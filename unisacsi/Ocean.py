@@ -18,7 +18,7 @@ import gsw
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-from netCDF4 import Dataset,num2date
+from netCDF4 import Dataset
 import glob
 from scipy.interpolate import interp1d,griddata
 import scipy.io as spio
@@ -915,7 +915,7 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
     ds["time"] = xr.DataArray(pd.to_datetime(np.asarray(adcp["DT"])-719529., unit='D').round('1s'),dims= ["station"], coords = {"station": ds.station})
     ds = ds.set_coords(['lat','lon','ship_station', "Echodepth"])
     if switch_xdim == 'time':
-    	ds = ds.swap_dims({'station':'time'})
+        ds = ds.swap_dims({'station':'time'})
         
     ds = ds.rename({'U':'u','V':'v','U_detide':'u_detide','V_detide':'v_detide', "Echodepth": "bottom_depth"})
     

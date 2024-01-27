@@ -6,7 +6,6 @@ The code is optimized for the use in the UNIS courses.
 """
 
 #import unisacsi
-from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
 import yaml
@@ -17,8 +16,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-import utm
-from scipy import interpolate
 import metpy
 import threddsclient
 
