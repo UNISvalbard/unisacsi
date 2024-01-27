@@ -258,9 +258,6 @@ class MET_model_download_class():
         else:
             assert False, "Model name not recognized, specify either 'AA' or 'MC'."
 
-        print(self.time_vec)
-        print(self.fileurls)
-
         self.varis = [k for k, s in config_settings["variables"].items() if s == 1]
         if "wind" in self.varis:
             self.varis.remove("wind")
@@ -1294,6 +1291,8 @@ class MET_model_download_class():
             
         chunks = []
         for filename, time_ind in zip(self.fileurls, self.time_ind):
+            print(filename)
+            print(time_ind)
             with xr.open_dataset(filename) as full_file:
                 data = full_file.isel(time=time_ind).sel(x=x, y=y)[model_varis].squeeze()
                 
