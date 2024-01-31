@@ -25,7 +25,23 @@ For Apple silicon users with arm64-native anaconda:
 CONDA_SUBDIR=osx-64 conda create -n myenv --file requirements.txt
 ```
 
-Follow the instructions and be patient, this might take some time! Once the environment is created, activate it with:
+Follow the instructions and be patient, this might take some minutes!
+
+If it doesn't work, try with the mamba solver. First, update your conda in the base environment:
+```
+conda update -n base conda
+```
+Then, install and set the new solver:
+```
+conda install -n base conda-libmamba-solver
+conda config --set solver libmamba
+```
+Now try again to create the new environment:
+```
+conda create -n myenv --file requirements.txt
+```
+
+Once the environment is created, activate it with:
 ```
 conda activate myenv
 ```
