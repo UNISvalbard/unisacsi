@@ -238,7 +238,10 @@ class MET_model_download_class():
         
             elif self.resolution == "500m":
                 for t in self.time_vec:
-                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
+                    if self.aa500_folder == "UNIS-2024":
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/finis/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
+                    else:
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
                     self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
