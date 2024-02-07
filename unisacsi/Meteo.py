@@ -55,7 +55,7 @@ def read_MET_AWS(filename):
     with open(filename) as f:
         ncols = len(f.readline().split(';'))
 
-    df = pd.read_csv(filename, dayfirst=True, sep=";", skipfooter=1, header=0, usecols=range(2,ncols+1), parse_dates=[0], decimal=",", na_values=["-"])
+    df = pd.read_csv(filename, dayfirst=True, sep=";", skipfooter=1, header=0, usecols=range(2,ncols), parse_dates=[0], decimal=",", na_values=["-"])
 
     try:
         df["Tid"] = df["Tid(norsk normaltid)"] - pd.Timedelta("1h")
