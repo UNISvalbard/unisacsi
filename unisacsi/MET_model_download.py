@@ -105,8 +105,8 @@ def download_MET_model_static_fields(config_file):
                 static_fields.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
         
         elif resolution == "500m":
-            file_1 = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/UNIS-2024/AA_2024012400.nc'
-            file_2 = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/UNIS-2024/PGD.nc'
+            file_1 = 'https://thredds.met.no/thredds/dodsC/finis/UNIS-2024/AA_2024012400.nc'
+            file_2 = 'https://thredds.met.no/thredds/dodsC/finis/UNIS-2024/PGD.nc'
             with xr.open_dataset(file_1) as f:
                 sf_1 = f.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().load()
                 sf_1 = sf_1.drop_vars("time")
@@ -166,7 +166,7 @@ class MET_model_download_class():
         self.p_levels = config_settings["pressure_levels"]
 
         aa500_hour = {"N-FORCES": "00", "UNIS-2020": "00", "UNIS-2022": "21", "UNIS-2024": "00"}
-        aa500_filename = {"N-FORCES": "AS500", "UNIS-2020": "AS500", "UNIS-2022": "AS500", "UNIS-2024": "AA"}
+        aa500_filename = {"N-FORCES": "AS500", "UNIS-2020": "AS500", "UNIS-2022": "AS500", "UNIS-2024": "AS"}
 
         if self.model == "AA":
             if self.resolution == "2p5km":
@@ -1529,4 +1529,4 @@ class MET_model_download_class():
         
 if __name__ == "__main__":
 
-    download_MET_model_data("/Users/lukasf/Documents/Github/unisacsi/config_model_download.yml")
+    download_MET_model_data("/Users/lukasf/Desktop/config_model_download_johannes.yml")
