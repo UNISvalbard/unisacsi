@@ -199,7 +199,7 @@ class MET_model_download_class():
                 else:
                     for t in self.time_vec:
                         if t < pd.Timestamp("2022-02-01"):
-                            if config_settings["data_format"] == 6:
+                            if config_settings["data_format"] <= 6:
                                 file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
                                 if self.shortest_leadtime:
                                     if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
