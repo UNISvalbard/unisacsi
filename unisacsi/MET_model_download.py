@@ -191,6 +191,7 @@ class MET_model_download_class():
 
         self.fileurls = []
         self.time_ind = []
+        self.hybrid_name = []
         if self.model == "AA":
             self.full_model_name = "AROME_Arctic"
             if self.resolution == "2p5km":
@@ -198,8 +199,12 @@ class MET_model_download_class():
                     self.fileurls.append("https://thredds.met.no/thredds/dodsC/aromearcticlatest/archive/arome_arctic_det_2_5km_latest.nc")
                 else:
                     for t in self.time_vec:
+                        if t > pd.Timestamp("2017-06-18"):
+                            self.hybrid_name.append("")
+                        else:
+                            self.hybrid_name.append("0")
                         if t < pd.Timestamp("2022-02-01"):
-                            if config_settings["data_format"] <= 6:
+                            if config_settings["data_format"] == 6:
                                 file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
                                 if self.shortest_leadtime:
                                     if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
@@ -411,12 +416,19 @@ class MET_model_download_class():
         
         
         chunks = []
-        for filename, time_ind in zip(self.fileurls, self.time_ind):
+        for filename, time_ind, hyb_name in zip(self.fileurls, self.time_ind, self.hybrid_name):
             stations = []
             with xr.open_dataset(filename) as full_file:
                 for i in range(len(self.stt_lon)):
-                    stations.append(full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    if hyb_name == "":
+                        stations.append(full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    else:
+                        ds_temp = full_file.isel(time=time_ind, hybrid0=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze()
+                        ds_temp = ds_temp.rename({"hybrid0": "hybrid"})
+                        stations.append(ds_temp)
                     
+
+
             data = xr.concat(stations, dim="station")
             
             chunks.append(data)
@@ -580,9 +592,10 @@ class MET_model_download_class():
         chunks = []
         for filename, time_ind in zip(self.fileurls, self.time_ind):
             stations = []
+            print(filename)
             with xr.open_dataset(filename) as full_file:
                 for i in range(len(self.stt_lon)):
-                    stations.append(full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    stations.append(full_file.isel(time=time_ind).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
                     
             data = xr.concat(stations, dim="station")
                 
@@ -930,9 +943,13 @@ class MET_model_download_class():
             
             
         chunks = []
-        for filename, time_ind in zip(self.fileurls, self.time_ind):
+        for filename, time_ind, hyb_name in zip(self.fileurls, self.time_ind, self.hybrid_name):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                if hyb_name == "":
+                    data = full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                else:
+                    data = full_file.isel(time=time_ind, hybrid0=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                    data = data.rename({"hybrid0": "hybrid"})
                 
             chunks.append(data)
             
@@ -1100,12 +1117,15 @@ class MET_model_download_class():
                 sys.exit(1)
                 
             print("Starting data download...")
-            
-            
+
         chunks = []
-        for filename, time_ind in zip(self.fileurls, self.time_ind):
+        for filename, time_ind, hyb_name in zip(self.fileurls, self.time_ind, self.hybrid_name):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                if hyb_name == "":
+                    data = full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                else:
+                    data = full_file.isel(time=time_ind, hybrid0=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                    data = data.rename({"hybrid0": "hybrid"})
                 
             chunks.append(data)
             
@@ -1519,14 +1539,3 @@ class MET_model_download_class():
         
         return
     
-    
-    
-        
-        
-        
-        
-
-        
-if __name__ == "__main__":
-
-    download_MET_model_data("/Users/lukasf/Desktop/config_model_download_johannes.yml")
