@@ -13,6 +13,7 @@ meteorological instrument data. This includes:
 The functions were developed at the University Centre in Svalbard. They were
 optimized for the file formats typically used in the UNIS courses.
 """
+#%%
 
 import unisacsi
 import pandas as pd
@@ -30,8 +31,10 @@ import cartopy.feature as cfeature
 import rioxarray as rxr
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 import os
+import copy
 import sys
 import datetime
+from collections import defaultdict 
 
 ############################################################################
 #READING FUNCTIONS
@@ -70,59 +73,39 @@ def read_MET_AWS(filename):
 
 
 
-def read_Campbell_AWS(filename, resolution="1_s"):
+def read_Campbell_TOA5(filename):
     '''
-    Reads data from one or several data files from the Campbell AWS output files.
-    Make sure to only specify files with the same temporal resolution.
+    Reads data from one or several TOA5 files from Campbell data loggers.
 
     Parameters:
     -------
     filename: str
         String with path to file(s)
         If several files shall be read, specify a string including UNIX-style wildcards
-    resolution: str
-        String specifying the temporal resolution of the data
-        1_s --> wind
-        10_s --> T/RH
+
     Returns
     -------
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
 
-    if resolution == "1_s":
-        dtypes = {'VH1_mps': 'float64', 'VH2_mps': 'float64', 'VR1_gr': 'float64', 'VR2_gr': 'float64'}
-    elif resolution == "10_s":
-        dtypes = {'LT1_gr_C_Avg': 'float64', 'LT2_gr_C_Avg': 'float64', 'LF1_prsnt_Avg': 'float64', 'LF2_prsnt_Avg': 'float64'}
+    one_file = sorted(glob.glob(filename))[0]
+    with open(one_file, "r") as f:
+        f.readline()
+        col_names = f.readline().replace('"',"").split(",")
+        units = f.readline().replace('"',"").split(",")
 
-    df = ddf.read_csv(filename, skiprows=[0,2,3,4], dayfirst=True, parse_dates=["TIMESTAMP"],
-                      dtype=dtypes, na_values=["NAN"])
+    table_headers = []
+    for cn,u in zip(col_names, units):
+        if cn not in ["TIMESTAMP", "RECORD"]:
+            table_headers.append(" ".join((cn.strip(), "["+u.strip()+"]")))
+        else:
+            table_headers.append(cn)
 
-    df = df.compute()
-    df.set_index("TIMESTAMP", inplace=True)
-    df.drop(["ID"], axis=1, inplace=True)
-    df.sort_index(inplace=True)
+    dtypes_dict = defaultdict(lambda: np.float32)
+    dtypes_dict["RECORD"] = np.int32
 
-    return df
-
-
-
-def read_Campbell_radiation(filename):
-    '''
-    Reads data from one or several data files from the Campbell radiation output files.
-
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
-
-    df = ddf.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"], na_values=["NAN"])
+    df = ddf.read_csv(filename, skiprows=4, dtype=dtypes_dict, parse_dates=["TIMESTAMP"], names=table_headers, date_format="%Y-%m-%d %H:%M:%S", na_values=["NAN"])
     df = df.compute()
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
@@ -130,78 +113,55 @@ def read_Campbell_radiation(filename):
     return df
 
 
-
-def read_miniAWS(filename):
+def read_EddyPro_full_output(filename):
     '''
-    Reads data from one or several data files from the miniAWS output files.
+    Reads data from one or several EddyPro full output file(s).
 
     Parameters:
     -------
     filename: str
         String with path to file(s)
         If several files shall be read, specify a string including UNIX-style wildcards
+
     Returns
     -------
     df : pandas dataframe
         a pandas dataframe with time as index and the individual variables as columns.
     '''
-    
-    dtypes = {'VH_mps': 'float64', 'VR_gr': 'float64', 'LT_gr_C': 'float64', 'LF_prsnt': 'float64', "BattV": "float32"}
-    
-    df = ddf.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"], dtype=dtypes,  na_values=["NAN"])
+
+    one_file = sorted(glob.glob(filename))[0]
+    with open(one_file, "r") as f:
+        f.readline()
+        col_names = f.readline().split(",")
+        units = f.readline().split(",")
+
+    dtypes_dict = defaultdict(lambda: np.float32)
+    dtypes_dict["file_records"] = np.int64
+    dtypes_dict["used_records"] = np.int64
+    dtypes_dict["daytime"] = "int8"
+    dtypes_dict["filename"] = "str"
+    dtypes_dict["date"] = "str"
+    dtypes_dict["time"] = "str"
+
+    table_headers = []
+    for cn,u in zip(col_names, units):
+        if cn not in ["filename","date","time","DOY","daytime","file_records","used_records"]:
+            table_headers.append(" ".join((cn.strip(), u.strip())))
+        else:
+            table_headers.append(cn)
+        if cn == "date":
+            date_format = u.strip("[]").replace("yyyy", "%Y").replace("mm", "%m").replace("dd", "%d")
+        elif cn == "time":
+            time_format = u.strip("[]").replace("HH", "%H").replace("MM", "%M")
+
+    df = ddf.read_csv(filename, skiprows=4, dtype=dtypes_dict, names=table_headers, na_values=["NAN"])
     df = df.compute()
-    df.set_index("TIMESTAMP", inplace=True)
-    df.sort_index(inplace=True)
-    
-    return df
-
-
-
-def read_Irgason_flux(filename):
-    '''
-    Reads data from a Irgason flux output file.
-
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
-
-    df = pd.read_csv(filename, skiprows=[0,2,3], dayfirst=True, parse_dates=["TIMESTAMP"], na_values=["NAN"])
+    df.drop("filename", axis=1, inplace=True)
+    df['TIMESTAMP'] = pd.to_datetime(df.pop('date')+' '+df.pop('time'), format=date_format+" "+time_format)
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    return df
-
-
-
-def read_CSAT3_flux(filename):
-    '''
-    Reads data from a CSAT3 flux data file processed with TK3.
-
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
-
-    sonic_header = pd.read_csv(filename, nrows=1)
-    sonic_header = [key.strip() for key in sonic_header.columns]
-
-    df = pd.read_csv(filename, names=sonic_header, header=0, dayfirst=True, parse_dates=["T_begin", "T_end", "T_mid"], na_values=-9999.9003906)
-    df.set_index("T_mid", inplace=True)
-    df.sort_index(inplace=True)
-
-    return df
-
+    return dtypes_dict
 
 
 def read_Tinytag(filename, sensor):
@@ -1141,3 +1101,4 @@ def map_add_wind_arrows(fig, ax, lat, lon, u, v, length=10, lw=1):
     ax.set_ylabel(None)
 
     return fig, ax
+

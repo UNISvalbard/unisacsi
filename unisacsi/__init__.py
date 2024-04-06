@@ -1,21 +1,18 @@
-__version__ = '0.3.12'
+__version__ = '0.3.13'
 __authors__ = ['Lukas Frank <lukasf@unis.no', 'Jakob Dörr <jakob.dorr@uib.no']
 
 from .Meteo import (
 	read_MET_AWS,
-	read_Campbell_AWS,
-	read_Campbell_radiation,
-    	read_miniAWS,
-	read_Irgason_flux,
-	read_CSAT3_flux,
+	read_Campbell_TOA5,
+    read_EddyPro_full_output,
 	read_Tinytag,
 	read_HOBO,
-    	read_Raingauge,
+    read_Raingauge,
 	read_IWIN,
 	read_AROME,
 	read_radiosonde,
 	read_iMet,
-    	download_IWIN_from_THREDDS,
+    download_IWIN_from_THREDDS,
 	initialize_empty_map,
 	map_add_coastline,
 	map_add_land_filled,
