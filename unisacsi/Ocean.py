@@ -501,7 +501,7 @@ def mooring_into_xarray(dict_of_instr):
             if vari in list(df_instr.keys()):
                 list_df.append(df_instr[vari].rename(d))
         df_vari = pd.concat(list_df, axis=1)
-        df_vari = df_vari.resample("20MIN").mean()
+        df_vari = df_vari.resample("20min").mean()
                 
         list_da.append(xr.DataArray(data=df_vari, dims=["time", "depth"], coords={"depth": np.array(list(df_vari.columns), dtype=float), "time": df_vari.index.values}, name=vari))
     
