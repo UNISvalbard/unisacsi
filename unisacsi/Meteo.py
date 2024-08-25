@@ -161,7 +161,7 @@ def read_EddyPro_full_output(filename):
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    return dtypes_dict
+    return df
 
 
 def read_Tinytag(filename, sensor):
