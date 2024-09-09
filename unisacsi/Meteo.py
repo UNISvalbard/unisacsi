@@ -279,8 +279,7 @@ def read_Raingauge(filename):
         else:
             name = f"{old_split[0].replace(' ', '_')}"
             unit = f"_{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}"
-            sn = f"_sn{old_split[2].split(' ')[3]}"
-            new_names.append(name+sn+unit)
+            new_names.append(name+unit)
     df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
     
     df.fillna(method="ffill", inplace=True)

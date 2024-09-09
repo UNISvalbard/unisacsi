@@ -1343,9 +1343,18 @@ def read_Minilog(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and temperature as column.
     '''
+
+    with open(filename, "r", encoding = "ISO-8859-1", ) as f:
+        for i in range(7):
+            f.readline()
+        col_names = f.readline().strip().split(",")
     
-    df = pd.read_csv(filename, sep=",", skiprows=8, names=["Date", "Time", "T"], parse_dates=[["Date", "Time"]], dayfirst=True, encoding = "ISO-8859-1")
-    df.rename({"Date_Time": "TIMESTAMP"}, axis=1, inplace=True)
+    if (("date" in col_names[0].lower()) and ("time" in  col_names[0].lower())):
+        df = pd.read_csv(filename, sep=",", skiprows=7, parse_dates=[col_names[0]], encoding = "ISO-8859-1")
+        df.rename({f"{col_names[0]}": "TIMESTAMP"}, axis=1, inplace=True)
+    else:
+        df = pd.read_csv(filename, sep=",", skiprows=7, parse_dates=[[col_names[0], col_names[1]]], encoding = "ISO-8859-1")
+        df.rename({f"{col_names[0]}_{col_names[1]}": "TIMESTAMP"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
     
