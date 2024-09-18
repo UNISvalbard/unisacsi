@@ -1583,7 +1583,7 @@ def calculate_tidal_spectrum(data, bandwidth=8):
 
 
     timeseries = data.interpolate(method="linear").values
-    resolution = (data.index[1] - data.index[0]).seconds // 3600
+    resolution = (data.index[1] - data.index[0]).seconds / 3600.
     delta = resolution*(1./24.)     #in days
 
     N = len(timeseries)
