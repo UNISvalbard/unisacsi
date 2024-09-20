@@ -1385,7 +1385,7 @@ def read_Minilog(filename):
 
 def read_SBE37(filename):
     '''
-    Reads data from one data file from a SB37 Microcat sensor.
+    Reads data from one data file from a SBE37 Microcat sensor.
 
     Parameters:
     -------
@@ -1413,6 +1413,28 @@ def read_SBE37(filename):
         df[k] = d[k]
     df.sort_index(axis=0, inplace=True)
     
+    return df
+
+
+def read_SBE26(filename):
+    '''
+    Reads data from one data file from a SBE26 sensor.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+
+    df = pd.read_csv(filename, sep="\s+", header=None, names=["RECORD", "date", "time", "P", "T"])
+    df["TIMESTAMP"] = pd.to_datetime(df["date"]+" "+df["time"], format="%m/%d/%Y %H:%M:%S")
+    df.set_index("TIMESTAMP", inplace=True)
+    df.drop(["date", "time"], axis=1, inplace=True)
+
     return df
 
 
