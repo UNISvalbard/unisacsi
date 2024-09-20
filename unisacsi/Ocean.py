@@ -794,20 +794,36 @@ def read_WinADCP(filename):
 
 
     data = myloadmat(filename)
-        
+
+    print(data.keys())
+   
     depth = np.round(data['RDIBin1Mid'] + (data["SerBins"]-1)*data["RDIBinSize"])
         
     time = [pd.Timestamp(year=2000+y, month=m, day=d, hour=H, minute=M, second=s) for y,m,d,H,M,s in 
             zip(data["SerYear"], data["SerMon"], data["SerDay"], data["SerHour"], data["SerMin"], data["SerSec"])]
     
     glattributes = {name: data[name] for name in ['RDIFileName', 'RDISystem', 'RDIBinSize', 'RDIPingsPerEns', 'RDISecPerPing']}
-        
-    ds = xr.Dataset(data_vars=dict(temperature=(["time"], data["AnT100thDeg"]/100., {'units':'degC', "name": "temperature", "long_name": "sea water temperature"}),
-                                  u_raw=(["time", "depth"], data["SerEmmpersec"]/1000., {'units':'m/s', "name": "u_raw", "long_name": "zonal velocity component (rel. to ship)"}),
-                                  v_raw=(["time", "depth"], data["SerNmmpersec"]/1000., {'units':'m/s', "name": "v_raw", "long_name": "meridional velocity component (rel. to ship)"}),
-                                  pg=(["time", "depth"], data['SerPG4']/100., {'units':'percent', "name": "pg", "long_name": "percent good"}),
-                                  uship=(["time"], data["AnNVEmmpersec"]/1000., {'units':'m/s', "name": "uship", "long_name": "ship zonal velocity component"}),
-                                  vship=(["time"], data["AnNVNmmpersec"]/1000., {'units':'m/s', "name": "vship", "long_name": "ship meridional velocity component"})),
+
+    data_vars=dict(temperature=(["time"], data["AnT100thDeg"]/100., {'units':'degC', "name": "temperature", "long_name": "Sea water temperature"}),
+                                  u_raw=(["time", "depth"], data["SerEmmpersec"]/1000., {'units':'m/s', "name": "u_raw", "long_name": "Raw eastward current velocity [m/s]"}),
+                                  v_raw=(["time", "depth"], data["SerNmmpersec"]/1000., {'units':'m/s', "name": "v_raw", "long_name": "Raw northward current velocity [m/s]"}),
+                                  pg=(["time", "depth"], data['SerPG4']/100., {'units':'percent', "name": "pg", "long_name": "Percent good"}),
+                                  uship=(["time"], data["AnNVEmmpersec"]/1000., {'units':'m/s', "name": "uship", "long_name": "Eastward ship speed [m/s]"}),
+                                  vship=(["time"], data["AnNVNmmpersec"]/1000., {'units':'m/s', "name": "vship", "long_name": "Northward ship speed [m/s]"}))
+    if 'SerErmmpersec' in data.keys():
+        data_vars["velocity_error"] = (["time", "depth"], data["SerErmmpersec"]/1000., {'units':'m/s', "name": "velocity_error", "long_name": "Current velocity measurement error [m/s]"})
+    if 'AnBTEmmpersec' in data.keys():
+        data_vars["u_bottomtrack"] = (["time"], data['AnBTEmmpersec']/1000., {'units':'m/s', "name": "u_bottomtrack", "long_name": "Eastward bottomtrack velocity [m/s]"})
+        data_vars["v_bottomtrack"] = (["time"], data['AnBTNmmpersec']/1000., {'units':'m/s', "name": "v_bottomtrack", "long_name": "Northward bottomtrack velocity [m/s]"})
+    if 'AnBTErmmpersec' in data.keys():
+        data_vars["bottomtrack_error"] = (["time"], data['AnBTErmmpersec']/1000., {'units':'m/s', "name": "bottomtrack_error", "long_name": "Bottomtrack velocity measurement error [m/s]"})
+    if 'AnWMEmmpersec' in data.keys():
+        data_vars["u_barotropic_raw"] = (["time"], data['AnWMEmmpersec']/1000., {'units':'m/s', "name": "u_barotropic_raw", "long_name": "Raw eastward barotropic current velocity [m/s]"})
+        data_vars["v_barotropic_raw"] = (["time"], data['AnWMNmmpersec']/1000., {'units':'m/s', "name": "v_barotropic_raw", "long_name": "Raw northward barotropic current velocity [m/s]"})
+    if 'AnWMErmmpersec' in data.keys():
+        data_vars["barotropic_velocity_error"] = (["time"], data['AnWMErmmpersec']/1000., {'units':'m/s', "name": "barotropic_velocity_error", "long_name": "Barotropic current velocity measurement error [m/s]"})
+
+    ds = xr.Dataset(data_vars=data_vars,
                    coords=dict(time=time,depth=depth),
                                #lat_start=(["time"], data["AnFLatDeg"]),
                                #lat_end=(["time"], data["AnLLatDeg"]),
@@ -825,44 +841,43 @@ def read_WinADCP(filename):
     ds["u"] = ds["u_raw"] + ds["uship"]
     ds["u"].attrs["name"] = "u"
     ds["u"].attrs["units"] = "m/s"
-    ds["u"].attrs["long_name"] = "zonal velocity component"
+    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
     
     ds["v"] = ds["v_raw"] + ds["vship"]
     ds["v"].attrs["name"] = "v"
     ds["v"].attrs["units"] = "m/s"
-    ds["v"].attrs["long_name"] = "meridional velocity component"
+    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
+
+    if "u_barotropic_raw" in ds.data_vars:
+        ds["u_barotropic"] = ds["u_barotropic_raw"] + ds["uship"]
+        ds["u_barotropic"].attrs["name"] = "u_barotropic"
+        ds["u_barotropic"].attrs["units"] = "m/s"
+        ds["u_barotropic"].attrs["long_name"] = "Eastward barotropic current velocity [m/s]"
+        
+        ds["v_barotropic"] = ds["v_barotropic_raw"] + ds["vship"]
+        ds["v_barotropic"].attrs["name"] = "v_barotropic"
+        ds["v_barotropic"].attrs["units"] = "m/s"
+        ds["v_barotropic"].attrs["long_name"] = "Northward barotropic current velocity [m/s]"
     
     calc_heading = lambda u, v: (((np.rad2deg(np.arctan2(-u,-v)) + 360.) % 360.) + 180.) % 360.
     ds["heading"] = xr.apply_ufunc(calc_heading, ds['uship'], ds['vship'])
     ds["heading"].attrs["name"] = "heading"
     ds["heading"].attrs["units"] = "deg"
-    ds["heading"].attrs["long_name"] = "ship heading"
-    
+    ds["heading"].attrs["long_name"] = "Ship heading [°]"
     
     calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
     ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
     ds["crossvel"].attrs["name"] = "crossvel"
     ds["crossvel"].attrs["units"] = "m/s"
-    ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
+    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track [m/s]"
 
     ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
     ds["speed_ship"].attrs["name"] = "speed_ship"
     ds["speed_ship"].attrs["units"] = "m/s"
-    ds["speed_ship"].attrs["long_name"] = "total ship speed"
+    ds["speed_ship"].attrs["long_name"] = "Ship speed [m/s]"
 
     ds = ds.transpose("depth", "time")
     
-    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
-    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
-    ds["u_raw"].attrs["long_name"] = "Raw eastward current velocity [m/s]"
-    ds["v_raw"].attrs["long_name"] = "Raw northward current velocity [m/s]"
-    ds["uship"].attrs["long_name"] = "Eastward ship speed [m/s]"
-    ds["vship"].attrs["long_name"] = "Northward ship speed [m/s]"
-    ds["pg"].attrs["long_name"] = "Percent good"
-    ds["heading"].attrs["long_name"] = "Ship heading [°]"
-    ds["speed_ship"].attrs["long_name"] = "Ship speed [m/s]"
-    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track [m/s]"
-
     return ds
 
 
@@ -887,9 +902,13 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
     """
 
     adcp = myloadmat(filename)
+
+    variables_to_read = ["U", "V", "U_detide", "V_detide"]
+    if "E" in adcp.keys():
+        variables_to_read += ["E"]
     
     list_of_das = []
-    for vari in ["U", "V", "U_detide", "V_detide"]:
+    for vari in variables_to_read:
         list_of_dfs = []
         for st in range(len(adcp["stnr"])):
             max_depth = np.floor((np.nanmax(adcp["Z"][:,st])))
@@ -928,6 +947,11 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
     ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
     ds["u_detide"].attrs["long_name"] = "Detided eastward current velocity [m/s]"
     ds["v_detide"].attrs["long_name"] = "Detided northward current velocity [m/s]"
+
+    if "E" in ds.data_vars:
+        ds = ds.rename({"E": "velocity_error"})
+        ds["velocity_error"] = ds["velocity_error"] / 100.
+        ds["velocity_error"].attrs["long_name"] = "Current velocity measurement error [m/s]"
    
     return ds
 
