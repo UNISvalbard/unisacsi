@@ -794,8 +794,6 @@ def read_WinADCP(filename):
 
 
     data = myloadmat(filename)
-
-    print(data.keys())
    
     depth = np.round(data['RDIBin1Mid'] + (data["SerBins"]-1)*data["RDIBinSize"])
         
