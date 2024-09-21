@@ -954,7 +954,6 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
     return ds
 
 
-
 def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(1.,0.),oxy_corr = (1.,0.), use_system_time=False):
     '''
     This function reads in the CTD data from cnv files in `inpath`
@@ -1042,6 +1041,25 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                         unis_station = ((line.split(" "))[-1]).strip()
         if not found_unis_station:
             unis_station = "unknown"
+
+        # if lat and lon not in profile attributes
+        if "LATITUDE" not in p.keys():
+            p["LATITUDE"] = -999.
+            p["LONGITUDE"] = -999.
+            with open(file, encoding = "ISO-8859-1") as f:
+                while ((p["LATITUDE"]<-990.) and (p["LONGITUDE"]<-990.)):
+                    line = f.readline()
+                    if "lat" in line.lower():
+                        if ":" in line:
+                            p["LATITUDE"] = float(((line.split(":"))[-1]).strip())
+                        else:
+                            p["LATITUDE"] = float(((line.split(" "))[-1]).strip())
+                    if "lon" in line.lower():
+                        if ":" in line:
+                            p["LONGITUDE"] = float(((line.split(":"))[-1]).strip())
+                        else:
+                            p["LONGITUDE"] = float(((line.split(" "))[-1]).strip())
+
             
         # if NMEA time is wrong, replace with system upload time (needs to be manually switched on)
         if use_system_time:
@@ -1062,7 +1080,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
             pass
         # rename the most important ones to the same convention used in MATLAB,
         # add other important ones
-                
+        
         p['LAT'] = p.pop('LATITUDE')
         p['LON'] = p.pop('LONGITUDE')
         p['z'] = gsw.z_from_p(p['P'],p['LAT'])
@@ -1077,7 +1095,10 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         p['SA'] = gsw.SA_from_SP(p['S'],p['P'],p['LON'],p['LAT'])
         p['CT'] = gsw.CT_from_t(p['SA'],p['T'],p['P'])
         p['SIGTH'] = gsw.sigma0(p['SA'],p['CT'])
-        p['st'] = int(p['filename'].split('.')[0].split('_')[0][-4::])
+        try:
+            p['st'] = int(p['filename'].split('.')[0].split('_')[0][-4::])
+        except ValueError:
+            pass
         p["unis_st"] = unis_station
         if 'OX' in p:
             p['OX'] = oxy_corr[0] * p['OX'] + oxy_corr[1]
@@ -1102,6 +1123,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         np.save(outpath+cruise_name+'_CTD',CTD_dict)
 
     return CTD_dict
+
 
 
 def read_CTD_from_mat(matfile):
