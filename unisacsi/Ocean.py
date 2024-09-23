@@ -1658,7 +1658,7 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
 
 
 
-def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM"):
+def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM", method="spline"):
     """
     Function to correct the VM-ADCP data for the tides (substract the tidal currents from the measurements).
     
@@ -1670,7 +1670,9 @@ def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM"):
 	    Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
     tidal_model : str
         Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
-
+    method : str
+        Spatial interpolation method (from tidal model grid to actual locations of the ship). One of 'bilinear', 'spline', 'linear' and 'nearest'
+        
     Returns
     -------
     ds : same xarray dataset as the input, but with additional variables for the tidal currents and the de-tided measurements
@@ -1679,7 +1681,7 @@ def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM"):
 
     time = ((ds.time.to_pandas()-pd.Timestamp(1970,1,1,0,0,0)).dt.total_seconds()).values
 
-    tide_uv = pyTMD.compute.tide_currents(ds.lon.values, ds.lat.values, time, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='drift', TIME='UTC', METHOD='spline', FILL_VALUE=np.nan)
+    tide_uv = pyTMD.compute.tide_currents(ds.lon.values, ds.lat.values, time, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='drift', TIME='UTC', METHOD=method, EXTRAPOLATE=True, FILL_VALUE=np.nan)
 
     ds["u_tide"] = xr.DataArray(tide_uv["u"] / 100., dims=["time"], coords={"station": ds.time}, name="u_tide")
     ds["v_tide"] = xr.DataArray(tide_uv["v"] / 100., dims=["time"], coords={"station": ds.time}, name="v_tide")
@@ -1704,7 +1706,7 @@ def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM"):
     return ds
 
 
-def get_tidal_uvh(latitude, longitude, time, path_tidal_models, tidal_model="Arc2kmTM"):
+def get_tidal_uvh(latitude, longitude, time, path_tidal_models, tidal_model="Arc2kmTM", method="spline"):
     """
     Function to calculate time series of tidal currents u and v as well as the surface elevation change h for a given pair of lat and lon (only one position at a time!), based on the specified tidal model.
     
@@ -1720,6 +1722,8 @@ def get_tidal_uvh(latitude, longitude, time, path_tidal_models, tidal_model="Arc
 	    Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
     tidal_model : str
         Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
+    method : str
+        Spatial interpolation method (from tidal model grid to actual locations of the ship). One of 'bilinear', 'spline', 'linear' and 'nearest'
 
     Returns
     -------
@@ -1729,8 +1733,8 @@ def get_tidal_uvh(latitude, longitude, time, path_tidal_models, tidal_model="Arc
 
     time_model = ((time-pd.Timestamp(1970,1,1,0,0,0)).total_seconds()).values
 
-    tide_uv = pyTMD.compute.tide_currents(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD='spline', FILL_VALUE=np.nan)
-    tide_h = pyTMD.compute.tide_elevations(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD='spline', FILL_VALUE=np.nan)
+    tide_uv = pyTMD.compute.tide_currents(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD=method, EXTRAPOLATE=True, FILL_VALUE=np.nan)
+    tide_h = pyTMD.compute.tide_elevations(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD=method, EXTRAPOLATE=True, FILL_VALUE=np.nan)
 
     df =pd.DataFrame({"u [m/s]": tide_uv["u"].squeeze()/100., "v [m/s]": tide_uv["v"].squeeze()/100., "h [m]": tide_h.squeeze()}, index=time)
 
