@@ -46,6 +46,7 @@ import pathlib
 import zipfile
 import posixpath
 import pyTMD.utilities
+import pyTMD.compute
 
 
 ############################################################################
@@ -420,7 +421,7 @@ def CTD_to_xarray(CTD,switch_xdim='station'):
     return ds
 
 
-def section_to_xarray(ds,stations=None,time_periods=None):
+def section_to_xarray(ds,stations=None,time_periods=None, ship_speed_threshold=1.):
     """
     Function to extract one section from the CTD/ADCP dataset from the whole cruise and return a new dataset, where distance along the section is the new dimension.
     
@@ -432,6 +433,8 @@ def section_to_xarray(ds,stations=None,time_periods=None):
 	    List with the UNIS station numbers in the section. This is used for CTD and LADCP.
     time_preiods : list
         List with the start and end points for each time period that contributes to the section. This is used for the VM-ADCPs. 
+    ship_speed_threshold: float
+        Threshold value for the ship speed for use of VM-ADCP. Data during times with ship speeds' lower than the threshold will be discarded. Only applies for VM-ADCP. Default: 1 m/s
 
     Returns
     -------
@@ -442,7 +445,10 @@ def section_to_xarray(ds,stations=None,time_periods=None):
     if ((stations == None) & (time_periods != None)):   # for VM-ADCP
         ds_section = []
         for (start, end) in time_periods:
-            ds_section.append(ds.sel(time=slice(start, end)))
+            if end > start:
+                    ds_section.append(ds.sel(time=slice(start, end)))
+            elif start > end:
+                ds_section.append(ds.sel(time=slice(end, start)))
         ds_section = xr.concat(ds_section, dim="time")
         if len(time_periods) == 1:
             if time_periods[0][0] > time_periods[0][-1]:
@@ -450,6 +456,8 @@ def section_to_xarray(ds,stations=None,time_periods=None):
         else: 	
             if time_periods[0][0] > time_periods[-1][0]:
                 ds_section = ds_section.sortby('time', ascending =False) 	
+
+        ds_section = ds_section.where(ds_section["speed_ship"]>ship_speed_threshold, drop=True)
 
         ds_section['distance'] = xr.DataArray(np.insert(np.cumsum(gsw.distance(ds_section.lon.values,ds_section.lat.values)/1000),0,0),dims = ['time'],coords={'distance':ds_section.time})
         ds_section = ds_section.swap_dims({'time':'distance'}).dropna("depth", how="all")
@@ -467,7 +475,6 @@ def section_to_xarray(ds,stations=None,time_periods=None):
     else:
         print("Please specify either stations (for CTD and L-ADCP) or time_periods (for VM_ADCP)!")
         return None
-    
     
     
 
@@ -881,6 +888,8 @@ def read_WinADCP(filename):
     ds = ds.transpose("depth", "time")
     
     return ds
+
+
 
 
 def read_LADCP(filename, station_dict,switch_xdim='station'):
@@ -1629,9 +1638,92 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
             local_file.chmod(mode=0o775)
         # close the zipfile object
         zfile.close()
+
+        print("Done downloading!")
         
 
     return
+
+
+
+def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM"):
+    """
+    Function to correct the VM-ADCP data for the tides (substract the tidal currents from the measurements).
+    
+    Parameters
+    ----------
+    ds : xarray dataset
+        Data from VM-ADCP, read and transformed with the respective functions (see example notebook).
+    path_tidal_models : str	
+	    Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
+    tidal_model : str
+        Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
+
+    Returns
+    -------
+    ds : same xarray dataset as the input, but with additional variables for the tidal currents and the de-tided measurements
+
+    """
+
+    time = ((ds.time.to_pandas()-pd.Timestamp(1970,1,1,0,0,0)).dt.total_seconds()).values
+
+    tide_uv = pyTMD.compute.tide_currents(ds.lon.values, ds.lat.values, time, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='drift', TIME='UTC', METHOD='spline', FILL_VALUE=np.nan)
+
+    ds["u_tide"] = xr.DataArray(tide_uv["u"] / 100., dims=["time"], coords={"station": ds.time}, name="u_tide")
+    ds["v_tide"] = xr.DataArray(tide_uv["v"] / 100., dims=["time"], coords={"station": ds.time}, name="v_tide")
+
+    ds["u_detide"] = ds["u"] - ds["u_tide"]
+    ds["v_detide"] = ds["v"] - ds["v_tide"]
+
+    ds["u_detide"].attrs["units"] = "m/s"
+    ds["u_detide"].attrs["name"] = "u_detide"
+    ds["u_detide"].attrs["long_name"] = "Detided eastward current velocity"
+    ds["v_detide"].attrs["units"] = "m/s"
+    ds["v_detide"].attrs["name"] = "v_detide"
+    ds["v_detide"].attrs["long_name"] = "Detided northward current velocity"
+
+    ds["u_tide"].attrs["units"] = "m/s"
+    ds["u_tide"].attrs["name"] = "u_tide"
+    ds["u_tide"].attrs["long_name"] = "Eastward tidal current velocity"
+    ds["v_tide"].attrs["units"] = "m/s"
+    ds["v_tide"].attrs["name"] = "v_tide"
+    ds["v_tide"].attrs["long_name"] = "Northward tidal current velocity"
+
+    return ds
+
+
+def get_tidal_uvh(latitude, longitude, time, path_tidal_models, tidal_model="Arc2kmTM"):
+    """
+    Function to calculate time series of tidal currents u and v as well as the surface elevation change h for a given pair of lat and lon (only one position at a time!), based on the specified tidal model.
+    
+    Parameters
+    ----------
+    latitude : float
+        Latitude of e.g. the mooring
+    longitude : float
+        Longitude of e.g. the mooring
+    time : pandas DatetimeIndex
+        Timestamps of the time series. Needs to be a pandas DatetimeIndex. Use df.index of e.g. the raw SeaGuard data, if you have read the data with the read_Seaguard-function.
+    path_tidal_models : str	
+	    Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
+    tidal_model : str
+        Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
+
+    Returns
+    -------
+    df : pandas Dataframe with time as the index, and three columns u, v, and h with the tidal current velocities and the surface height anomalies.
+    """
+
+
+    time_model = ((time-pd.Timestamp(1970,1,1,0,0,0)).total_seconds()).values
+
+    tide_uv = pyTMD.compute.tide_currents(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD='spline', FILL_VALUE=np.nan)
+    tide_h = pyTMD.compute.tide_elevations(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD='spline', FILL_VALUE=np.nan)
+
+    df =pd.DataFrame({"u [m/s]": tide_uv["u"].squeeze()/100., "v [m/s]": tide_uv["v"].squeeze()/100., "h [m]": tide_h.squeeze()}, index=time)
+
+    return df
+
 
 
 def calculate_tidal_spectrum(data, bandwidth=8):
