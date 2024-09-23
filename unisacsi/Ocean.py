@@ -728,17 +728,11 @@ def read_ADCP_CODAS(filename):
         ds = f[["u", "v", "lat", "lon", "depth", "amp", "pg", "heading", "uship", "vship"]].load()
         
     ds = ds.set_coords(("depth", "lon", "lat"))
-    
+
     ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
     ds["speed_ship"].attrs["name"] = "speed_ship"
     ds["speed_ship"].attrs["units"] = "m/s"
     ds["speed_ship"].attrs["long_name"] = "total ship speed"
-    
-    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
-    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
-    ds["crossvel"].attrs["name"] = "crossvel"
-    ds["crossvel"].attrs["units"] = "m/s"
-    ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
     
     ds["u"].attrs["long_name"] = "Eastward current velocity"
     ds["v"].attrs["long_name"] = "Northward current velocity"
@@ -747,7 +741,6 @@ def read_ADCP_CODAS(filename):
     ds["pg"].attrs["long_name"] = "Percent good"
     ds["heading"].attrs["long_name"] = "Ship heading"
     ds["speed_ship"].attrs["long_name"] = "Ship speed"
-    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track"
     
     return ds
 
@@ -874,12 +867,6 @@ def read_WinADCP(filename):
     ds["heading"].attrs["units"] = "deg"
     ds["heading"].attrs["long_name"] = "Ship heading"
     
-    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
-    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
-    ds["crossvel"].attrs["name"] = "crossvel"
-    ds["crossvel"].attrs["units"] = "m/s"
-    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track"
-
     ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
     ds["speed_ship"].attrs["name"] = "speed_ship"
     ds["speed_ship"].attrs["units"] = "m/s"
@@ -889,6 +876,31 @@ def read_WinADCP(filename):
     
     return ds
 
+
+
+def VMADCP_calculate_crossvel(ds):
+    """
+    Function to calculate the current velocity perpendicular to the ship track from the detided East and North current velocities and the ship's heading.
+    
+    Parameters
+    ----------
+    ds : xarray dataset
+        Dataset containing the full VM-ADCP timeseries, after detiding!
+    
+    Returns
+    -------
+    ds : xarray dataset
+        Same dataset as input, but with additional variable crossvel
+    """
+
+    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
+    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u_detide'], ds['v_detide'], ds['heading'])
+    ds["crossvel"].attrs["name"] = "crossvel"
+    ds["crossvel"].attrs["units"] = "m/s"
+    ds["crossvel"].attrs["long_name"] = "Current velocity (detided) perpendicular to the ship track"
+
+
+    return ds
 
 
 
