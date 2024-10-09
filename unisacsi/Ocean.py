@@ -498,7 +498,7 @@ def mooring_into_xarray(dict_of_instr):
 
     """
     
-    all_varis = ["T", "S", "SIGTH"]
+    all_varis = ["T", "S", "SIGTH", "U", "V", "OX", "P"]
     
     for d in dict_of_instr.keys():
         varis_instr = [v for v in all_varis if v in list(dict_of_instr[d].columns)]
@@ -521,6 +521,7 @@ def mooring_into_xarray(dict_of_instr):
     return ds
 	
 
+
 def calc_freshwater_content(salinity,depth,ref_salinity=34.8):
     '''
     Calculates the freshwater content from a profile of salinity and depth.
@@ -538,18 +539,17 @@ def calc_freshwater_content(salinity,depth,ref_salinity=34.8):
     float
         The freshwater content for the profile, in meters
     '''
-    try:
-        idx = np.where(salinity>ref_salinity)[0][0]
-        salinity = salinity[:idx]
-        depth = depth[:idx]
-    except:
-        pass
 
-    salinity = np.mean([salinity[1:],salinity[:-1]])
+    sal = salinity.copy()
+
+    idx = np.where(sal>ref_salinity)[0]
+    sal[idx] = ref_salinity
+
+    sal = 0.5*(sal[1:]+sal[:-1])
 
     dz = np.diff(depth)
 
-    return np.sum((salinity-ref_salinity)/ref_salinity *dz)
+    return -1.*np.sum(((sal-ref_salinity)/ref_salinity) * dz)
 
 
 
@@ -1392,7 +1392,7 @@ def read_Seaguard(filename, header_len=4):
         a pandas dataframe with time as index and the individual variables as columns.
     '''
     df = pd.read_csv(filename, sep="\t", header=header_len, parse_dates=["Time tag (Gmt)"], dayfirst=True)
-    df.rename({"Time tag (Gmt)": "TIMESTAMP", 'East(cm/s)': "U", 'North(cm/s)': "V", 'Temperature(DegC)': "T", 'Pressure(kPa)': "P"}, axis=1, inplace=True)
+    df.rename({"Time tag (Gmt)": "TIMESTAMP", 'East(cm/s)': "U", 'North(cm/s)': "V", 'Temperature(DegC)': "T", 'Pressure(kPa)': "P", "O2Concentration(uM)": "OX"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
     
@@ -1426,6 +1426,7 @@ def read_Minilog(filename):
         df.rename({f"{col_names[0]}_{col_names[1]}": "TIMESTAMP"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
+    df.replace({"Temperature (°C)": "T"}, axis=1, inplace=True)
     
     return df
     
@@ -2051,7 +2052,7 @@ def plot_CTD_section(CTD,stations,section_name = '',clevels_T=20,clevels_S=20,
     # Salinity
     _,Ct_S,C_S = contour_section(X,Z,fCTD['S'],fCTD['SIGTH'],ax=axS,
                           station_pos=station_locs,cmap=cmocean.cm.haline,
-                          clabel='Salinity [g kg$^{-1}$]',bottom_depth=BDEPTH,clevels=clevels_S,
+                          clabel='Salinity []',bottom_depth=BDEPTH,clevels=clevels_S,
                           interp_opt=interp_opt)
     # Add x and y labels
     axT.set_ylabel('Depth [m]')
@@ -2672,6 +2673,7 @@ def plot_CTD_ts(CTD,stations=None,pref = 0):
     if len(CTD.keys()) > 1:
         plt.legend(ncol=2,framealpha=1,columnspacing=0.7,handletextpad=0.4)
 
+    return
 
 
 def create_empty_ts(T_extent,S_extent,p_ref = 0):
@@ -2712,6 +2714,8 @@ def create_empty_ts(T_extent,S_extent,p_ref = 0):
     plt.title('$\Theta$ - $S_A$ Diagram')
     if p_ref > 0:
         plt.title('Density: $\sigma_{'+str(p_ref)+'}$',loc='left',fontsize=10)
+
+    return
 
 
 
