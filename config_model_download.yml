@@ -9,18 +9,18 @@ data_format: 2 # 2D near-surface data fields
 #
 latest: False
 #
-start_day: "2022-09-11"
-end_day: "2022-09-18"
+start_day: "2022-10-22"
+end_day: "2022-10-24"
 save_daily_files: True # if True, data from end_day gets saved; if False, times after end_day are not included
 #
-check_plot: True # switch to enable first opening a plot to check that the correct area/points were selected
+check_plot: False # switch to enable first opening a plot to check that the correct area/points were selected
 #
 out_path: "/Users/lukasf/Desktop/AA_test" # don't give a file extension!!! The files will automatically be saved as .nc! If save_daily_files == True, the day will automatically be appended to the filename like "./model_data_resolution_20220506.nc"
 #
 start_h: 0 # (Python) index defining the first time step downloaded from each file. start_h = 0 means starting with the first available time step from each data file.
 num_h: 3 # Number of time steps to download from each file. num_h = 3 means that 3 time steps are downloaded from each file
-int_h: 1 # Time interval between data time steps in each data file (1 hour)
-int_f: 3 # Time interval in hours between each data file (3 hours)
+#
+shortest_leadtime: True # automatically use data with the shortest available leadtime and skip trying to load data from non-existing files
 #
 stations: # the station settings are only used when downloading timeseries or profile data
   LYR:
@@ -69,7 +69,12 @@ variables:
 static_file: "/Users/lukasf/Desktop/AA_static_fields" # Full path (absolute or relative) of the file with the static model fields. This file can be downloaded with the function "download_static_fields". For AROME-Arctic: Depending on which resolution is specified below, the actual file will be called "./AA_static_fields_2p5km.nc" or "./AA_static_fields_500m.nc"
 model: "AA" # Switch to distinguish between the Arome-Arctic model for Svalbard ("AA") and the METCoOp model for mainland Norway ("MC")
 #
+int_h: 1 # Time interval between data time steps in each data file (1 hour)
+int_f: 3 # Time interval in hours between each data file (3 hours)
+#
 int_x: 1
 int_y: 1
 #
 resolution: "2p5km" # switch to distinguish between 2.5km and 500m resolution (valid options: "2p5km" and "500m"). Applies only to AROME-Arctic!
+#
+aa500_folder: "UNIS-22" # name of the folder where the 500m-AROME-Arctic data is stored (check https://thredds.met.no/thredds/catalog/metusers/yuriib/catalog.html)

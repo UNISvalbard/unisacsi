@@ -18,7 +18,7 @@ import gsw
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-from netCDF4 import Dataset,num2date
+from netCDF4 import Dataset
 import glob
 from scipy.interpolate import interp1d,griddata
 import scipy.io as spio
@@ -46,6 +46,7 @@ import pathlib
 import zipfile
 import posixpath
 import pyTMD.utilities
+import pyTMD.compute
 
 
 ############################################################################
@@ -420,7 +421,7 @@ def CTD_to_xarray(CTD,switch_xdim='station'):
     return ds
 
 
-def section_to_xarray(ds,stations=None,time_periods=None):
+def section_to_xarray(ds,stations=None,time_periods=None, ship_speed_threshold=1.):
     """
     Function to extract one section from the CTD/ADCP dataset from the whole cruise and return a new dataset, where distance along the section is the new dimension.
     
@@ -432,6 +433,8 @@ def section_to_xarray(ds,stations=None,time_periods=None):
 	    List with the UNIS station numbers in the section. This is used for CTD and LADCP.
     time_preiods : list
         List with the start and end points for each time period that contributes to the section. This is used for the VM-ADCPs. 
+    ship_speed_threshold: float
+        Threshold value for the ship speed for use of VM-ADCP. Data during times with ship speeds' lower than the threshold will be discarded. Only applies for VM-ADCP. Default: 1 m/s
 
     Returns
     -------
@@ -442,13 +445,22 @@ def section_to_xarray(ds,stations=None,time_periods=None):
     if ((stations == None) & (time_periods != None)):   # for VM-ADCP
         ds_section = []
         for (start, end) in time_periods:
-            ds_section.append(ds.sel(time=slice(start, end)))
+            if end > start:
+                    ds_section.append(ds.sel(time=slice(start, end)))
+            elif start > end:
+                ds_section.append(ds.sel(time=slice(end, start)))
         ds_section = xr.concat(ds_section, dim="time")
-        if time_periods[0][0] > time_periods[-1][0]:
-            ds_section = ds_section.sortby('time', ascending =False) 	
+        if len(time_periods) == 1:
+            if time_periods[0][0] > time_periods[0][-1]:
+                ds_section = ds_section.sortby('time', ascending =False)
+        else: 	
+            if time_periods[0][0] > time_periods[-1][0]:
+                ds_section = ds_section.sortby('time', ascending =False) 	
+
+        ds_section = ds_section.where(ds_section["speed_ship"]>ship_speed_threshold, drop=True)
 
         ds_section['distance'] = xr.DataArray(np.insert(np.cumsum(gsw.distance(ds_section.lon.values,ds_section.lat.values)/1000),0,0),dims = ['time'],coords={'distance':ds_section.time})
-        ds_section = ds_section.swap_dims({'time':'distance'}).dropna("depth", "all")
+        ds_section = ds_section.swap_dims({'time':'distance'}).dropna("depth", how="all")
         ds_section = ds_section.transpose("depth", "distance")
         return ds_section
 
@@ -456,14 +468,13 @@ def section_to_xarray(ds,stations=None,time_periods=None):
     elif ((stations != None) & (time_periods == None)):       # for CTD and L-ADCP
         ds_section = ds.sel(station = stations)	
         ds_section['distance'] = xr.DataArray(np.insert(np.cumsum(gsw.distance(ds_section.lon.values,ds_section.lat.values)/1000),0,0),dims = ['station'],coords={'distance':ds_section.station})
-        ds_section = ds_section.swap_dims({'station':'distance'}).dropna("depth", "all")
+        ds_section = ds_section.swap_dims({'station':'distance'}).dropna("depth", how="all")
         ds_section = ds_section.transpose("depth", "distance")
         return ds_section
         
     else:
         print("Please specify either stations (for CTD and L-ADCP) or time_periods (for VM_ADCP)!")
         return None
-    
     
     
 
@@ -487,7 +498,7 @@ def mooring_into_xarray(dict_of_instr):
 
     """
     
-    all_varis = ["T", "S", "SIGTH"]
+    all_varis = ["T", "S", "SIGTH", "U", "V", "OX", "P"]
     
     for d in dict_of_instr.keys():
         varis_instr = [v for v in all_varis if v in list(dict_of_instr[d].columns)]
@@ -501,7 +512,7 @@ def mooring_into_xarray(dict_of_instr):
             if vari in list(df_instr.keys()):
                 list_df.append(df_instr[vari].rename(d))
         df_vari = pd.concat(list_df, axis=1)
-        df_vari = df_vari.resample("20MIN").mean()
+        df_vari = df_vari.resample("20min").mean()
                 
         list_da.append(xr.DataArray(data=df_vari, dims=["time", "depth"], coords={"depth": np.array(list(df_vari.columns), dtype=float), "time": df_vari.index.values}, name=vari))
     
@@ -509,6 +520,7 @@ def mooring_into_xarray(dict_of_instr):
     
     return ds
 	
+
 
 def calc_freshwater_content(salinity,depth,ref_salinity=34.8):
     '''
@@ -527,18 +539,17 @@ def calc_freshwater_content(salinity,depth,ref_salinity=34.8):
     float
         The freshwater content for the profile, in meters
     '''
-    try:
-        idx = np.where(salinity>ref_salinity)[0][0]
-        salinity = salinity[:idx]
-        depth = depth[:idx]
-    except:
-        pass
 
-    salinity = np.mean([salinity[1:],salinity[:-1]])
+    sal = salinity.copy()
+
+    idx = np.where(sal>ref_salinity)[0]
+    sal[idx] = ref_salinity
+
+    sal = 0.5*(sal[1:]+sal[:-1])
 
     dz = np.diff(depth)
 
-    return np.sum((salinity-ref_salinity)/ref_salinity *dz)
+    return -1.*np.sum(((sal-ref_salinity)/ref_salinity) * dz)
 
 
 
@@ -717,26 +728,19 @@ def read_ADCP_CODAS(filename):
         ds = f[["u", "v", "lat", "lon", "depth", "amp", "pg", "heading", "uship", "vship"]].load()
         
     ds = ds.set_coords(("depth", "lon", "lat"))
-    
+
     ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
     ds["speed_ship"].attrs["name"] = "speed_ship"
     ds["speed_ship"].attrs["units"] = "m/s"
     ds["speed_ship"].attrs["long_name"] = "total ship speed"
     
-    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
-    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
-    ds["crossvel"].attrs["name"] = "crossvel"
-    ds["crossvel"].attrs["units"] = "m/s"
-    ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
-    
-    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
-    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
-    ds["uship"].attrs["long_name"] = "Eastward ship speed [m/s]"
-    ds["vship"].attrs["long_name"] = "Northward ship speed [m/s]"
+    ds["u"].attrs["long_name"] = "Eastward current velocity"
+    ds["v"].attrs["long_name"] = "Northward current velocity"
+    ds["uship"].attrs["long_name"] = "Eastward ship speed"
+    ds["vship"].attrs["long_name"] = "Northward ship speed"
     ds["pg"].attrs["long_name"] = "Percent good"
-    ds["heading"].attrs["long_name"] = "Ship heading [°]"
-    ds["speed_ship"].attrs["long_name"] = "Ship speed [m/s]"
-    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track [m/s]"
+    ds["heading"].attrs["long_name"] = "Ship heading"
+    ds["speed_ship"].attrs["long_name"] = "Ship speed"
     
     return ds
 
@@ -794,20 +798,34 @@ def read_WinADCP(filename):
 
 
     data = myloadmat(filename)
-        
+   
     depth = np.round(data['RDIBin1Mid'] + (data["SerBins"]-1)*data["RDIBinSize"])
         
     time = [pd.Timestamp(year=2000+y, month=m, day=d, hour=H, minute=M, second=s) for y,m,d,H,M,s in 
             zip(data["SerYear"], data["SerMon"], data["SerDay"], data["SerHour"], data["SerMin"], data["SerSec"])]
     
     glattributes = {name: data[name] for name in ['RDIFileName', 'RDISystem', 'RDIBinSize', 'RDIPingsPerEns', 'RDISecPerPing']}
-        
-    ds = xr.Dataset(data_vars=dict(temperature=(["time"], data["AnT100thDeg"]/100., {'units':'degC', "name": "temperature", "long_name": "sea water temperature"}),
-                                  u_raw=(["time", "depth"], data["SerEmmpersec"]/1000., {'units':'m/s', "name": "u_raw", "long_name": "zonal velocity component (rel. to ship)"}),
-                                  v_raw=(["time", "depth"], data["SerNmmpersec"]/1000., {'units':'m/s', "name": "v_raw", "long_name": "meridional velocity component (rel. to ship)"}),
-                                  pg=(["time", "depth"], data['SerPG4']/100., {'units':'percent', "name": "pg", "long_name": "percent good"}),
-                                  uship=(["time"], data["AnNVEmmpersec"]/1000., {'units':'m/s', "name": "uship", "long_name": "ship zonal velocity component"}),
-                                  vship=(["time"], data["AnNVNmmpersec"]/1000., {'units':'m/s', "name": "vship", "long_name": "ship meridional velocity component"})),
+
+    data_vars=dict(temperature=(["time"], data["AnT100thDeg"]/100., {'units':'degC', "name": "temperature", "long_name": "Sea water temperature"}),
+                                  u_raw=(["time", "depth"], data["SerEmmpersec"]/1000., {'units':'m/s', "name": "u_raw", "long_name": "Raw eastward current velocity"}),
+                                  v_raw=(["time", "depth"], data["SerNmmpersec"]/1000., {'units':'m/s', "name": "v_raw", "long_name": "Raw northward current velocity"}),
+                                  pg=(["time", "depth"], data['SerPG4']/100., {'units':'percent', "name": "pg", "long_name": "Percent good"}),
+                                  uship=(["time"], data["AnNVEmmpersec"]/1000., {'units':'m/s', "name": "uship", "long_name": "Eastward ship speed"}),
+                                  vship=(["time"], data["AnNVNmmpersec"]/1000., {'units':'m/s', "name": "vship", "long_name": "Northward ship speed"}))
+    if 'SerErmmpersec' in data.keys():
+        data_vars["velocity_error"] = (["time", "depth"], data["SerErmmpersec"]/1000., {'units':'m/s', "name": "velocity_error", "long_name": "Current velocity measurement error"})
+    if 'AnBTEmmpersec' in data.keys():
+        data_vars["u_bottomtrack"] = (["time"], data['AnBTEmmpersec']/1000., {'units':'m/s', "name": "u_bottomtrack", "long_name": "Eastward bottomtrack velocity"})
+        data_vars["v_bottomtrack"] = (["time"], data['AnBTNmmpersec']/1000., {'units':'m/s', "name": "v_bottomtrack", "long_name": "Northward bottomtrack velocity"})
+    if 'AnBTErmmpersec' in data.keys():
+        data_vars["bottomtrack_error"] = (["time"], data['AnBTErmmpersec']/1000., {'units':'m/s', "name": "bottomtrack_error", "long_name": "Bottomtrack velocity measurement error"})
+    if 'AnWMEmmpersec' in data.keys():
+        data_vars["u_barotropic_raw"] = (["time"], data['AnWMEmmpersec']/1000., {'units':'m/s', "name": "u_barotropic_raw", "long_name": "Raw eastward barotropic current velocity"})
+        data_vars["v_barotropic_raw"] = (["time"], data['AnWMNmmpersec']/1000., {'units':'m/s', "name": "v_barotropic_raw", "long_name": "Raw northward barotropic current velocity"})
+    if 'AnWMErmmpersec' in data.keys():
+        data_vars["barotropic_velocity_error"] = (["time"], data['AnWMErmmpersec']/1000., {'units':'m/s', "name": "barotropic_velocity_error", "long_name": "Barotropic current velocity measurement error"})
+
+    ds = xr.Dataset(data_vars=data_vars,
                    coords=dict(time=time,depth=depth),
                                #lat_start=(["time"], data["AnFLatDeg"]),
                                #lat_end=(["time"], data["AnLLatDeg"]),
@@ -825,45 +843,65 @@ def read_WinADCP(filename):
     ds["u"] = ds["u_raw"] + ds["uship"]
     ds["u"].attrs["name"] = "u"
     ds["u"].attrs["units"] = "m/s"
-    ds["u"].attrs["long_name"] = "zonal velocity component"
+    ds["u"].attrs["long_name"] = "Eastward current velocity"
     
     ds["v"] = ds["v_raw"] + ds["vship"]
     ds["v"].attrs["name"] = "v"
     ds["v"].attrs["units"] = "m/s"
-    ds["v"].attrs["long_name"] = "meridional velocity component"
+    ds["v"].attrs["long_name"] = "Northward current velocity"
+
+    if "u_barotropic_raw" in ds.data_vars:
+        ds["u_barotropic"] = ds["u_barotropic_raw"] + ds["uship"]
+        ds["u_barotropic"].attrs["name"] = "u_barotropic"
+        ds["u_barotropic"].attrs["units"] = "m/s"
+        ds["u_barotropic"].attrs["long_name"] = "Eastward barotropic current velocity"
+        
+        ds["v_barotropic"] = ds["v_barotropic_raw"] + ds["vship"]
+        ds["v_barotropic"].attrs["name"] = "v_barotropic"
+        ds["v_barotropic"].attrs["units"] = "m/s"
+        ds["v_barotropic"].attrs["long_name"] = "Northward barotropic current velocity"
     
     calc_heading = lambda u, v: (((np.rad2deg(np.arctan2(-u,-v)) + 360.) % 360.) + 180.) % 360.
     ds["heading"] = xr.apply_ufunc(calc_heading, ds['uship'], ds['vship'])
     ds["heading"].attrs["name"] = "heading"
     ds["heading"].attrs["units"] = "deg"
-    ds["heading"].attrs["long_name"] = "ship heading"
+    ds["heading"].attrs["long_name"] = "Ship heading"
     
-    
-    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
-    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u'], ds['v'], ds['heading'])
-    ds["crossvel"].attrs["name"] = "crossvel"
-    ds["crossvel"].attrs["units"] = "m/s"
-    ds["crossvel"].attrs["long_name"] = "current component perpendicular to ship track"
-
     ds['speed_ship'] = xr.apply_ufunc(np.sqrt, ds['uship']**2. + ds['vship']**2.)
     ds["speed_ship"].attrs["name"] = "speed_ship"
     ds["speed_ship"].attrs["units"] = "m/s"
-    ds["speed_ship"].attrs["long_name"] = "total ship speed"
+    ds["speed_ship"].attrs["long_name"] = "Ship speed"
 
     ds = ds.transpose("depth", "time")
     
-    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
-    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
-    ds["u_raw"].attrs["long_name"] = "Raw eastward current velocity [m/s]"
-    ds["v_raw"].attrs["long_name"] = "Raw northward current velocity [m/s]"
-    ds["uship"].attrs["long_name"] = "Eastward ship speed [m/s]"
-    ds["vship"].attrs["long_name"] = "Northward ship speed [m/s]"
-    ds["pg"].attrs["long_name"] = "Percent good"
-    ds["heading"].attrs["long_name"] = "Ship heading [°]"
-    ds["speed_ship"].attrs["long_name"] = "Ship speed [m/s]"
-    ds["crossvel"].attrs["long_name"] = "Current velocity perpendicular to the ship track [m/s]"
+    return ds
+
+
+
+def VMADCP_calculate_crossvel(ds):
+    """
+    Function to calculate the current velocity perpendicular to the ship track from the detided East and North current velocities and the ship's heading.
+    
+    Parameters
+    ----------
+    ds : xarray dataset
+        Dataset containing the full VM-ADCP timeseries, after detiding!
+    
+    Returns
+    -------
+    ds : xarray dataset
+        Same dataset as input, but with additional variable crossvel
+    """
+
+    calc_crossvel = lambda u, v, angle_deg: v * np.sin(np.deg2rad(angle_deg)) - u * np.cos(np.deg2rad(angle_deg))
+    ds['crossvel'] = xr.apply_ufunc(calc_crossvel, ds['u_detide'], ds['v_detide'], ds['heading'])
+    ds["crossvel"].attrs["name"] = "crossvel"
+    ds["crossvel"].attrs["units"] = "m/s"
+    ds["crossvel"].attrs["long_name"] = "Current velocity (detided) perpendicular to the ship track"
+
 
     return ds
+
 
 
 def read_LADCP(filename, station_dict,switch_xdim='station'):
@@ -887,9 +925,13 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
     """
 
     adcp = myloadmat(filename)
+
+    variables_to_read = ["U", "V", "U_detide", "V_detide"]
+    if "E" in adcp.keys():
+        variables_to_read += ["E"]
     
     list_of_das = []
-    for vari in ["U", "V", "U_detide", "V_detide"]:
+    for vari in variables_to_read:
         list_of_dfs = []
         for st in range(len(adcp["stnr"])):
             max_depth = np.floor((np.nanmax(adcp["Z"][:,st])))
@@ -915,22 +957,26 @@ def read_LADCP(filename, station_dict,switch_xdim='station'):
     ds["time"] = xr.DataArray(pd.to_datetime(np.asarray(adcp["DT"])-719529., unit='D').round('1s'),dims= ["station"], coords = {"station": ds.station})
     ds = ds.set_coords(['lat','lon','ship_station', "Echodepth"])
     if switch_xdim == 'time':
-    	ds = ds.swap_dims({'station':'time'})
+        ds = ds.swap_dims({'station':'time'})
         
     ds = ds.rename({'U':'u','V':'v','U_detide':'u_detide','V_detide':'v_detide', "Echodepth": "bottom_depth"})
     
-    ds["u"] = ds["u"] / 10.
-    ds["v"] = ds["v"] / 10.
-    ds["u_detide"] = ds["u_detide"] / 10.
-    ds["v_detide"] = ds["v_detide"] / 10.
+    ds["u"] = ds["u"] / 100.
+    ds["v"] = ds["v"] / 100.
+    ds["u_detide"] = ds["u_detide"] / 100.
+    ds["v_detide"] = ds["v_detide"] / 100.
     
-    ds["u"].attrs["long_name"] = "Eastward current velocity [m/s]"
-    ds["v"].attrs["long_name"] = "Northward current velocity [m/s]"
-    ds["u_detide"].attrs["long_name"] = "Detided eastward current velocity [m/s]"
-    ds["v_detide"].attrs["long_name"] = "Detided northward current velocity [m/s]"
+    ds["u"].attrs["long_name"] = "Eastward current velocity"
+    ds["v"].attrs["long_name"] = "Northward current velocity"
+    ds["u_detide"].attrs["long_name"] = "Detided eastward current velocity"
+    ds["v_detide"].attrs["long_name"] = "Detided northward current velocity"
+
+    if "E" in ds.data_vars:
+        ds = ds.rename({"E": "velocity_error"})
+        ds["velocity_error"] = ds["velocity_error"] / 100.
+        ds["velocity_error"].attrs["long_name"] = "Current velocity measurement error"
    
     return ds
-
 
 
 def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(1.,0.),oxy_corr = (1.,0.), use_system_time=False):
@@ -1020,6 +1066,25 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
                         unis_station = ((line.split(" "))[-1]).strip()
         if not found_unis_station:
             unis_station = "unknown"
+
+        # if lat and lon not in profile attributes
+        if "LATITUDE" not in p.keys():
+            p["LATITUDE"] = -999.
+            p["LONGITUDE"] = -999.
+            with open(file, encoding = "ISO-8859-1") as f:
+                while ((p["LATITUDE"]<-990.) and (p["LONGITUDE"]<-990.)):
+                    line = f.readline()
+                    if "lat" in line.lower():
+                        if ":" in line:
+                            p["LATITUDE"] = float(((line.split(":"))[-1]).strip())
+                        else:
+                            p["LATITUDE"] = float(((line.split(" "))[-1]).strip())
+                    if "lon" in line.lower():
+                        if ":" in line:
+                            p["LONGITUDE"] = float(((line.split(":"))[-1]).strip())
+                        else:
+                            p["LONGITUDE"] = float(((line.split(" "))[-1]).strip())
+
             
         # if NMEA time is wrong, replace with system upload time (needs to be manually switched on)
         if use_system_time:
@@ -1040,7 +1105,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
             pass
         # rename the most important ones to the same convention used in MATLAB,
         # add other important ones
-                
+        
         p['LAT'] = p.pop('LATITUDE')
         p['LON'] = p.pop('LONGITUDE')
         p['z'] = gsw.z_from_p(p['P'],p['LAT'])
@@ -1055,7 +1120,10 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         p['SA'] = gsw.SA_from_SP(p['S'],p['P'],p['LON'],p['LAT'])
         p['CT'] = gsw.CT_from_t(p['SA'],p['T'],p['P'])
         p['SIGTH'] = gsw.sigma0(p['SA'],p['CT'])
-        p['st'] = int(p['filename'].split('.')[0].split('_')[0][-4::])
+        try:
+            p['st'] = int(p['filename'].split('.')[0].split('_')[0][-4::])
+        except ValueError:
+            pass
         p["unis_st"] = unis_station
         if 'OX' in p:
             p['OX'] = oxy_corr[0] * p['OX'] + oxy_corr[1]
@@ -1080,6 +1148,7 @@ def read_CTD(inpath,cruise_name='cruise',outpath=None,stations=None, salt_corr=(
         np.save(outpath+cruise_name+'_CTD',CTD_dict)
 
     return CTD_dict
+
 
 
 def read_CTD_from_mat(matfile):
@@ -1323,7 +1392,7 @@ def read_Seaguard(filename, header_len=4):
         a pandas dataframe with time as index and the individual variables as columns.
     '''
     df = pd.read_csv(filename, sep="\t", header=header_len, parse_dates=["Time tag (Gmt)"], dayfirst=True)
-    df.rename({"Time tag (Gmt)": "TIMESTAMP", 'East(cm/s)': "U", 'North(cm/s)': "V", 'Temperature(DegC)': "T", 'Pressure(kPa)': "P"}, axis=1, inplace=True)
+    df.rename({"Time tag (Gmt)": "TIMESTAMP", 'East(cm/s)': "U", 'North(cm/s)': "V", 'Temperature(DegC)': "T", 'Pressure(kPa)': "P", "O2Concentration(uM)": "OX"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
     
@@ -1343,18 +1412,28 @@ def read_Minilog(filename):
     df : pandas dataframe
         a pandas dataframe with time as index and temperature as column.
     '''
+
+    with open(filename, "r", encoding = "ISO-8859-1", ) as f:
+        for i in range(7):
+            f.readline()
+        col_names = f.readline().strip().split(",")
     
-    df = pd.read_csv(filename, sep=",", skiprows=8, names=["Date", "Time", "T"], parse_dates=[["Date", "Time"]], dayfirst=True, encoding = "ISO-8859-1")
-    df.rename({"Date_Time": "TIMESTAMP"}, axis=1, inplace=True)
+    if (("date" in col_names[0].lower()) and ("time" in  col_names[0].lower())):
+        df = pd.read_csv(filename, sep=",", skiprows=7, parse_dates=[col_names[0]], encoding = "ISO-8859-1")
+        df.rename({f"{col_names[0]}": "TIMESTAMP"}, axis=1, inplace=True)
+    else:
+        df = pd.read_csv(filename, sep=",", skiprows=7, parse_dates=[[col_names[0], col_names[1]]], encoding = "ISO-8859-1")
+        df.rename({f"{col_names[0]}_{col_names[1]}": "TIMESTAMP"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
+    df.replace({"Temperature (°C)": "T"}, axis=1, inplace=True)
     
     return df
     
 
 def read_SBE37(filename):
     '''
-    Reads data from one data file from a SB37 Microcat sensor.
+    Reads data from one data file from a SBE37 Microcat sensor.
 
     Parameters:
     -------
@@ -1382,6 +1461,28 @@ def read_SBE37(filename):
         df[k] = d[k]
     df.sort_index(axis=0, inplace=True)
     
+    return df
+
+
+def read_SBE26(filename):
+    '''
+    Reads data from one data file from a SBE26 sensor.
+
+    Parameters:
+    -------
+    filename: str
+        String with path to file
+    Returns
+    -------
+    df : pandas dataframe
+        a pandas dataframe with time as index and the individual variables as columns.
+    '''
+
+    df = pd.read_csv(filename, sep="\s+", header=None, names=["RECORD", "date", "time", "P", "T"])
+    df["TIMESTAMP"] = pd.to_datetime(df["date"]+" "+df["time"], format="%m/%d/%Y %H:%M:%S")
+    df.set_index("TIMESTAMP", inplace=True)
+    df.drop(["date", "time"], axis=1, inplace=True)
+
     return df
 
 
@@ -1550,9 +1651,96 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
             local_file.chmod(mode=0o775)
         # close the zipfile object
         zfile.close()
+
+        print("Done downloading!")
         
 
     return
+
+
+
+def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM", method="spline"):
+    """
+    Function to correct the VM-ADCP data for the tides (substract the tidal currents from the measurements).
+    
+    Parameters
+    ----------
+    ds : xarray dataset
+        Data from VM-ADCP, read and transformed with the respective functions (see example notebook).
+    path_tidal_models : str	
+	    Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
+    tidal_model : str
+        Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
+    method : str
+        Spatial interpolation method (from tidal model grid to actual locations of the ship). One of 'bilinear', 'spline', 'linear' and 'nearest'
+        
+    Returns
+    -------
+    ds : same xarray dataset as the input, but with additional variables for the tidal currents and the de-tided measurements
+
+    """
+
+    time = ((ds.time.to_pandas()-pd.Timestamp(1970,1,1,0,0,0)).dt.total_seconds()).values
+
+    tide_uv = pyTMD.compute.tide_currents(ds.lon.values, ds.lat.values, time, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='drift', TIME='UTC', METHOD=method, EXTRAPOLATE=True, FILL_VALUE=np.nan)
+
+    ds["u_tide"] = xr.DataArray(tide_uv["u"] / 100., dims=["time"], coords={"station": ds.time}, name="u_tide")
+    ds["v_tide"] = xr.DataArray(tide_uv["v"] / 100., dims=["time"], coords={"station": ds.time}, name="v_tide")
+
+    ds["u_detide"] = ds["u"] - ds["u_tide"]
+    ds["v_detide"] = ds["v"] - ds["v_tide"]
+
+    ds["u_detide"].attrs["units"] = "m/s"
+    ds["u_detide"].attrs["name"] = "u_detide"
+    ds["u_detide"].attrs["long_name"] = "Detided eastward current velocity"
+    ds["v_detide"].attrs["units"] = "m/s"
+    ds["v_detide"].attrs["name"] = "v_detide"
+    ds["v_detide"].attrs["long_name"] = "Detided northward current velocity"
+
+    ds["u_tide"].attrs["units"] = "m/s"
+    ds["u_tide"].attrs["name"] = "u_tide"
+    ds["u_tide"].attrs["long_name"] = "Eastward tidal current velocity"
+    ds["v_tide"].attrs["units"] = "m/s"
+    ds["v_tide"].attrs["name"] = "v_tide"
+    ds["v_tide"].attrs["long_name"] = "Northward tidal current velocity"
+
+    return ds
+
+
+def get_tidal_uvh(latitude, longitude, time, path_tidal_models, tidal_model="Arc2kmTM", method="spline"):
+    """
+    Function to calculate time series of tidal currents u and v as well as the surface elevation change h for a given pair of lat and lon (only one position at a time!), based on the specified tidal model.
+    
+    Parameters
+    ----------
+    latitude : float
+        Latitude of e.g. the mooring
+    longitude : float
+        Longitude of e.g. the mooring
+    time : pandas DatetimeIndex
+        Timestamps of the time series. Needs to be a pandas DatetimeIndex. Use df.index of e.g. the raw SeaGuard data, if you have read the data with the read_Seaguard-function.
+    path_tidal_models : str	
+	    Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
+    tidal_model : str
+        Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
+    method : str
+        Spatial interpolation method (from tidal model grid to actual locations of the ship). One of 'bilinear', 'spline', 'linear' and 'nearest'
+
+    Returns
+    -------
+    df : pandas Dataframe with time as the index, and three columns u, v, and h with the tidal current velocities and the surface height anomalies.
+    """
+
+
+    time_model = ((time-pd.Timestamp(1970,1,1,0,0,0)).total_seconds()).values
+
+    tide_uv = pyTMD.compute.tide_currents(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD=method, EXTRAPOLATE=True, FILL_VALUE=np.nan)
+    tide_h = pyTMD.compute.tide_elevations(longitude, latitude, time_model, DIRECTORY=path_tidal_models, MODEL=tidal_model, EPSG=4326, EPOCH=(1970,1,1,0,0,0), TYPE='time series', TIME='UTC', METHOD=method, EXTRAPOLATE=True, FILL_VALUE=np.nan)
+
+    df =pd.DataFrame({"u [m/s]": tide_uv["u"].squeeze()/100., "v [m/s]": tide_uv["v"].squeeze()/100., "h [m]": tide_h.squeeze()}, index=time)
+
+    return df
+
 
 
 def calculate_tidal_spectrum(data, bandwidth=8):
@@ -1574,7 +1762,7 @@ def calculate_tidal_spectrum(data, bandwidth=8):
 
 
     timeseries = data.interpolate(method="linear").values
-    resolution = (data.index[1] - data.index[0]).seconds // 3600
+    resolution = (data.index[1] - data.index[0]).seconds / 3600.
     delta = resolution*(1./24.)     #in days
 
     N = len(timeseries)
@@ -1864,7 +2052,7 @@ def plot_CTD_section(CTD,stations,section_name = '',clevels_T=20,clevels_S=20,
     # Salinity
     _,Ct_S,C_S = contour_section(X,Z,fCTD['S'],fCTD['SIGTH'],ax=axS,
                           station_pos=station_locs,cmap=cmocean.cm.haline,
-                          clabel='Salinity [g kg$^{-1}$]',bottom_depth=BDEPTH,clevels=clevels_S,
+                          clabel='Salinity []',bottom_depth=BDEPTH,clevels=clevels_S,
                           interp_opt=interp_opt)
     # Add x and y labels
     axT.set_ylabel('Depth [m]')
@@ -2485,6 +2673,7 @@ def plot_CTD_ts(CTD,stations=None,pref = 0):
     if len(CTD.keys()) > 1:
         plt.legend(ncol=2,framealpha=1,columnspacing=0.7,handletextpad=0.4)
 
+    return
 
 
 def create_empty_ts(T_extent,S_extent,p_ref = 0):
@@ -2525,6 +2714,8 @@ def create_empty_ts(T_extent,S_extent,p_ref = 0):
     plt.title('$\Theta$ - $S_A$ Diagram')
     if p_ref > 0:
         plt.title('Density: $\sigma_{'+str(p_ref)+'}$',loc='left',fontsize=10)
+
+    return
 
 
 

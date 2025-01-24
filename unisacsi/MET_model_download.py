@@ -5,8 +5,7 @@ of the Norwegian Meteorological Institute, AROME-Arctic and MetCoOp.
 The code is optimized for the use in the UNIS courses.
 """
 
-import unisacsi
-from netCDF4 import Dataset
+#import unisacsi
 import numpy as np
 import pandas as pd
 import yaml
@@ -17,9 +16,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-import utm
-from scipy import interpolate
 import metpy
+import threddsclient
 
 
 def download_MET_model_data(config_file):
@@ -105,23 +103,32 @@ def download_MET_model_static_fields(config_file):
 
     model = config_settings["model"]
     resolution = config_settings["resolution"]
+    path = config_settings["static_file"].split("/")[:-1]
+    filename = config_settings["static_file"].split("/")[-1]
+    out_path = f"{'/'.join(path)}/{filename}_{resolution}.nc"
 
     if model == "AA":
         if resolution == "2p5km":
             file = 'https://thredds.met.no/thredds/dodsC/aromearcticarchive/2022/06/03/arome_arctic_det_2_5km_20220603T00Z.nc'
+            with xr.open_dataset(file) as static_fields:
+                static_fields.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
+        
         elif resolution == "500m":
-            file = 'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_2022090200.nc'
+            file_1 = 'https://thredds.met.no/thredds/dodsC/finis/UNIS-2024/AA_2024012400.nc'
+            file_2 = 'https://thredds.met.no/thredds/dodsC/finis/UNIS-2024/PGD.nc'
+            with xr.open_dataset(file_1) as f:
+                sf_1 = f.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().load()
+                sf_1 = sf_1.drop_vars("time")
+            with xr.open_dataset(file_2) as f:
+                sf_2 = f.isel(time=0).squeeze().load()
+                sf_2 = sf_2.drop_vars("time")
+            static_fields = xr.merge([sf_1, sf_2], join="left")
+            static_fields.to_netcdf(out_path)
+
     elif model == "MC":
         file = 'https://thredds.met.no/thredds/dodsC/meps25epsarchive/2022/02/20/meps_det_2_5km_20220220T00Z.nc'
-        resolution = "2p5km"
-
-    path = config_settings["static_file"].split("/")[:-1]
-    filename = config_settings["static_file"].split("/")[-1]
-    out_path = f"{'/'.join(path)}/{filename}_{resolution}.nc"
-    
-    with xr.open_dataset(file) as static_fields:
-        static_fields.isel(time=1)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
-
+        with xr.open_dataset(file) as static_fields:
+            static_fields.isel(time=0)[["x", "y", "longitude", "latitude", "projection_lambert", "surface_geopotential", "land_area_fraction"]].squeeze().to_netcdf(out_path)
 
     print(f"Static fields were successfully saved into {out_path}.")
 
@@ -143,6 +150,8 @@ class MET_model_download_class():
     def __init__(self, config_settings):
 
         self.latest = config_settings["latest"]
+        self.shortest_leadtime = config_settings["shortest_leadtime"]
+        self.aa500_folder = config_settings["aa500_folder"]
         self.start_time = config_settings["start_day"]
         self.end_time = config_settings["end_day"]
         self.int_h = config_settings["int_h"]
@@ -165,18 +174,21 @@ class MET_model_download_class():
         self.model_levels = config_settings["model_levels"]
         self.p_levels = config_settings["pressure_levels"]
 
+        aa500_hour = {"N-FORCES": "00", "UNIS-2020": "00", "UNIS-2022": "21", "UNIS-2024": "00"}
+        aa500_filename = {"N-FORCES": "AS500", "UNIS-2020": "AS500", "UNIS-2022": "AS500", "UNIS-2024": "AS"}
+
         if self.model == "AA":
             if self.resolution == "2p5km":
-                self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+                self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", inclusive="left")
             elif self.resolution == "500m":
-                self.time_vec = pd.date_range(self.start_time, self.end_time, freq="1D", closed="left")
+                self.time_vec = pd.date_range(self.start_time, self.end_time, freq="1D", inclusive="left")
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":
-            self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", closed="left")
+            self.time_vec = pd.date_range(self.start_time, self.end_time, freq=f"{self.int_f}H", inclusive="left")
         else:
             assert False, "Model name not recognized, specify either 'AA' or 'MC'."
-        self.time_ind = np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int)
+
 
 
         path = config_settings["static_file"].split("/")[:-1]
@@ -187,6 +199,8 @@ class MET_model_download_class():
         
 
         self.fileurls = []
+        self.time_ind = []
+        self.hybrid_name = []
         if self.model == "AA":
             self.full_model_name = "AROME_Arctic"
             if self.resolution == "2p5km":
@@ -194,28 +208,73 @@ class MET_model_download_class():
                     self.fileurls.append("https://thredds.met.no/thredds/dodsC/aromearcticlatest/archive/arome_arctic_det_2_5km_latest.nc")
                 else:
                     for t in self.time_vec:
-                        if t < pd.Timestamp("2022-02-01"):
-                            if config_settings["data_format"] == 5:
-                                self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
-                            else:
-                                self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                        if t > pd.Timestamp("2017-06-18"):
+                            self.hybrid_name.append("")
                         else:
-                            self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
-            
+                            self.hybrid_name.append("0")
+                        if t < pd.Timestamp("2022-02-01"):
+                            if config_settings["data_format"] == 6:
+                                file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_extracted_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
+                                if self.shortest_leadtime:
+                                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                                        self.fileurls.append(file)
+                                        self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+                                    else:
+                                        l = self.time_ind.pop()
+                                        self.time_ind.append(np.arange(l[0], l[-1]+1+self.num_h, self.int_h, dtype=int))
+                                else:
+                                    self.fileurls.append(file)
+                                    self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+                            else:
+                                file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_full_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
+                                if self.shortest_leadtime:
+                                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                                        self.fileurls.append(file)
+                                        self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+                                    else:
+                                        l = self.time_ind.pop()
+                                        self.time_ind.append(np.arange(l[0], l[-1]+1+self.num_h, self.int_h, dtype=int))
+                                else:
+                                    self.fileurls.append(file)
+                                    self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+                        else:
+                            file = f'https://thredds.met.no/thredds/dodsC/aromearcticarchive/{t.strftime("%Y/%m/%d")}/arome_arctic_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
+                            if self.shortest_leadtime:
+                                if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/aromearcticarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                                    self.fileurls.append(file)
+                                    self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+                                else:
+                                    l = self.time_ind.pop()
+                                    self.time_ind.append(np.arange(l[0], l[-1]+1+self.num_h, self.int_h, dtype=int))
+                            else:
+                                self.fileurls.append(file)
+                                self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+        
             elif self.resolution == "500m":
                 for t in self.time_vec:
-                    self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/N-FORCES/AS500_{t.strftime("%Y%m%d")}00.nc')
+                    if self.aa500_folder == "UNIS-2024":
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/finis/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
+                    else:
+                        self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/metusers/yuriib/{self.aa500_folder}/{aa500_filename[self.aa500_folder]}_{t.strftime("%Y%m%d")}{aa500_hour[self.aa500_folder]}.nc')
+                    self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
             else:
                 assert False, "Resolution not valid, specify either '2p5km' or '500m'."
         elif self.model == "MC":
             self.full_model_name= "METCoOp"
             for t in self.time_vec:
-                self.fileurls.append(f'https://thredds.met.no/thredds/dodsC/meps25epsarchive/{t.strftime("%Y/%m/%d")}/meps_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc')
+                file = f'https://thredds.met.no/thredds/dodsC/meps25epsarchive/{t.strftime("%Y/%m/%d")}/meps_det_2_5km_{t.strftime("%Y%m%d")}T{t.strftime("%H")}Z.nc'
+                if self.shortest_leadtime:
+                    if file in threddsclient.opendap_urls(f'https://thredds.met.no/thredds/catalog/meps25epsarchive/{t.strftime("%Y/%m/%d")}/catalog.html'):
+                        self.fileurls.append(file)
+                        self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
+                    else:
+                        l = self.time_ind.pop()
+                        self.time_ind.append(np.arange(l[0], l[-1]+1+self.num_h, self.int_h, dtype=int))
+                else:
+                    self.fileurls.append(file)
+                    self.time_ind.append(np.arange(self.start_h, self.start_h+self.num_h, self.int_h, dtype=int))
         else:
             assert False, "Model name not recognized, specify either 'AA' or 'MC'."
-
-
-
 
         self.varis = [k for k, s in config_settings["variables"].items() if s == 1]
         if "wind" in self.varis:
@@ -366,12 +425,19 @@ class MET_model_download_class():
         
         
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind, hyb_name in zip(self.fileurls, self.time_ind, self.hybrid_name):
             stations = []
             with xr.open_dataset(filename) as full_file:
                 for i in range(len(self.stt_lon)):
-                    stations.append(full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    if hyb_name == "":
+                        stations.append(full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    else:
+                        ds_temp = full_file.isel(time=time_ind, hybrid0=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze()
+                        ds_temp = ds_temp.rename({"hybrid0": "hybrid"})
+                        stations.append(ds_temp)
                     
+
+
             data = xr.concat(stations, dim="station")
             
             chunks.append(data)
@@ -533,11 +599,12 @@ class MET_model_download_class():
             
             
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind in zip(self.fileurls, self.time_ind):
             stations = []
+            print(filename)
             with xr.open_dataset(filename) as full_file:
                 for i in range(len(self.stt_lon)):
-                    stations.append(full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
+                    stations.append(full_file.isel(time=time_ind).sel(x=xx[i], y=yy[i], method='nearest')[model_varis].squeeze())
                     
             data = xr.concat(stations, dim="station")
                 
@@ -716,9 +783,9 @@ class MET_model_download_class():
             
             
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind in zip(self.fileurls, self.time_ind):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind).sel(x=x, y=y)[model_varis].squeeze()
+                data = full_file.isel(time=time_ind).sel(x=x, y=y)[model_varis].squeeze()
                 
             for vari in model_varis:
                 if vari[:8] == "integral":
@@ -885,9 +952,13 @@ class MET_model_download_class():
             
             
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind, hyb_name in zip(self.fileurls, self.time_ind, self.hybrid_name):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                if hyb_name == "":
+                    data = full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                else:
+                    data = full_file.isel(time=time_ind, hybrid0=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                    data = data.rename({"hybrid0": "hybrid"})
                 
             chunks.append(data)
             
@@ -1055,12 +1126,15 @@ class MET_model_download_class():
                 sys.exit(1)
                 
             print("Starting data download...")
-            
-            
+
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind, hyb_name in zip(self.fileurls, self.time_ind, self.hybrid_name):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                if hyb_name == "":
+                    data = full_file.isel(time=time_ind, hybrid=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                else:
+                    data = full_file.isel(time=time_ind, hybrid0=np.arange(-self.model_levels,0,1)).sel(x=x, y=y)[model_varis].squeeze()
+                    data = data.rename({"hybrid0": "hybrid"})
                 
             chunks.append(data)
             
@@ -1249,9 +1323,9 @@ class MET_model_download_class():
             
             
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind in zip(self.fileurls, self.time_ind):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind).sel(x=x, y=y)[model_varis].squeeze()
+                data = full_file.isel(time=time_ind).sel(x=x, y=y)[model_varis].squeeze()
                 
             for vari in model_varis:
                 if vari[:8] == "integral":
@@ -1434,9 +1508,9 @@ class MET_model_download_class():
                 
                 
         chunks = []
-        for filename in self.fileurls:
+        for filename, time_ind in zip(self.fileurls, self.time_ind):
             with xr.open_dataset(filename) as full_file:
-                data = full_file.isel(time=self.time_ind, hybrid=ind_p_levels).sel(x=x, y=y)[model_varis].squeeze()
+                data = full_file.isel(time=time_ind, hybrid=ind_p_levels).sel(x=x, y=y)[model_varis].squeeze()
                 
             chunks.append(data)
             
@@ -1473,14 +1547,4 @@ class MET_model_download_class():
         
         
         return
-    
-    
-    
-        
-        
-        
-        
-
-        
-
-    
+   

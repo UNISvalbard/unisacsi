@@ -18,14 +18,30 @@ Note for Apple users: The toolbox currently only works in an x86-environment (ma
 
 Download the file requirements.txt directly from the github repository (open the file on the webpage, click on "Raw", right-click and Save as...), then type in a anaconda-prompt/terminal window:
 ```
-conda create -n myenv python=3.8 --file requirements.txt
+conda create -n myenv --file requirements.txt
 ```
 For Apple silicon users with arm64-native anaconda:
 ```
-CONDA_SUBDIR=osx-64 conda create -n myenv python=3.8 --file requirements.txt
+CONDA_SUBDIR=osx-64 conda create -n myenv --file requirements.txt
 ```
 
-Follow the instructions and be patient, this might take some time! Once the environment is created, activate it with:
+Follow the instructions and be patient, this might take some minutes!
+
+If it doesn't work, try with the mamba solver. First, update your conda in the base environment:
+```
+conda update -n base conda
+```
+Then, install and set the new solver:
+```
+conda install -n base conda-libmamba-solver
+conda config --set solver libmamba
+```
+Now try again to create the new environment:
+```
+conda create -n myenv --file requirements.txt
+```
+
+Once the environment is created, activate it with:
 ```
 conda activate myenv
 ```
@@ -34,6 +50,7 @@ Two more packages can only be installed using pip. The first one you will need t
 ```
 pip install pyrsktools
 pip install uptide
+pip install seabird
 ```
 
 Now you can install the unisacsi toolbox with:
