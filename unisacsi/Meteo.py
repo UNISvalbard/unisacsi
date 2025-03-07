@@ -13,7 +13,7 @@ meteorological instrument data. This includes:
 The functions were developed at the University Centre in Svalbard. They were
 optimized for the file formats typically used in the UNIS courses.
 """
-#%%
+
 
 import unisacsi
 import pandas as pd
@@ -24,116 +24,258 @@ import geopandas as gpd
 import numpy as np
 import cmocean as cmo
 import matplotlib as mpl
-from shapely.geometry import LineString
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from shapely.geometry import LineString
+from shapely.errors import GEOSException
+import rioxarray as rxr
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import rioxarray as rxr
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+from cartopy.mpl.geoaxes import GeoAxes
 import os
 import copy
 import sys
 import datetime
-from collections import defaultdict 
+from collections import defaultdict
+from typing import Literal, Any, Union, Self
+import warnings
+import logging
+import re
+
+
+rename_dict: dict[str, str] = {
+    "temperature": "T",
+    "temp": "T",
+    "Temp": "T",
+    "relative_humidity": "RH",
+    "rel_humidity": "RH",
+    "Relative humidity (%)": "RH [%RH]",
+    "speed": "V",
+    "Speed": "V",
+    "direction": "Dir",
+    "Direction": "Dir",
+    "pressure": "p",
+    "Shortwave": "SW",
+    "Longwave": "LW",
+    "Latitude": "lat",
+    "Longitude": "lon",
+}
+
+generall_variables: list[str] = [
+    "T",
+    "RH",
+    "Humidity",
+    "V",
+    "Dir",
+    "p",
+    "LW",
+    "SW",
+    "precip",
+]
+generall_units: list[str] = ["degC", "%RH", "m/s", "deg", "hPa", "W/m^2", "W/m^2", "mm"]
+
+# Remove:
+met_file = "/Users/pselle/Documents/Uni/Svalbard/AGF-214/DATA/Weather/table-3.csv"
+met_dst_w = (
+    "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/1st_oct_dst.csv"
+)
+met_norsk = (
+    "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/table_norsk.csv"
+)
+cambell_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/MaggieMay/*.dat"
+eddypro_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/eddypro_1_full_output_2024-04-06T104841_adv.csv"
+TT_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/UAV_data/20240830_SST_Abbey/TT_Bonnie_202408302030.txt"
+TH_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/Stan/TH_Stan_full.txt"
+CEB_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/Rosanna/CEB_Rosanna_full.txt"
+Test_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/TT_CEB.txt"
+HOBO_p = "/Users/pselle/Documents/Uni/Svalbard/AGF-213/unisacsi_example_data/AWS_Hobo/HOBO_20210913.txt"
+Rain_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/Eileen/HOBOrain_Eileen_full.txt"
+iwin_p = "/Users/pselle/Documents/Uni/Svalbard/AGF-213/unisacsi_example_data/IWIN/lighthouse_AWS_1884_Table_1min_20220701.nc"
+imet_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/UAV_data/20240830_VP_a1/imet_Lucy_VP_a1_20240830.csv"
+radiosonde_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/2023-09-07_1251.raw_history.csv"
 
 ############################################################################
-#READING FUNCTIONS
+# READING FUNCTIONS
 ############################################################################
 
-def read_MET_AWS(filename):
-    '''
-    Reads data from a csv file downloaded from seklima.met.no.
-    The csv file should only include data from one station.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
+    """Reads data from a CSV file downloaded from seklima.met.no.
+    Can handle CSV with multiple stations and one.
 
-    with open(filename) as f:
-        ncols = len(f.readline().split(';'))
+    Args:
+        filepath (str): String with path to CSV file.
 
-    df = pd.read_csv(filename, dayfirst=True, sep=";", skipfooter=1, header=0, usecols=range(2,ncols), parse_dates=[0], decimal=",", na_values=["-"])
+    Returns:
+        pandas.DataFrame or dict[str, pandas dataframe]:
+            - A pandas.DataFrame with time as index and the individual variables as columns.
+            - A dictionary of pandas.DataFrames (keyed by station name) if multiple stations are present.
+    """
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}")
+    if filepath.endswith(".csv"):
+        df: pd.DataFrame = pd.read_csv(
+            filepath,
+            skipfooter=1,
+            sep=";",
+            engine="python",
+            na_values="-",
+            dayfirst=True,
+            parse_dates=[2],
+            header=0,
+        )
+    else:
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .csv file.")
 
     try:
-        df["Tid"] = df["Tid(norsk normaltid)"] - pd.Timedelta("1h")
-        df.set_index("Tid", inplace=True)
+        df["TIMESTAMP"] = df["Tid(norsk normaltid)"] - pd.Timedelta("1h")
+        df.set_index("TIMESTAMP", inplace=True)
         df.drop(["Tid(norsk normaltid)"], axis=1, inplace=True)
+        stations: list = df["Navn"].unique().tolist()
+        if len(stations) == 1:
+            df.drop(["Navn", "Stasjon"], axis=1, inplace=True)
+            return df
+        else:
+            dic: dict = {
+                i: df[df["Navn"] == i].drop(["Navn", "Stasjon"], axis=1)
+                for i in stations
+            }
+            return dic
     except KeyError:
-        df["Time"] = df["Time(norwegian mean time)"] - pd.Timedelta("1h")
-        df.set_index("Time", inplace=True)
+        df["TIMESTAMP"] = df["Time(norwegian mean time)"] - pd.Timedelta("1h")
+        df.set_index("TIMESTAMP", inplace=True)
         df.drop(["Time(norwegian mean time)"], axis=1, inplace=True)
+        stations: list = df["Name"].unique().tolist()
+        if len(stations) == 1:
+            df.drop(["Name", "Station"], axis=1, inplace=True)
+            return df
+        else:
+            dic: dict[str, pd.DataFrame] = {
+                i: df[df["Name"] == i].drop(["Name", "Station"], axis=1)
+                for i in stations
+            }
+            return dic
 
-    return df
 
+def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
+    """Reads data from one or several TOA5 files from Campbell data loggers.
 
+    Args:
+        filepath (str): Path to one or more '.dat' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.)
 
-def read_Campbell_TOA5(filename):
-    '''
-    Reads data from one or several TOA5 files from Campbell data loggers.
+    Returns:
+        pandas.DataFrame: a Dataframe with time as index and the individual variables as columns.
+    """
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .dat extension."
+            )
+        if not i.endswith(".dat"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .dat file.")
 
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+    one_file: str = sorted(glob.glob(filepath))[0]
 
-    one_file = sorted(glob.glob(filename))[0]
     with open(one_file, "r") as f:
-        f.readline()
-        col_names = f.readline().replace('"',"").split(",")
-        units = f.readline().replace('"',"").split(",")
+        _, col_names, units = [
+            line.strip().replace('"', "").split(",") for line in f.readlines()[:3]
+        ]
+    col_names: list[str] = [i.replace(" ", "_") for i in col_names]
+    units: list[str]
 
-    table_headers = []
-    for cn,u in zip(col_names, units):
+    table_headers: list[str] = []
+    for cn, u in zip(col_names, units):
         if cn not in ["TIMESTAMP", "RECORD"]:
-            table_headers.append(" ".join((cn.strip(), "["+u.strip()+"]")))
+            table_headers.append(" ".join((cn.strip(), "[" + u.strip() + "]")))
         else:
             table_headers.append(cn)
 
     dtypes_dict = defaultdict(lambda: np.float32)
     dtypes_dict["RECORD"] = np.int32
 
-    df = ddf.read_csv(filename, skiprows=4, dtype=dtypes_dict, parse_dates=["TIMESTAMP"], names=table_headers, date_format="%Y-%m-%d %H:%M:%S", na_values=["NAN"])
-    df = df.compute()
+    d_df: ddf.DataFrame = ddf.read_csv(
+        filepath,
+        skiprows=4,
+        dtype=dtypes_dict,
+        parse_dates=["TIMESTAMP"],
+        names=table_headers,
+        date_format="%Y-%m-%d %H:%M:%S",
+        na_values=["NAN"],
+    )
+    df: pd.DataFrame = d_df.compute()
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
+
+    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+
+    col_names: list[str] = []
+    for col_name in df.columns:
+        if "RH" in col_name:
+            col_name = col_name.replace("%", "%RH")
+        split_name = col_name.split(" ")
+        if "SW" == split_name[0][0:2]:
+            split_name[0] = f"SW_" + split_name[0][2:]
+        elif "LW" == split_name[0][0:2]:
+            split_name[0] = f"LW_" + split_name[0][2:]
+        if len(split_name) == 2:
+            name = split_name[0].split("_")
+            existing_variable = [x for x in generall_variables if x in name]
+            if len(existing_variable) == 1:
+                filterd_name = [x for x in name if x not in existing_variable]
+                name = existing_variable + filterd_name
+            split_name[0] = "_".join(name)
+        col_names.append(" ".join(split_name))
+    df.columns = col_names
 
     return df
 
 
-def read_EddyPro_full_output(filename):
-    '''
-    Reads data from one or several EddyPro full output file(s).
+def read_EddyPro_full_output(filepath: str) -> pd.DataFrame:
+    """Reads data from one or several EddyPro full output file(s).
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
+    Args:
+        filepath (str): Path to one or more '.csv' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
 
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+    Returns:
+        pandas.DataFrame: Dataframe with time as index and the individual variables as columns.
+    """
 
-    one_file = sorted(glob.glob(filename))[0]
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .csv extension."
+            )
+        if not i.endswith(".csv"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .csv file.")
+
+    one_file: str = sorted(files)[0]
     with open(one_file, "r") as f:
         f.readline()
-        col_names = f.readline().split(",")
-        units = f.readline().split(",")
+        col_names: list[str] = f.readline().split(",")
+        units: list[str] = f.readline().split(",")
 
     dtypes_dict = defaultdict(lambda: np.float32)
     dtypes_dict["file_records"] = np.int64
@@ -143,961 +285,2474 @@ def read_EddyPro_full_output(filename):
     dtypes_dict["date"] = "str"
     dtypes_dict["time"] = "str"
 
-    table_headers = []
-    for cn,u in zip(col_names, units):
-        if cn not in ["filename","date","time","DOY","daytime","file_records","used_records"]:
+    table_headers: list[str] = []
+    for cn, u in zip(col_names, units):
+        if cn not in [
+            "filename",
+            "date",
+            "time",
+            "DOY",
+            "daytime",
+            "file_records",
+            "used_records",
+        ]:
             table_headers.append(" ".join((cn.strip(), u.strip())))
         else:
             table_headers.append(cn)
         if cn == "date":
-            date_format = u.strip("[]").replace("yyyy", "%Y").replace("mm", "%m").replace("dd", "%d")
+            date_format: str = (
+                u.strip("[]")
+                .replace("yyyy", "%Y")
+                .replace("mm", "%m")
+                .replace("dd", "%d")
+            )
         elif cn == "time":
-            time_format = u.strip("[]").replace("HH", "%H").replace("MM", "%M")
+            time_format: str = u.strip("[]").replace("HH", "%H").replace("MM", "%M")
 
-    df = ddf.read_csv(filename, skiprows=4, dtype=dtypes_dict, names=table_headers, na_values=["NAN"])
-    df = df.compute()
+    d_df: ddf.DataFrame = ddf.read_csv(
+        filepath, skiprows=4, dtype=dtypes_dict, names=table_headers, na_values=["NAN"]
+    )
+    df: pd.DataFrame = d_df.compute()
     df.drop("filename", axis=1, inplace=True)
-    df['TIMESTAMP'] = pd.to_datetime(df.pop('date')+' '+df.pop('time'), format=date_format+" "+time_format)
+    df["TIMESTAMP"] = pd.to_datetime(
+        df.pop("date") + " " + df.pop("time"), format=date_format + " " + time_format
+    )
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
     return df
 
 
-def read_Tinytag(filename, sensor):
-    '''
-    Reads data from one or several data files from the Tinytag output files.
+def read_Tinytag(
+    filepath: str, sensor: None | Literal["TT", "TH", "CEB"] = None
+) -> pd.DataFrame:
+    """Reads data from one or several data files from the Tinytag output files.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    sensor: str
-        One of "TT", "TH" or "CEB"
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+    Args:
+        filepath (str): Path to one or more '.txt' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
+        sensor (None or {'TT', 'TH', 'CEB'}, optional): Defaults to None.
+            - None for automatic detection. Works if 'TT', 'TH' or 'CEB' is split by '_' (e.g. '*_TH_*.txt', 'TH_*.txt', *_TH.txt).
+            - 'TT' for devices with 2 temparature measurments.
+            - 'TH' for devices with temperature and relativ humidity.
+            - 'CEB' for devices with just temperature.
 
+    Returns:
+        pandas.DataFrame: DataFrame with time as index and the individual variables as columns.
+    """
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .txt extension."
+            )
+        if not i.endswith(".txt"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .txt file.")
+
+    if sensor == None:
+        filename: str = (
+            os.path.basename(files[0])
+            .translate(str.maketrans("", "", "1234567890"))
+            .split("_")
+        )
+        filename[-1] = filename[-1][:-4]  # get rid of the .txt
+        if "TT" in filename:
+            sensor = "TT"
+        if "TH" in filename:
+            if sensor:
+                raise ValueError(
+                    f"More then one sensor detected. Specify with arg: sensor="
+                )
+            sensor = "TH"
+        if "CEB" in filename:
+            if sensor:
+                raise ValueError(
+                    f"More then one sensor detected. Specify with arg: sensor="
+                )
+            sensor = "CEB"
+        if not sensor:
+            raise ValueError(f"Sensor information not found. Specify with arg: sensor=")
+        logging.info(f"Using {sensor} as a sensor.")
 
     if sensor == "TT":
-        df = ddf.read_csv(filename, delimiter="\t", skiprows=5, parse_dates=[1], date_format="%d %b %Y %H:%M:%S", names=["RECORD", "TIMESTAMP", "T_black", "T_white"], encoding = "ISO-8859-1")
+        d_df: ddf.DataFrame = ddf.read_csv(
+            filepath,
+            delimiter="\t",
+            skiprows=5,
+            parse_dates=[1],
+            date_format="%d %b %Y %H:%M:%S",
+            names=["RECORD", "TIMESTAMP", "T_black", "T_white"],
+            encoding="ISO-8859-1",
+        )
     elif sensor == "TH":
-        df = ddf.read_csv(filename, delimiter="\t", skiprows=5, parse_dates=[1], date_format="%d %b %Y %H:%M:%S", names=["RECORD", "TIMESTAMP", "T", "RH"], encoding = "ISO-8859-1")
+        d_df: ddf.DataFrame = ddf.read_csv(
+            filepath,
+            delimiter="\t",
+            skiprows=5,
+            parse_dates=[1],
+            date_format="%d %b %Y %H:%M:%S",
+            names=["RECORD", "TIMESTAMP", "T", "RH"],
+            encoding="ISO-8859-1",
+        )
     elif sensor == "CEB":
-        df = ddf.read_csv(filename, delimiter="\t", skiprows=5, parse_dates=[1], date_format="%d %b %Y %H:%M:%S", names=["RECORD", "TIMESTAMP", "T"], encoding = "ISO-8859-1")
+        d_df: ddf.DataFrame = ddf.read_csv(
+            filepath,
+            delimiter="\t",
+            skiprows=5,
+            parse_dates=[1],
+            date_format="%d %b %Y %H:%M:%S",
+            names=["RECORD", "TIMESTAMP", "T"],
+            encoding="ISO-8859-1",
+        )
     else:
-        assert False, 'Sensortype of Tinytag not known. Should be one of "TT", "TH" or "CEB".'
+        raise ValueError(
+            'Sensortype of Tinytag not known. Should be one of "TT", "TH" or "CEB".'
+        )
 
-    df = df.compute()
+    df: pd.DataFrame = d_df.compute()
     df.set_index("TIMESTAMP", inplace=True)
 
     for key in list(df.columns):
         if key == "RECORD":
             pass
         else:
-            data = [float(i.split(" ")[0]) for i in df[key]]
-            unit = df[key].iloc[0].split(" ")[1]
+            data: list[float] = [float(i.split(" ")[0]) for i in df[key]]
+            unit: str = df[key].iloc[0].split(" ")[1]
             if unit == "°C":
                 unit = "degC"
-            new_key = f"{key}_{unit}"
+            new_key: str = " ".join((key, "[" + unit + "]"))
 
             df[new_key] = data
 
             df.drop(key, axis=1, inplace=True)
 
+    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+
     return df
 
 
+def read_HOBO(filepath: str, get_sn: bool = False) -> pd.DataFrame:
+    """Reads data from one or several data files from the HOBO output files.
 
+    Args:
+        filepath (str): Path to one or more '.txt' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
+        get_sn (bool): Whether the serial number should be included in the column name. Defaults to False.
 
-def read_HOBO(filename):
-    '''
-    Reads data from one or several data files from the HOBO output files.
+    Returns:
+        pandas.DataFrame: Dataframe with time as index and the individual variables as columns.
+    """
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .txt extension."
+            )
+        if not i.endswith(".txt"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .txt file.")
 
-    df = ddf.read_csv(filename, delimiter=";", skiprows=1, parse_dates=["Date Time, GMT+00:00"], dayfirst=True, encoding = "ISO-8859-1", thousands=",")
-    df = df.compute()
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`",
+            category=UserWarning,
+            module="dask.dataframe.io.csv",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="Parsing dates in %Y.%m.%d %H:%M:%S format when dayfirst=True was specified. Pass `dayfirst=False` or specify a format to silence this warning.",
+            category=UserWarning,
+            module="dask.dataframe.io.csv",
+        )
+        d_df: ddf.DataFrame = ddf.read_csv(
+            filepath,
+            delimiter=";",
+            skiprows=1,
+            parse_dates=["Date Time, GMT+00:00"],
+            dayfirst=True,
+            encoding="ISO-8859-1",
+            thousands=",",
+        )
+        df: pd.DataFrame = d_df.compute()
+
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    new_names = []
+    new_names: list[str] = []
     for i in list(df.columns):
-        old_split = i.split(",")
+        old_split: list[str] = i.split(",")
         if len(old_split) == 1:
+            if old_split[0] == "#":
+                old_split = ["RECORD"]
             new_names.append(old_split[0])
         else:
-            name = f"{old_split[0].replace(' ', '_')}"
-            unit = f"_{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}"
-            sn = f"_sn{old_split[2].split(' ')[3]}"
-            new_names.append(name+sn+unit)
-    df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
+            name: str = f"{old_split[0].replace(' ', '_')}"
+            unit: str = (
+                f" [{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}]"
+            )
+            if get_sn:
+                sn: str = f"_sn{old_split[2].split(' ')[3]}"
+            else:
+                sn: str = f""
+            if sn.endswith(")"):
+                sn = sn[:-1]
+            if "RH" in name:
+                unit = unit.replace("%", "%RH")
+            new_names.append(name + sn + unit)
+    df.rename(
+        {old: new for old, new in zip(list(df.columns), new_names)},
+        axis=1,
+        inplace=True,
+    )
+    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+
+    col_names: list[str] = []
+    for col_name in df.columns:
+        split_name = col_name.split(" ")
+        if len(split_name) == 2:
+            name = split_name[0].split("_")
+            existing_variable = [x for x in generall_variables if x in name]
+            if len(existing_variable) == 1:
+                filterd_name = [
+                    x[0].lower() + x[1:] for x in name if x not in existing_variable
+                ]
+                name = existing_variable + filterd_name
+            split_name[0] = "_".join(name)
+        col_names.append(" ".join(split_name))
+    df.columns = col_names
 
     return df
 
 
+def read_Raingauge(filepath: str) -> pd.DataFrame:
+    """Reads data from one or several data files from the raingauge output files.
 
-def read_Raingauge(filename):
-    '''
-    Reads data from one or several data files from the raingauge output files.
+    Args:
+        filepath (str): Path to one or more '.txt' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+    Returns:
+        pandas.DataFrame: Dataframe with time as index and the individual variables as columns.
+    """
 
-    df = ddf.read_csv(filename, delimiter=";", skiprows=1, parse_dates=["Date Time, GMT+00:00"], dayfirst=True, encoding = "ISO-8859-1", thousands=",")
-    df = df.compute()
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .txt extension."
+            )
+        if not i.endswith(".txt"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .txt file.")
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`",
+            category=UserWarning,
+            module="dask.dataframe.io.csv",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="Parsing dates in %Y.%m.%d %H:%M:%S format when dayfirst=True was specified. Pass `dayfirst=False` or specify a format to silence this warning.",
+            category=UserWarning,
+            module="dask.dataframe.io.csv",
+        )
+        d_df: ddf.DataFrame = ddf.read_csv(
+            filepath,
+            delimiter=";",
+            skiprows=1,
+            parse_dates=["Date Time, GMT+00:00"],
+            dayfirst=True,
+            encoding="ISO-8859-1",
+            thousands=",",
+        )
+        df: pd.DataFrame = d_df.compute()
+
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    new_names = []
+    new_names: list[str] = []
     for i in list(df.columns):
-        old_split = i.split(",")
+        old_split: list[str] = i.split(",")
         if len(old_split) == 1:
+            if old_split[0] == "#":
+                old_split = ["RECORD"]
             new_names.append(old_split[0])
         else:
             name = f"{old_split[0].replace(' ', '_')}"
-            unit = f"_{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}"
-            new_names.append(name+unit)
-    df.rename({old : new for old, new in zip(list(df.columns), new_names)}, axis=1, inplace=True)
-    
-    df.fillna(method="ffill", inplace=True)
+            unit = f" [{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}]"
+            new_names.append(name + unit)
+    df.rename(
+        {old: new for old, new in zip(list(df.columns), new_names)},
+        axis=1,
+        inplace=True,
+    )
+    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+    df.ffill(inplace=True)
 
     return df
 
 
+def read_IWIN(filepath: str) -> xr.Dataset:
+    """Reads data from one or several netCDF data files from IWIN stations.
 
-def read_IWIN(filename):
-    '''
-    Reads data from one or several netCDF data files from IWIN stations.
+    Args:
+        filepath (str): Path to one or more '.nc' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    Returns
-    -------
-    ds : xarray dataset
-        a xarray dataset representing the netCDF file(s)
-    '''
+    Returns:
+        xarray.Dataset: Dataset representing the netCDF file(s).
+    """
 
-    files = sorted(glob.glob(filename))
+    files: list[str] = sorted(glob.glob(filepath))
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .nc extension."
+            )
+        if not i.endswith(".nc"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .nc file.")
 
     if len(files) == 1:
         with xr.open_dataset(files[0]) as f:
-            ds = f.load()
+            ds: xr.Dataset = f.load()
     elif len(files) > 1:
         with xr.open_mfdataset(files) as f:
-            ds = f.load()
-    else:
-        assert False, "No data found for the specified path."
+            ds: xr.Dataset = f.load()
+
+    imet_rename_dict: dict[str, str] = (
+        pd.Series(list(ds.data_vars), list(ds.data_vars))
+        .replace(rename_dict, regex=True)
+        .to_dict()
+    )
+    for old_name in imet_rename_dict.items():
+        if "_" in old_name[1]:
+            old_name_split = old_name[1].split("_")
+        else:
+            old_name_split = []
+        existing_variable = [x for x in generall_variables if x in old_name_split]
+        if len(existing_variable) == 1:
+            filterd_name = [
+                x[0].lower() + x[1:]
+                for x in old_name_split
+                if x not in existing_variable
+            ]
+            name = existing_variable + filterd_name
+            imet_rename_dict[old_name[0]] = "_".join(name)
+        else:
+            imet_rename_dict[old_name[0]] = old_name[1]
+    ds = ds.rename(imet_rename_dict)
 
     return ds
 
 
+def read_AROME(filepath: str) -> xr.Dataset:
+    """Reads data from one or several netCDF data files from AROME-Arctic.
 
-def read_AROME(filename):
-    '''
-    Reads data from one or several netCDF data files from AROME-Arctic.
+    Args:
+        filepath (str): Path to one or more '.nc' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    Returns
-    -------
-    ds : xarray dataset
-        a xarray dataset representing the netCDF file(s)
-    '''
+    Returns:
+        xarray.Dataset: Dataset representing the netCDF file(s).
+    """
 
-    files = sorted(glob.glob(filename))
+    files: list[str] = sorted(glob.glob(filepath))
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .nc extension."
+            )
+        if not i.endswith(".nc"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .nc file.")
 
     if len(files) == 1:
-        with xr.open_dataset(filename) as f:
-            ds = f.load()
+        with xr.open_dataset(filepath) as f:
+            ds: xr.Dataset = f.load()
     elif len(files) > 1:
-        with xr.open_mfdataset(filename) as f:
-            ds = f.load()
-    else:
-        assert False, "No data found for the specified path."
+        with xr.open_mfdataset(filepath) as f:
+            ds: xr.Dataset = f.load()
+
+    AROME_rename_dict: dict[str, str] = (
+        pd.Series(list(ds.data_vars), list(ds.data_vars))
+        .replace(rename_dict, regex=True)
+        .to_dict()
+    )
+    for old_name in AROME_rename_dict.items():
+        if "_" in old_name[1]:
+            old_name_split = old_name[1].split("_")
+        else:
+            old_name_split = []
+        existing_variable = [x for x in generall_variables if x in old_name_split]
+        if len(existing_variable) == 1:
+            filterd_name = [x for x in old_name_split if x not in existing_variable]
+            name = existing_variable + filterd_name
+            AROME_rename_dict[old_name[0]] = "_".join(name)
+        else:
+            AROME_rename_dict[old_name[0]] = old_name[1]
+    ds = ds.rename(AROME_rename_dict)
 
     return ds
 
 
+def read_radiosonde(
+    filepath: str, date: str = pd.Timestamp.now().strftime("%Y%m%d")
+) -> pd.DataFrame:
+    """Reads data from one or several data files from the small re-usable radiosondes.
 
-def read_radiosonde(filename, date=pd.Timestamp.now().strftime("%Y%m%d")):
-    '''
-    Reads data from one or several data files from the small re-usable radiosondes.
+    Args:
+        filepath (str):  Path to one or more '.csv' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
+        date (str, optional): String specifying the date of the sounding (the output file doesn't include the date) Format: YYYYmmdd, default: today.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    date: str
-        String specifying the date of the sounding (the output file doesn't include the date) Format: YYYYmmdd, default: today.
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
+    """
 
-    df = ddf.read_csv(filename, delimiter=",", parse_dates=["UTC time"], encoding = "ISO-8859-1", na_values=["", " ", "  ", "   "])
-    df = df.compute()
-    df["UTC time"] = [dt.replace(year=int(date[:4]), month=int(date[4:6]), day=int(date[6:])) for dt in df["UTC time"]]
-    df.rename(dict(zip(list(df.keys()), [k.strip() for k in list(df.keys())])), axis=1, inplace=True)
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .csv extension."
+            )
+        if not i.endswith(".csv"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .csv file.")
+    if not isinstance(date, str):
+        raise TypeError(f"Expected date as a string, but got {type(date).__name__}.")
+    try:
+        datetime.datetime.strptime(date, "%Y%m%d")
+        # checks for the right format
+    except ValueError:
+        raise ValueError(f"Invalid date format '{date}'. Use YYYYmmdd.")
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`",
+            category=UserWarning,
+            module="dask.dataframe.io.csv",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="Parsing dates in %Y.%m.%d %H:%M:%S format when dayfirst=True was specified. Pass `dayfirst=False` or specify a format to silence this warning.",
+            category=UserWarning,
+            module="dask.dataframe.io.csv",
+        )
+        d_df: ddf.DataFrame = ddf.read_csv(
+            filepath,
+            delimiter=",",
+            parse_dates=["UTC time"],
+            encoding="ISO-8859-1",
+            na_values=["", " ", "  ", "   "],
+        )
+    df: pd.DataFrame = d_df.compute()
+    df["UTC time"] = [
+        dt.replace(year=int(date[:4]), month=int(date[4:6]), day=int(date[6:]))
+        for dt in df["UTC time"]
+    ]
+    df.rename(
+        dict(zip(list(df.keys()), [k.strip() for k in list(df.keys())])),
+        axis=1,
+        inplace=True,
+    )
     df.rename({"UTC time": "TIMESTAMP"}, axis=1, inplace=True)
     df.set_index("TIMESTAMP", inplace=True)
-    df.sort_index(True)
-    
+    df.sort_index(inplace=True)
+
+    df.rename(
+        {
+            "Temperature (C)": "T [degC]",
+            "Internal temperature (C)": "T_internal [degC]",
+            "Rise speed (m/s)": "V_rise [m/s]",
+            "Relative humidity (%)": "RH [%RH]",
+            "Pressure (Pascal)": "p [hPa]",
+        },
+        axis=1,
+        inplace=True,
+    )
+    df["p [hPa]"] = df["p [hPa]"] * 0.01
+    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+    df.columns = df.columns.to_series().replace(
+        {"degrees": "deg", r"\(": "[", r"\)": "]"}, regex=True
+    )
+
     return df
 
 
+def read_iMet(filepath: str) -> pd.DataFrame:
+    """Reads data from one or several data files from the iMet sensors.
 
-def read_iMet(filename):
-    '''
-    Reads data from one or several data files from the iMet sensors.
+    Args:
+        filepath (str): Path to one or more '.csv' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
-    '''
-    
-    df = ddf.read_csv(filename, delimiter=",", parse_dates=[["Date", "Time"]], dayfirst=True, encoding = "ISO-8859-1")
-    df = df.compute()
-    df.drop('ID', axis=1, inplace=True)
-    df.rename(dict(zip(list(df.keys()), [k.replace("XQ-iMet-XQ ", "").strip() for k in list(df.keys())])), axis=1, inplace=True)
-    df.rename({"Date_Time": "TIMESTAMP"}, axis=1, inplace=True)
+    Returns:
+        pandas.DataFrame: Dataframe with time as index and the individual variables as columns.
+    """
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    files: list[str] = glob.glob(filepath)
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .csv extension."
+            )
+        if not i.endswith(".csv"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .csv file.")
+
+    d_df: ddf.DataFrame = ddf.read_csv(
+        filepath, delimiter=",", encoding="ISO-8859-1"
+    )  # , parse_dates=[["Date", "Time"]], dayfirst=True
+    df: pd.DataFrame = d_df.compute()
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Parsing dates in %Y.%m.%d %H:%M:%S format when dayfirst=True was specified. Pass `dayfirst=False` or specify a format to silence this warning.",
+            category=UserWarning,
+        )
+        df["TIMESTAMP"] = pd.to_datetime(df["Date"] + " " + df["Time"], dayfirst=True)
+    df.drop(["ID", "Date", "Time"], axis=1, inplace=True)
+    df.rename(
+        dict(
+            zip(
+                list(df.keys()),
+                [k.replace("XQ-iMet-XQ ", "").strip() for k in list(df.keys())],
+            )
+        ),
+        axis=1,
+        inplace=True,
+    )
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
-    
-    unit_conversion = {"Pressure": 100., "Air Temperature": 100., "Humidity": 10., "Longitude": 1.e7, "Latitude": 1.e7, "Altitude": 1000.}
+
+    unit_conversion: dict[str, float] = {
+        "Pressure": 100.0,
+        "Air Temperature": 100.0,
+        "Humidity": 10.0,
+        "Longitude": 1.0e7,
+        "Latitude": 1.0e7,
+        "Altitude": 1000.0,
+    }
     for k, factor in unit_conversion.items():
         df[k] = df[k] / factor
     try:
-        df["Humidity Temp"] = df["Humidity Temp"] / 100.
+        df["Humidity Temp"] = df["Humidity Temp"] / 100.0
     except KeyError:
         pass
-    
+
+    for col_name in df.columns:
+        if col_name == "Lon":
+            if df["Longitude"].equals(df["Lon"]):
+                df.drop("Lon", axis=1, inplace=True)
+        if col_name == "Lat":
+            if df["Latitude"].equals(df["Lat"]):
+                df.drop("Lat", axis=1, inplace=True)
+
+    df.rename(
+        {
+            "Pressure": "p [hPa]",
+            "Air Temperature": "T_air [degC]",
+            "Humidity Temp": "T_humidity [degC]",
+            "Longitude": "lon []",
+            "Latitude": "lat []",
+            "Sat Count": "Sat Count []",
+            "Altitude": "Altitude [m]",
+            "Humidity": "RH [%RH]",
+        },
+        inplace=True,
+        axis=1,
+    )
+
     return df
 
 
-
 ############################################################################
-#DOWNLOADING FUNCTIONS
+# DOWNLOADING FUNCTIONS
 ############################################################################
 
-def download_IWIN_from_THREDDS(station_name, start_time, end_time, local_out_path=os.getcwd(), resolution="1min"):
+iwin_stations = Literal[
+    "MSBard",
+    "MSBerg",
+    "MSBillefjord",
+    "MSPolargirl",
+    "RVHannaResvoll",
+    "Narveneset",
+    "Bohemanneset",
+    "Daudmannsodden",
+    "Gasoyane",
+    "KappThordsen",
+]
+
+
+def download_IWIN_from_THREDDS(
+    station_name: str | iwin_stations,
+    start_time: str,
+    end_time: str,
+    local_out_path: str = os.getcwd(),
+    resolution: str | Literal["20sec", "1min", "10min"] = "1min",
+) -> None:
+    """Function to download data from one IWIN station and save it locally in a netCDF file.
+
+    Args:
+        station_name (str | iwin_stations): String specifying the station.
+            - Available options are MSBerg (2023-), MSBard (2021-2022), MSPolargirl, MSBillefjord, RVHannaResvoll (2024-), Bohemanneset (2021-), Narveneset (2022-), Daudmannsodden (2022-), Gåsøyane (2022-), KappThordsen (2023-).
+        start_time (str): String specifying the first hour to download. Format YYYY-MM-DD HH.
+        end_time (str): String specifying the last hour (included) to download. Format YYYY-MM-DD HH.
+            - If you wish to download data from exactly one day, set HH=23, 00 from the following day.
+        local_out_path (str, optional): String specifying the path to the folder where the data should be saved. The default is the current working directory.
+            - Don't add a file name here, the file name will be given automatically from the script.
+        resolution (str | {'20sec', '1min', '10min'}, optional): String specifying the temporal resolution of the time series to download. Defaults to "1min".
+            - Available options are '1min' and '10min' for lighthouse stations and additionally '20sec' for mobile stations.
+
+    Returns:
+        None
     """
-    Function to download data from one IWIN station and save it locally in a netCDF file.
 
-    Parameters
-    ----------
-    station_name : str
-        String specifying the station. Available options are MSBerg (2023-), MSBard (2021-2022), MSPolargirl, MSBillefjord, RVHannaResvoll (2024-), Bohemanneset (2021-), Narveneset (2022-), Daudmannsodden (2022-), Gåsøyane (2022-), KappThordsen (2023-)
-    start_time : str
-        String specifying the first hour to download. Format YYYY-MM-DD HH
-    end_time : TYPE
-        String specifying the last hour (included) to download. Format YYYY-MM-DD HH. If you wish to download data from exactly one day, set HH=23, 00 from the following day.
-    local_out_path : str, optional
-        String specifying the path to the folder where the data should be saved. The default is the current working directory. Don't add a file name here, the file name will be given automatically from the script.
-    resolution : str, optional
-        String specifying the temporal resolution of the time series to download. The default is "1min". Available options are '1min' and '10min' for lighthouse stations and additionally '20sec' for mobile stations.
+    if not isinstance(local_out_path, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(local_out_path).__name__}."
+        )
+    elif not os.path.isdir(local_out_path):
+        raise NotADirectoryError(f"'{local_out_path}' is not a valid directory.")
 
-    Returns
-    -------
-    None.
+    start_time_dt: datetime.datetime = datetime.datetime.strptime(
+        start_time, "%Y-%m-%d %H"
+    ).replace(tzinfo=datetime.timezone.utc)
+    end_time_dt: datetime.datetime = datetime.datetime.strptime(
+        end_time, "%Y-%m-%d %H"
+    ).replace(tzinfo=datetime.timezone.utc)
 
-    """
-    
-    start_time_dt = datetime.datetime.strptime(start_time, '%Y-%m-%d %H').replace(tzinfo=datetime.timezone.utc)
-    end_time_dt = datetime.datetime.strptime(end_time, '%Y-%m-%d %H').replace(tzinfo=datetime.timezone.utc)
+    path_base: str = "https://thredds.met.no/thredds/dodsC/met.no/observations/unis/"
 
-    path_base = "https://thredds.met.no/thredds/dodsC/met.no/observations/unis/"
-
-    if station_name in ["MSBard", "MSBerg", "MSBillefjord", "MSPolargirl", "RVHannaResvoll"]:
+    if station_name in [
+        "MSBard",
+        "MSBerg",
+        "MSBillefjord",
+        "MSPolargirl",
+        "RVHannaResvoll",
+    ]:
         if resolution in ["20sec", "1min", "10min"]:
-            path_data = f"{path_base}mobile_AWS_{station_name}_{resolution}"
-            path_out = os.path.join(local_out_path, f"mobile_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc")
+            path_data: str = f"{path_base}mobile_AWS_{station_name}_{resolution}"
+            path_out: str = os.path.join(
+                local_out_path,
+                f"mobile_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc",
+            )
         else:
-            sys.exit(f"Requested resolution not available for {station_name}. Please choose '20sec', '1min' or '10min'.")
-    elif station_name in ["Narveneset", "Bohemanneset", "Daudmannsodden", "Gasoyane", "KappThordsen"]:
+            raise ValueError(
+                f"Requested resolution not available for '{station_name}'. Please choose '20sec', '1min' or '10min'."
+            )
+    elif station_name in [
+        "Narveneset",
+        "Bohemanneset",
+        "Daudmannsodden",
+        "Gasoyane",
+        "KappThordsen",
+    ]:
         if resolution in ["1min", "10min"]:
-            path_data = f"{path_base}lighthouse_AWS_{station_name}_{resolution}"
-            path_out = os.path.join(local_out_path, f"lighthouse_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc")
+            path_data: str = f"{path_base}lighthouse_AWS_{station_name}_{resolution}"
+            path_out: str = os.path.join(
+                local_out_path,
+                f"lighthouse_AWS_{station_name}_{resolution}_{start_time_dt.strftime('%Y%m%d%H')}_{end_time_dt.strftime('%Y%m%d%H')}.nc",
+            )
         else:
-            sys.exit(f"Requested resolution not available for {station_name}. Please choose '1min' or '10min'.")
+            raise ValueError(
+                f"Requested resolution not available for '{station_name}'. Please choose '1min' or '10min'."
+            )
     else:
-        sys.exit("Requested station name not recognized. Please choose from 'MSBard', 'MSBerg', 'MSBillefjord', 'MSPolargirl', 'RVHannaResvoll', 'Narveneset', 'Bohemanneset', 'Daudmannsodden', 'Gasoyane', 'KappThordsen'.")
-        
-    print("Download starting...")
+        raise ValueError(
+            f"Requested station name '{station_name}' not recognized. Please choose from 'MSBard', 'MSBerg', 'MSBillefjord', 'MSPolargirl', 'RVHannaResvoll', 'Narveneset', 'Bohemanneset', 'Daudmannsodden', 'Gasoyane', 'KappThordsen'."
+        )
+
+    logging.info("Download starting...")
     with xr.open_dataset(path_data) as f:
-        ds = f.sel(time=slice(start_time, end_time))
-        
+        ds: xr.Dataset = f.sel(time=slice(start_time, end_time))
+
     ds.to_netcdf(path_out, unlimited_dims=["time"])
-    
-    print(f"The following dataset was successfully downloaded and saved in {path_out}.")
-    print(ds)
 
-    return
+    logging.info(
+        f"The following dataset was successfully downloaded and saved in {path_out}."
+    )
+    logging.info(ds)
 
-
-
+    return None
 
 
 ############################################################################
-#PLOTTING FUNCTIONS
+# PLOTTING FUNCTIONS
 ############################################################################
 
 
-
-def initialize_empty_map(lat_limits, lon_limits):
-    """
-    Function to initialize an empty map using a Mercator projection.
-    This function neither draws features like coastlines, topography etc.
-    nor actual meteorological data. It should be used before adding the
-    above-mentioned elements using the respective functions included in
-    this package.
-
-    Parameters
-    ----------
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The empty figure
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    fig, ax = plt.subplots(1,1, figsize=(12,12), subplot_kw={'projection': ccrs.Mercator()})
-    ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-    gl = ax.gridlines(draw_labels=False)
-    gl.left_labels = True
-    gl.bottom_labels = True
-    gl.xformatter = LONGITUDE_FORMATTER
-    gl.yformatter = LATITUDE_FORMATTER
-
-    return fig, ax
-
-
-
-def map_add_coastline(fig, ax, option, color, lat_limits, lon_limits, path_mapdata):
-    """
-    Function to add a coastline to a previously created map figure.
-    Several options are available for the resolution of the data used to draw
-    the coastline (see below).
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the coastline should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option : int
-        Switch to distinguish different resolutions. Valid options:
-            0 : Low resolution coastline based on the cartopy database
-            1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute
-            2 : High resolution (100 m) based on data from the Norwegian Polar Institute
-    color : str or RGB
-        Color for the coastline.
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    path_mapdata : str
-        Absolute or relative path to the directory including the map data.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the coastline added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    if option == 0:
-        ax.coastlines(resolution="10m", linewidth=1., edgecolor=color)
-    elif option == 1:
-        input_file = f"{path_mapdata}NP_S250_SHP/S250_Land_l.shp"
-        df_maplayer = gpd.read_file(input_file)
-        df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
-        df_maplayer.plot(ax=ax, edgecolor=color, facecolor="none", zorder=20, lw=1.)
-        ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-    elif option == 2:
-        input_file = f"{path_mapdata}NP_S100_SHP/S100_Land_l.shp"
-        df_maplayer = gpd.read_file(input_file)
-        df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
-        df_maplayer.plot(ax=ax, edgecolor=color, facecolor="none", zorder=20, lw=1.)
-        ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-    else:
-        assert False, f"{option} not a valid option!"
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-def map_add_land_filled(fig, ax, option, color, lat_limits, lon_limits, path_mapdata):
-    """
-    Function to fill land areas in a previously created map figure with the specified color.
-    Several options are available for the resolution of the data used to define
-    the land area (see below).
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the land area should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option : int
-        Switch to distinguish different resolutions. Valid options:
-            0 : Low resolution based on the cartopy database
-            1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute
-            2 : High resolution (100 m) based on data from the Norwegian Polar Institute
-    color : str or RGB
-        Color for the land patches
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    path_mapdata : str
-        Absolute or relative path to the directory including the map data.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the land area colored
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    if option == 0:
-        ax.add_feature(cfeature.LAND.with_scale('10m'), facecolor=color)
-    elif option == 1:
-        input_file = f"{path_mapdata}NP_S250_SHP/S250_Land_f.shp"
-        df_maplayer = gpd.read_file(input_file)
-        df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
-        df_maplayer.plot(ax=ax, facecolor=color)
-        ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-    elif option == 2:
-        input_file = f"{path_mapdata}NP_S100_SHP/S100_Land_f.shp"
-        df_maplayer = gpd.read_file(input_file)
-        df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
-        df_maplayer.plot(ax=ax, facecolor=color)
-        ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-    else:
-        assert False, f"{option} not a valid option!"
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-
-
-def map_add_bathymetry(fig, ax, option, color, resolution, lat_limits, lon_limits, path_mapdata):
-    """
-    Function to plot either contour lines of the bathymetry of an ocean area
-    with the specified color or colored contours of bathymetry.
-    Several options are available for the style of
-    the bathymetry contours (see below).
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the bathymetry should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option : int
-        Switch to distinguish different styles. Valid options:
-            0 : Bathymetry as contour lines
-            1 : Bathymetry as filled contours, no colorbar
-            2 : Bathymetry as filled contours, with colorbar
-    color : str or RGB
-        Color for the bathymetry contour lines (only used with option 0)
-    resolution: float
-        Resolution (distance between contour levels) of the bathymetry
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    path_mapdata : str
-        Absolute or relative path to the directory including the map data.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the bathymetry added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    path_ibcao = f"{path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
-
-    bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
-    bathy.rio.set_crs(3996)
-    bathy = bathy.rio.reproject("EPSG:4326")
-    bathy = bathy.rio.clip_box(minx=lon_limits[0], miny=lat_limits[0], maxx=lon_limits[1], maxy=lat_limits[1])
-    bathy = bathy.rio.reproject(ccrs.Mercator().proj4_init)
-    bathy = bathy.where(bathy <= 10.)
-
-
-    if option == 0:
-        pic = bathy.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors=color, levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), 1., resolution))
-        ax.clabel(pic, pic.levels, inline=True, fmt="%.0f", fontsize=10)
-    elif option == 1:
-        bathy.plot.imshow(ax=ax, cmap=cmo.cm.deep_r, levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), 1., resolution), interpolation=None, add_colorbar=False)
-    elif option == 2:
-        pic = bathy.plot.imshow(ax=ax, cmap=cmo.cm.deep_r, levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), 1., resolution), interpolation=None, add_colorbar=False)
-        cbar = plt.colorbar(pic, ax=ax, pad=0.02, extend="neither")
-        cbar.ax.tick_params('y', labelsize=10)
-        cbar.ax.set_ylabel('Height [m]', fontsize=10)
-    else:
-        assert False, f"{option} not a valid option!"
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-
-def map_add_total_topography(fig, ax, option, resolution, lat_limits, lon_limits, path_mapdata, color_contourlines="k"):
-    """
-    Function to plot either contour lines of the total topography (above and below sea level)
-    with the specified color or colored contours of the total topography.
-    Several options are available for the style of
-    the topography contours (see below).
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the total topography should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option : int
-        Switch to distinguish different styles. Valid options:
-            0 : Topography as contour lines
-            1 : Topography as filled contours, no colorbar
-            2 : Topography as filled contours, with colorbar
-    resolution: float
-        Resolution (distance between contour levels) of the topography
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    path_mapdata : str
-        Absolute or relative path to the directory including the map data.
-    color_contourlines : str or RGB
-        Color for the topography contour lines (only used with option 0)
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the total topography added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    bathy = rxr.open_rasterio(f"{path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif", masked=True).squeeze()
-    bathy.rio.set_crs(3996)
-    bathy = bathy.rio.reproject("EPSG:4326")
-    bathy = bathy.rio.clip_box(minx=lon_limits[0], miny=lat_limits[0], maxx=lon_limits[1], maxy=lat_limits[1])
-    bathy = bathy.rio.reproject(ccrs.Mercator().proj4_init)
-
-
-    if option == 0:
-        pic = bathy.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors=color_contourlines,
-                                 levels=np.arange(resolution * np.floor(np.nanmin(bathy)/resolution), resolution * np.ceil(np.nanmax(bathy)/resolution)+1., resolution))
-        ax.clabel(pic, pic.levels, inline=True, fmt="%.0f", fontsize=10)
-    elif option == 1:
-        bathy.plot.imshow(ax=ax, cmap=cmo.cm.topo, norm=mpl.colors.TwoSlopeNorm(0., resolution * np.floor(np.nanmin(bathy)/resolution), resolution * np.ceil(np.nanmax(bathy)/resolution)),
-                          interpolation=None, add_colorbar=False)
-    elif option == 2:
-        pic = bathy.plot.imshow(ax=ax, cmap=cmo.cm.topo, norm=mpl.colors.TwoSlopeNorm(0., resolution * np.floor(np.nanmin(bathy)/resolution), resolution * np.ceil(np.nanmax(bathy)/resolution)),
-                                interpolation=None, add_colorbar=False)
-        cbar = plt.colorbar(pic, ax=ax, pad=0.02, extend="neither")
-        cbar.ax.tick_params('y', labelsize=10)
-        cbar.ax.set_ylabel('Height [m]', fontsize=10)
-    else:
-        assert False, f"{option} not a valid option!"
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-def map_add_topography(fig, ax, option, resolution, lat_limits, lon_limits, path_mapdata, color_contourlines="k"):
-    """
-    Function to plot either contour lines of the topography
-    with the specified color or colored contours of the topography.
-    Several options are available for the style of
-    the topography contours (see below).
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the topography should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option : int
-        Switch to distinguish different styles. Valid options:
-            0 : Topography as contour lines, low resolution
-            1 : Topography as contour lines, high resolution
-            2 : Topography as filled contours, no colorbar, low resolution
-            3 : Topography as filled contours, no colorbar, high resolution
-            4 : Topography as filled contours, with colorbar, low resolution
-            5 : Topography as filled contours, with colorbar, high resolution
-    resolution: float
-        Resolution (distance between contour levels) of the topography
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    path_mapdata : str
-        Absolute or relative path to the directory including the map data.
-    color_contourlines : str or RGB
-        Color for the topography contour lines (only used with options 0 or 1)
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the topography added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-
-    if ((option == 0) | (option == 2) | (option == 4)):
-        dem = rxr.open_rasterio(f"{path_mapdata}NP_S0_DTM50/S0_DTM50.tif", masked=True).squeeze()
-    elif ((option == 1) | (option == 3)| (option == 5)):
-        dem = rxr.open_rasterio(f"{path_mapdata}NP_S0_DTM20/S0_DTM20.tif", masked=True).squeeze()
-    else:
-        assert False, f"{option} not a valid option!"
-    dem = dem.rio.reproject("EPSG:4326")
-    dem = dem.rio.clip_box(minx=lon_limits[0], miny=lat_limits[0], maxx=lon_limits[1], maxy=lat_limits[1])
-    dem = dem.rio.reproject(ccrs.Mercator().proj4_init)
-
-
-
-    if ((option == 0) | (option == 1)):
-        dem = dem.where(dem >= 0.)
-        pic = dem.plot.contour(ax=ax, linestyles="-", linewidths=0.5, colors=color_contourlines,
-                                 levels=np.arange(0, resolution * np.ceil(np.nanmax(dem)/resolution)+1., resolution))
-        ax.clabel(pic, pic.levels, inline=True, fmt="%.0f", fontsize=10)
-    elif ((option == 2) | (option == 3)):
-        dem = dem.where(dem > 0.)
-        dem.plot.imshow(ax=ax, cmap=cmo.cm.turbid, levels=np.arange(0, resolution * np.ceil(np.nanmax(dem)/resolution)+1., resolution),
-                          interpolation=None, add_colorbar=False)
-    elif ((option == 4) | (option == 5)):
-        dem = dem.where(dem > 0.)
-        pic = dem.plot.imshow(ax=ax, cmap=cmo.cm.turbid, levels=np.arange(0, resolution * np.ceil(np.nanmax(dem)/resolution)+1., resolution),
-                                interpolation=None, add_colorbar=False)
-        cbar = plt.colorbar(pic, ax=ax, pad=0.02, extend="neither")
-        cbar.ax.tick_params('y', labelsize=10)
-        cbar.ax.set_ylabel('Height [m]', fontsize=10)
-    else:
-        assert False, f"{option} not a valid option!"
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-
-
-
-def map_add_surface_cover(fig, ax, option, lat_limits, lon_limits, path_mapdata):
-    """
-    Function to colorize different types of surface cover on a previously created
-    map figure. Several options are available for the resolution of the data used
-    to define the surface cover areas (see below).
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the surface cover pathes should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option : int
-        Switch to distinguish different resolutions. Valid options:
-            0 : Low resolution (1km) based on data from the Norwegian Polar Institute
-            1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute
-            2 : High resolution (100 m) based on data from the Norwegian Polar Institute
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    path_mapdata : str
-        Absolute or relative path to the directory including the map data.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the surface cover added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    colors = {'Elvesletter': '#CCBDA9',
-              'Hav': '#FFFFFF',
-              'Isbreer': '#B3FFFF',
-              'Land': '#E7D3B8',
-              'Morener': '#CED8D9',
-              'TekniskSituasjon': '#FF8080',
-              'Vann': '#99CAEB'}
-
-    if option == 0:
-        layers = ['Land', 'Vann', 'Isbreer']
-        res = "1000"
-    elif option == 1:
-        layers = ['Land', 'Vann', 'Elvesletter', 'Isbreer', 'Morener', 'TekniskSituasjon']
-        res = "250"
-    elif option == 2:
-        layers = ['Land', 'Vann', 'Elvesletter', 'Isbreer', 'Morener', 'TekniskSituasjon']
-        res = "100"
-    else:
-        assert False, f"{option} not a valid option!"
-
-    ax.set_facecolor('#FFFFFF')
-    for layer in layers:
-        input_file = f'{path_mapdata}NP_S{res}_SHP/S{res}_{layer}_f.shp'
-        df_layer = gpd.read_file(input_file)
-        df_layer = df_layer.to_crs(ccrs.Mercator().proj4_init)
-        df_layer.plot(ax=ax, edgecolor=None, facecolor=colors[layer])
-        ax.set_extent(lon_limits+lat_limits, crs=ccrs.PlateCarree())
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-
-def map_add_crosssection_line(fig, ax, lat, lon, color='k', **kwargs):
-    """
-    Function to add a line indicating the position of a cross section
-    on a previously created map.
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the cross section line should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    lat_limits : list
-        List with two elements: [lat_min, lat_max]
-    lon_limits : list
-        List with two elements: [lon_min, lon_max]
-    color : str or RGB, optional
-        Color for the cross section line. The default is 'k'.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the cross section line added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    df = pd.DataFrame({'latitude': lat, 'longitude': lon, 'section': 1})
-    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude))
-    gdf = gdf.groupby(['section'])['geometry'].apply(lambda x: LineString(x.tolist()))
-    gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs="EPSG:4326")
-    gdf = gdf.to_crs(ccrs.Mercator().proj4_init)
-    gdf.plot(ax=ax, color=color, **kwargs)
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-
-
-def map_add_points(fig, ax, option, lat, lon, color, size, label, marker="o"):
-    """
-    Function to add a set of points on a previously created map.
-    The points can either all be in the same color and size, e.g. to indicate the locations
-    of instruments, or their color and/or size can be set according to data,
-    e.g. colorcode the temperature at different locations.
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the points should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    option: int
-        Switch to distinguish different resolutions. Valid options:
-            0 : All points with the same color and size
-            1 : All points with the same color, but their size varying according
-                to input data
-            2 : All points with the same size, but their color varying according
-                to input data
-            3: All points varying in color and size according to input data
-    lat : array_like
-        List or array with the latitudes of the points to plot
-    lon : array_like
-        List or array with the longitudes of the points to plot
-    color : str/RGB (options 0 and 1) or array_like (options 2 and 3)
-        Color for the points. Either one fixed color or data that is going to be
-        represented by the coloring.
-    size : float (options 0 and 2) or array_like (options 1 and 3)
-        Size of the points. Either one fixed value or data that is going to be
-        represented by the size.
-    label : str
-        Label for the colorbar (only used for options 2 and 3)
-    marker : str, optional
-        A string specifying the marker style. The default is "o".
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the points added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    if option == 0:
-        df = pd.DataFrame({'latitude': lat, 'longitude': lon})
-    elif option == 1:
-        df = pd.DataFrame({'latitude': lat, 'longitude': lon, 'size': size})
-    elif option == 2:
-        df = pd.DataFrame({'latitude': lat, 'longitude': lon, "color": color})
-    elif option == 3:
-        df = pd.DataFrame({'latitude': lat, 'longitude': lon, "color": color, 'size': size})
-    else:
-        assert False, f"{option} not a valid option!"
-
-    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326")
-    gdf = gdf.to_crs(ccrs.Mercator().proj4_init)
-
-
-    if option == 0:
-        gdf.plot(ax=ax, color=color, markersize=size, marker=marker, zorder=10)
-    elif option == 1:
-        pic = ax.scatter(x=gdf["longitude"], y=gdf["latitude"], c=color, s=gdf["size"], zorder=10, cmap=cmo.cm.thermal, transform=ccrs.PlateCarree())
-    elif option == 2:
-        pic = ax.scatter(x=gdf["longitude"], y=gdf["latitude"], c=gdf["color"], s=size, zorder=10, cmap=cmo.cm.thermal, transform=ccrs.PlateCarree())
-        cbar = plt.colorbar(pic, ax=ax, pad=0.1, orientation='horizontal')
-        cbar.ax.tick_params('x', labelsize=10)
-        cbar.ax.set_xlabel(label, fontsize=10)
-    elif option == 3:
-        pic = ax.scatter(x=gdf["longitude"], y=gdf["latitude"], c=gdf["color"], s=gdf["size"], zorder=10, cmap=cmo.cm.thermal, transform=ccrs.PlateCarree())
-        cbar = plt.colorbar(pic, ax=ax, pad=0.1, orientation='horizontal')
-        cbar.ax.tick_params('x', labelsize=10)
-        cbar.ax.set_xlabel(label, fontsize=10)
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
-
-def map_add_wind_arrows(fig, ax, lat, lon, u, v, length=10, lw=1):
-    """
-    Function to add meteorological wind arrows on a previously created map.
-    The scaling of the arrows follows the meteorological convention:
-    small bar = 5 knots
-    large bar = 10 knots
-    tiangle = 50 knots
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The map figure to which the points should be added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the map figure
-    lat : array_like
-        List or array with the latitudes of the points to plot
-    lon : array_like
-        List or array with the longitudes of the points to plot
-    lat : array_like
-        List or array with the x component of the winds
-    lon : array_like
-        List or array with the y component of the winds
-    length : int, optional
-        Reference for the length of the arrows. The default is 10.
-    lw : int, optional
-        Line thickness of the arrows. The default is 1.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The figure with the arrows added
-    ax : cartopy.mpl.geoaxes.GeoAxesSubplot
-        The axis of the figure
-
-    """
-
-    u = np.array(u) * 1.94384
-    v = np.array(v) * 1.94384
-
-    df = pd.DataFrame({'latitude': lat, 'longitude': lon, 'u': u, 'v': v})
-    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326")
-    gdf = gdf.to_crs(ccrs.Mercator().proj4_init)
-
-    ax.barbs(gdf['geometry'].x, gdf['geometry'].y, gdf['u'], gdf['v'], length=length, linewidth=lw)
-
-    ax.set_title(None)
-    ax.set_xlabel(None)
-    ax.set_ylabel(None)
-
-    return fig, ax
-
+class MapGenerator:
+    def __init__(
+        self,
+        lat_limits: list[int | float],
+        lon_limits: list[int | float],
+        nrows: int = 1,
+        ncols: int = 1,
+        path_mapdata: str | None = ...,
+        subplots_parameters: dict[str, Any] = None,
+        gridlines_parameters: dict[str, Any] = None,
+    ) -> None:
+        """Function to initialize an empty map using a Mercator projection.
+        This function neither draws features like coastlines, topography etc.
+        nor actual meteorological data. It should be used before adding the
+        above-mentioned elements using the respective functions included in
+        this package.
+
+        Args:
+            lat_limits (list[int|float]): List with two elements: [lat_min, lat_max].
+            lon_limits (list[int|float]): List with two elements: [lon_min, lon_max].
+            nrows (int, optional): Number of rows in the subplot grid. Defaults to 1.
+            ncols (int, optional): Number of columns in the subplot grid. Defaults to 1.
+            figsize (tuple[int,int], optional): Size of figure. Defaults to (12,12).
+            path_mapdata (str, optional): Absolute or relative path to the directory containing the map data. Defaults to not set.
+                - If specified, this path will be used as the default for all map features.
+                - Individual functions can override this setting by specifying their own path_mapdata parameter.
+            subplots_parameters (dict[str,Any], optional): Additional parameters passed to plt.subplots. Defaults to None.
+                - For available options check matplotlib.pyplot.subplots.
+            gridlines_parameters (dict[str,Any],optional): Additional parameters passed to GeoAxes.gridlines. Defaults to None.
+                - For available options check cartopy.mpl.geoaxes.GeoAxes.gridlines.
+                - If not specified, draw_labels=False is always set by default.
+        """
+
+        if subplots_parameters is None:
+            subplots_parameters = {}
+        elif not isinstance(subplots_parameters, dict):
+            raise ValueError("'subplots_parameters' should be a dictionary.")
+        if gridlines_parameters is None:
+            gridlines_parameters = {"draw_labels": False}
+        elif not isinstance(gridlines_parameters, dict):
+            raise ValueError("'gridlines_parameters' should be a dictionary.")
+        gridlines_parameters.setdefault("draw_labels", False)
+        if len(lon_limits) != 2:
+            raise ValueError(f"'lon_limits' should contain exactly two values.")
+        if not all(isinstance(x, (int, float)) for x in lon_limits):
+            raise ValueError(f"'lon_limits' should contain just float.")
+        if len(lat_limits) != 2:
+            raise ValueError(f"'lat_limits' should contain exactly two values.")
+        if not all(isinstance(x, (int, float)) for x in lat_limits):
+            raise ValueError(f"'lat_limits' should contain just float.")
+        if not isinstance(nrows, int):
+            raise ValueError(f"'nrows' should be a int, not a {type(nrows).__name__}.")
+        if not isinstance(ncols, int):
+            raise ValueError(f"'nrows' should be a int, not a {type(ncols).__name__}.")
+        if not (isinstance(path_mapdata, str) or path_mapdata == ...):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not path_mapdata == ...:
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+
+        self.lat_limits: list[float] = lat_limits
+        self.lon_limits: list[float] = lon_limits
+
+        self.path_mapdata: str | None = path_mapdata
+
+        self.fig: Figure
+        self.fig, self.ax = plt.subplots(
+            nrows,
+            ncols,
+            subplot_kw={"projection": ccrs.Mercator()},
+            **subplots_parameters,
+        )
+        self.ax: np.ndarray[GeoAxes]
+        self.ax = np.array(self.ax) if (nrows > 1 or ncols > 1) else np.array([self.ax])
+
+        for ax in self.ax.flat:
+            ax.set_extent(self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree())
+            gl = ax.gridlines(**gridlines_parameters)
+            gl.left_labels = True
+            gl.bottom_labels = True
+            gl.xformatter = LONGITUDE_FORMATTER
+            gl.yformatter = LATITUDE_FORMATTER
+
+    def __str__(self) -> str:
+        if len(self.ax) == 1:
+            return f"The map is in the limits of lon: {self.lon_limits} and lat: {self.lat_limits}."
+        else:
+            return f"{len(self.ax)} maps in the limits of lon: {self.lon_limits} and lat: {self.lat_limits}."
+
+    def add_coastline(
+        self,
+        option: int,
+        color: (
+            str | tuple[float, float, float] | tuple[float, float, float, float]
+        ) = "black",
+        ax: int = 0,
+        path_mapdata: str = ...,
+        custom_path: str = ...,
+        plot_parameters: dict[str, Any] = None,
+    ) -> Self:
+        """Function to add a coastline to a previously created MapGenerator object.
+        Several options are available for the resolution of the data used to draw
+        the coastline (see below).
+
+        Args:
+            option (int): Switch to distinguish different resolutions. Valid options:
+                0 : Low resolution coastline based on the cartopy database.
+                1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute.
+                2 : High resolution (100 m) based on data from the Norwegian Polar Institute.
+                3 : Uses 'custom_path' for map data.
+            color (str or RGB or RGBA, optional): Color for the coastline. Defaults to "black".
+            ax (int, optional): Gives the position for which map the coastline is added. Defaults to 0.
+                - Starts to count from 0 and continues like the normal reading flow.
+            path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
+                - Will be set as default for the map(s), if not set in the class initialisation.
+            custom_path (str, optional): Absolute or relative path to a shape file. Defaults to not set.
+            plot_parameters (dict[str,Any], optional):
+                option:
+                    0 : - For available options check cartopy.mpl.geoaxes.coastlines.
+                        - Always sets color = color.
+                        - If not specified,  linewidth = 1.5, resolution = "10m" is always set by default.
+                    1-3 : - For available options check geopandas.GeoDataFrame.plot.
+                          - Always sets edgecolor = color.
+                          - If not specified, facecolor = "none", zorder = 20, lw = 1 is always set by default.
+
+        Returns:
+            MapGenerator
+        """
+        if not isinstance(option, int):
+            raise ValueError(
+                f"'option' should be a int, not a {type(option).__name__}."
+            )
+        if not isinstance(color, (str, tuple)):
+            raise ValueError(
+                f"'color' should be a str or tuple, not a {type(color).__name__}."
+            )
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if path_mapdata == ... and option != 0:
+            if self.path_mapdata != ...:
+                path_mapdata = self.path_mapdata
+            else:
+                raise ValueError(
+                    f"'path_mapdata' needs to be set, if option 1 or 2 is selected."
+                )
+        if not (isinstance(path_mapdata, str) or option == 0):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not (path_mapdata == ... or option == 0):
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+        if not path_mapdata == ... and self.path_mapdata == ...:
+            self.path_mapdata = path_mapdata
+            logging.info(
+                f"Changing the path_mapdata for the object to '{path_mapdata}'. "
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(f"'plot_parameters' should be a dictionary.")
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        if option == 0:
+            plot_parameters.setdefault("resolution", "10m")
+            plot_parameters["color"] = color
+            plot_parameters.setdefault("linewidth", 1.5)
+            self.ax.flat[ax].coastlines(**plot_parameters)
+        elif option == 1:
+            input_file: str = f"{path_mapdata}NP_S250_SHP/S250_Land_l.shp"
+            df_maplayer = gpd.read_file(input_file)
+            df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
+            plot_parameters["edgecolor"] = color
+            plot_parameters.setdefault("facecolor", "none")
+            plot_parameters.setdefault("zorder", 20)
+            plot_parameters.setdefault("lw", 1.0)
+            df_maplayer.plot(ax=self.ax.flat[ax], **plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+        elif option == 2:
+            input_file = f"{path_mapdata}NP_S100_SHP/S100_Land_l.shp"
+            df_maplayer = gpd.read_file(input_file)
+            df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
+            plot_parameters["edgecolor"] = color
+            plot_parameters.setdefault("facecolor", "none")
+            plot_parameters.setdefault("zorder", 20)
+            plot_parameters.setdefault("lw", 1.0)
+            df_maplayer.plot(ax=self.ax.flat[ax], **plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+        elif option == 3:
+            if custom_path == ...:
+                raise ValueError(f"'custom_path' needs to be set for option 3.")
+            if not isinstance(custom_path, str):
+                raise ValueError(
+                    f"'custom_path' should be a str, not a {type(custom_path).__name__}."
+                )
+            if not os.path.isfile(custom_path):
+                raise FileNotFoundError(f"Expected file not found: {custom_path}")
+            if not custom_path.endswith(".shp"):
+                raise ValueError(
+                    f"Invalid file format: {custom_path}. Expected a .shp file."
+                )
+            df_maplayer = gpd.read_file(custom_path)
+            df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
+            plot_parameters["edgecolor"] = color
+            plot_parameters.setdefault("facecolor", "none")
+            plot_parameters.setdefault("zorder", 20)
+            plot_parameters.setdefault("lw", 1.0)
+            df_maplayer.plot(ax=self.ax.flat[ax], **plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        return self
+
+    def add_land_filled(
+        self,
+        option: int,
+        color: str | tuple[float, float, float] | tuple[float, float, float, float],
+        ax: int = 0,
+        path_mapdata: str = ...,
+        custom_path: str = ...,
+        plot_parameters: dict[str, Any] = None,
+    ) -> Self:
+        """Function to fill land areas in a previously created MapGenerator object with the specified color.
+        Several options are available for the resolution of the data used to define
+        the land area (see below).
+
+        Args:
+            option (int): Switch to distinguish different resolutions. Valid options:
+                0 : Low resolution coastline based on the cartopy database.
+                1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute.
+                2 : High resolution (100 m) based on data from the Norwegian Polar Institute.
+                3 : Uses 'custom_path' for map data.
+            color (str or RGB or RGBA): Color for the land patches.
+            ax (int, optional): Gives the position for which map the land fill is added. Defaults to 0.
+                - Starts to count from 0 and continues like the normal reading flow.
+            path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
+                - Will be set as default for the map(s), if not set in the class initialisation.
+            custom_path (str, optional): Absolute or relative path to a shape file. Defaults to not set.
+            plot_parameters (dict[str, Any], optional):
+                option:
+                    0 : - For available options check cartopy.mpl.geoaxes.coastlines.
+                        - Always sets facecolor = color.
+                        - If not specified, feature = cfeature.LAND.with_scale('10m') is always set by default.
+                    1-3: - For available options check geopandas.GeoDataFrame.plot.
+                         - Always sets facecolor=color.
+
+        Returns:
+            MapGenerator
+        """
+        if not isinstance(option, int):
+            raise ValueError(
+                f"'option' should be a int, not a {type(option).__name__}."
+            )
+        if not isinstance(color, (str, tuple)):
+            raise ValueError(
+                f"'color' should be a str or tuple, not a {type(color).__name__}."
+            )
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if path_mapdata == ... and option != 0:
+            if self.path_mapdata != ...:
+                path_mapdata = self.path_mapdata
+            else:
+                raise ValueError(
+                    f"'path_mapdata' needs to be set, if option 1 or 2 is selected."
+                )
+        if not (isinstance(path_mapdata, str) or option == 0):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not (path_mapdata == ... or option == 0):
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+        if not path_mapdata == ... and self.path_mapdata == ...:
+            self.path_mapdata = path_mapdata
+            logging.info(
+                f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(f"'plot_parameters' should be a dictionary.")
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        plot_parameters["facecolor"] = color
+        if option == 0:
+            plot_parameters.setdefault("feature", cfeature.LAND.with_scale("10m"))
+            self.ax.flat[ax].add_feature(**plot_parameters)
+        elif option == 1:
+            input_file: str = f"{path_mapdata}NP_S250_SHP/S250_Land_f.shp"
+            df_maplayer = gpd.read_file(input_file)
+            df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
+            df_maplayer.plot(ax=self.ax.flat[ax], **plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+        elif option == 2:
+            input_file = f"{path_mapdata}NP_S100_SHP/S100_Land_f.shp"
+            df_maplayer = gpd.read_file(input_file)
+            df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
+            df_maplayer.plot(ax=self.ax.flat[ax], **plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+        elif option == 3:
+            if custom_path == ...:
+                raise ValueError(f"'custom_path' needs to be set for option 3.")
+            if not isinstance(custom_path, str):
+                raise ValueError(
+                    f"'custom_path' should be a str, not a {type(custom_path).__name__}."
+                )
+            if not os.path.isfile(custom_path):
+                raise FileNotFoundError(f"Expected file not found: {custom_path}")
+            if not custom_path.endswith(".shp"):
+                raise ValueError(
+                    f"Invalid file format: {custom_path}. Expected a .shp file."
+                )
+            df_maplayer = gpd.read_file(custom_path)
+            df_maplayer = df_maplayer.to_crs(ccrs.Mercator().proj4_init)
+            df_maplayer.plot(ax=self.ax.flat[ax], **plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        return self
+
+    def add_bathymetry(
+        self,
+        option: int,
+        color_contourlines: (
+            str
+            | tuple[float, float, float]
+            | tuple[float, float, float, float]
+            | LinearSegmentedColormap
+        ),
+        contour_params: float | tuple[float] | list[float],
+        ax: int = 0,
+        path_mapdata: str = ...,
+        plot_parameters: dict[str, Any] = None,
+        label_parameters: dict[str, Any] = None,
+        more_custom: bool = False,
+    ) -> Self | tuple[Self, QuadContourSet, Colorbar | None]:
+        """Function to plot either contour lines of the bathymetry of an ocean area
+        with the specified color or colored contours of bathymetry.
+        Several options are available for the style of
+        the bathymetry contours (see below).
+
+        Args:
+            option (int): Switch to distinguish different styles. Valid options:
+                0 : Bathymetry as contour lines.
+                1 : Bathymetry as filled contours, no colorbar.
+                2 : Bathymetry as filled contours, with colorbar.
+            color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with option 0).
+            contour_params (float or array_like): At which levels contour levels shoud be.
+                - single value : Resolution (distance between contour levels) of the bathymetry.
+                - array_lke : Contour levels of the bathymetry.
+            ax (int, optional): Gives the position for which map the bathymetry is added. Defaults to 0.
+                - Starts to count from 0 and continues like the normal reading flow.
+            path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
+                - Will be set as default for the map(s), if not set in the class initialisation.
+            plot_parameters (dict[str, Any], optional):
+                option:
+                    0 : - For available options check xarray.DataArray.plot.contour.
+                        - Always sets colors = color_contourlines, levels = contour_params.
+                        - If not specified, linestyles = "-", linewidths = 0.5, is always set by default.
+                    1-2 : - For available options check xarray.DataArray.plot.imshow.
+                          - Always sets levels = contour_params.
+                          - If not specified, cmap = cmocean.cm.deep_r, interpolation = None, add_colorbar = False, is always set by default.
+            label_parameters (dict[str, Any], optional):
+                option:
+                    0 : - For available options check cartopy.mpl.geoaxes.clabel.
+                        - Always sets levels = contour_params.
+                        - If not specified, inline = True, fmt = "%.0f", fontsize = 10 is always set by default.
+                    2 : - For available options check matplotlib.pyplot.colorbar.
+                        - If not specified, pad = 0.02, extend = "neither", tick_params = {}, set_ylabel = {}, is always set by default.
+                        - To modify matplotlib.colorbar.Colorbar.ax.tick_params or .ax.set_ylabel, use:
+                            - 'tick_params = {}' (default: axis = "y", labelsize = 10).
+                            - 'set_ylabel = {}' (default: ylabel = "Height [m]", fontsize = 10).
+            more_custom (bool, optional): If True, returns additional objects ('QuadContourSet' and 'Colorbar'). Defaults to False.
+
+        Returns:
+            MapGenerator or tuple[MapGenerator, QuadContourSet, Colorbar or None]:
+                - If more_custom = False: Returns self.
+                - If more_custom = True: Returns a tuple with extra objects.
+        """
+        if not isinstance(option, int):
+            raise ValueError(
+                f"'option' should be a int, not a {type(option).__name__}."
+            )
+
+        if not isinstance(
+            color_contourlines, (str, tuple, mpl.colors.LinearSegmentedColormap)
+        ):
+            raise ValueError(
+                f"'color' should be a str or tuple, not a {type(color_contourlines).__name__}."
+            )
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if path_mapdata == ...:
+            if self.path_mapdata != ...:
+                path_mapdata = self.path_mapdata
+            else:
+                raise ValueError(f"'path_mapdata' needs to be set.")
+        if not (isinstance(path_mapdata, str) or option == 0):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not path_mapdata == ...:
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+        if not path_mapdata == ... and self.path_mapdata == ...:
+            self.path_mapdata = path_mapdata
+            logging.info(
+                f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        if label_parameters == None:
+            label_parameters = {}
+        if not isinstance(label_parameters, dict):
+            raise ValueError(
+                f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
+            )
+
+        if not isinstance(more_custom, bool):
+            raise ValueError(
+                f"'more_custom' schould be a bool, not a {type(more_custom).__name__}."
+            )
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
+
+        bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
+        bathy.rio.write_crs(3996, inplace=True)
+        bathy = bathy.rio.reproject("EPSG:4326")
+        bathy = bathy.rio.clip_box(
+            minx=self.lon_limits[0],
+            miny=self.lat_limits[0],
+            maxx=self.lon_limits[1],
+            maxy=self.lat_limits[1],
+        )
+        bathy = bathy.rio.reproject(ccrs.Mercator().proj4_init)
+        bathy = bathy.where(bathy <= 10.0)
+
+        if isinstance(contour_params, (float, int)):
+            levels: np.ndarray[float] = np.arange(
+                contour_params * np.floor(np.nanmin(bathy) / contour_params),
+                1.0,
+                contour_params,
+            )
+        elif pd.api.types.is_list_like(contour_params):
+            if not all([isinstance(x, (int, float)) for x in contour_params]):
+                raise ValueError(f"List of 'contour_params' shout just contain floats.")
+            else:
+                fail_values: list[float] = [
+                    x
+                    for x in contour_params
+                    if not (x <= np.nanmax(bathy) and x >= np.nanmin(bathy))
+                ]
+                if len(fail_values) != 0:
+                    raise ValueError(
+                        f"The following 'contour_params' values are out of range: {fail_values}"
+                    )
+                levels = np.array(contour_params)
+        else:
+            raise ValueError(
+                f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
+            )
+
+        if option == 0:
+            plot_parameters["colors"] = color_contourlines
+            plot_parameters["levels"] = levels
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters.setdefault("linestyles", "-")
+            plot_parameters.setdefault("linewidths", 0.5)
+            pic = bathy.plot.contour(**plot_parameters)
+            label_parameters["CS"] = pic
+            label_parameters["levels"] = pic.levels
+            label_parameters.setdefault("inline", True)
+            label_parameters.setdefault("fmt", "%.0f")
+            label_parameters.setdefault("fontsize", 10)
+            self.ax.flat[ax].clabel(**label_parameters)
+        elif option == 1:
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["levels"] = levels
+            plot_parameters.setdefault("cmap", cmo.cm.deep_r)
+            plot_parameters.setdefault("interpolation", None)
+            plot_parameters.setdefault("add_colorbar", False)
+            bathy.plot.imshow(**plot_parameters)
+        elif option == 2:
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["levels"] = levels
+            plot_parameters.setdefault("cmap", cmo.cm.deep_r)
+            plot_parameters.setdefault("interpolation", None)
+            plot_parameters.setdefault("add_colorbar", False)
+            pic = bathy.plot.imshow(**plot_parameters)
+            label_parameters["mappable"] = pic
+            label_parameters["ax"] = self.ax.flat[ax]
+            label_parameters.setdefault("pad", 0.02)
+            label_parameters.setdefault("extend", "neither")
+            tick_parameters: dict[str, Any] = label_parameters.pop("tick_params", {})
+            if not isinstance(tick_parameters, dict):
+                raise ValueError(
+                    f"'tick_parameters' in 'label_parameters' should be a dict, not a {type(tick_parameters).__name__}."
+                )
+            set_ylabel_parameters: dict[str, Any] = label_parameters.pop(
+                "set_ylabel", {}
+            )
+            if not isinstance(set_ylabel_parameters, dict):
+                raise ValueError(
+                    f"'set_ylabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
+                )
+            cbar: plt.Colorbar = plt.colorbar(**label_parameters)
+            tick_parameters.setdefault("axis", "y")
+            tick_parameters.setdefault("labelsize", 10)
+            cbar.ax.tick_params(**tick_parameters)
+            set_ylabel_parameters.setdefault("ylabel", "Height [m]")
+            set_ylabel_parameters.setdefault("fontsize", 10)
+            cbar.ax.set_ylabel(**set_ylabel_parameters)
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        if more_custom:
+            if option == 0:
+                return self, pic
+            elif option == 2:
+                return self, pic, cbar
+            else:
+                warnings.warn(
+                    f"There is nothing more to return for further customization of option '{option}'."
+                )
+
+        return self
+
+    def add_total_topography(
+        self,
+        option: int,
+        color_contourlines: (
+            str
+            | tuple[float, float, float]
+            | tuple[float, float, float, float]
+            | LinearSegmentedColormap
+        ),
+        contour_params: float | tuple[float] | list[float],
+        ax: int = 0,
+        path_mapdata: str = ...,
+        plot_parameters: dict[str, Any] = None,
+        label_parameters: dict[str, Any] = None,
+        more_custom: bool = False,
+    ) -> Self | tuple[Self, QuadContourSet, Colorbar | None]:
+        """Function to plot either contour lines of the total topography (above and below sea level)
+        with the specified color or colored contours of the total topography.
+        Several options are available for the style of
+        the topography contours (see below).
+
+        Args:
+            option (int): Switch to distinguish different styles. Valid options:
+                0 : Topography as contour lines.
+                1 : Topography as filled contours, no colorbar.
+                2 : Topography as filled contours, with colorbar.
+            color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with option 0).
+            contour_params (float or array_like): At which levels contour levels shoud be.
+                - single value : Resolution (distance between contour levels) of the bathymetry.
+                - array_like : Contour levels of the bathymetry. Can just be used with option 0.
+            ax (int, optional): Gives the position for which map the topography is added. Defaults to 0.
+                - Starts to count from 0 and continues like the normal reading flow.
+            path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
+                - Will be set as default for the map(s), if not set in the class initialisation.
+            plot_parameters (dict[str, Any], optional):
+                option:
+                    0 : - For available options check xarray.DataArray.plot.contour.
+                        - Always sets colors = color_contourlines, levels = contour_params.
+                        - If not specified, linestyles = "-", linewidths = 0.5, is always set by default.
+                    1-2 : - For available options check xarray.DataArray.plot.imshow.
+                          - Always sets norm = contour_params.
+                          - If not specified, cmap = cmocean.cm.topo, interpolation = None, add_colorbar = False, is always set by default.
+            label_parameters (dict[str, Any], optional):
+                option:
+                    0 : - For available options check cartopy.mpl.geoaxes.clabel.
+                        - Always sets levels = contour_params.
+                        - If not specified, inline = True, fmt = "%.0f", fontsize = 10 is always set by default.
+                    2 : - For available options check matplotlib.pyplot.colorbar.
+                        - If not specified, pad = 0.02, extend = "neither", tick_params = {}, set_ylabel = {}, is always set by default.
+                        - To modify matplotlib.colorbar.Colorbar.ax.tick_params or .ax.set_ylabel, use:
+                            - 'tick_params = {}' (default: axis = "y", labelsize = 10).
+                            - 'set_ylabel = {}' (default: ylabel = "Height [m]", fontsize = 10).
+            more_custom (bool, optional): If True, returns additional objects ('QuadContourSet' and 'Colorbar'). Defaults to False.
+
+        Returns:
+            MapGenerator or tuple[MapGenerator, QuadContourSet, Colorbar or None]:
+                - If more_custom = False: Returns self.
+                - If more_custom = True: Returns a tuple with extra objects.
+        """
+        if not isinstance(option, int):
+            raise ValueError(
+                f"'option' should be a int, not a {type(option).__name__}."
+            )
+
+        if not isinstance(
+            color_contourlines, (str, tuple, mpl.colors.LinearSegmentedColormap)
+        ):
+            raise ValueError(
+                f"'color' should be a str or tuple, not a {type(color_contourlines).__name__}."
+            )
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if path_mapdata == ...:
+            if self.path_mapdata != ...:
+                path_mapdata = self.path_mapdata
+            else:
+                raise ValueError(f"'path_mapdata' needs to be set.")
+        if not (isinstance(path_mapdata, str) or option == 0):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not path_mapdata == ...:
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+        if not path_mapdata == ... and self.path_mapdata == ...:
+            self.path_mapdata = path_mapdata
+            logging.info(
+                f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        if label_parameters == None:
+            label_parameters = {}
+        if not isinstance(label_parameters, dict):
+            raise ValueError(
+                f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
+            )
+
+        if not isinstance(more_custom, bool):
+            raise ValueError(
+                f"'more_custom' schould be a bool, not a {type(more_custom).__name__}."
+            )
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
+
+        bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
+        bathy.rio.write_crs(3996, inplace=True)
+        bathy = bathy.rio.reproject("EPSG:4326")
+        bathy = bathy.rio.clip_box(
+            minx=self.lon_limits[0],
+            miny=self.lat_limits[0],
+            maxx=self.lon_limits[1],
+            maxy=self.lat_limits[1],
+        )
+        bathy = bathy.rio.reproject(ccrs.Mercator().proj4_init)
+
+        if isinstance(contour_params, (float, int)):
+            if option == 0:
+                levels: np.ndarray[float] = np.arange(
+                    contour_params * np.floor(np.nanmin(bathy) / contour_params),
+                    contour_params * np.ceil(np.nanmax(bathy) / contour_params) + 1.0,
+                    contour_params,
+                )
+            else:
+                levels = None
+                norm = mpl.colors.TwoSlopeNorm(
+                    0.0,
+                    contour_params * np.floor(np.nanmin(bathy) / contour_params),
+                    contour_params * np.ceil(np.nanmax(bathy) / contour_params),
+                )
+        elif pd.api.types.is_list_like(contour_params):
+            if option != 0:
+                raise ValueError(f"Lists or tuples can only be used with option 0.")
+            if not all([isinstance(x, (int, float)) for x in contour_params]):
+                raise ValueError(f"List of 'contour_params' shout just contain floats.")
+            else:
+                fail_values: list[float] = [
+                    x
+                    for x in contour_params
+                    if not (x <= np.nanmax(bathy) and x >= np.nanmin(bathy))
+                ]
+                if len(fail_values) != 0:
+                    raise ValueError(
+                        f"The following 'contour_params' values are out of range: {fail_values}"
+                    )
+                levels = np.array(contour_params)
+        else:
+            raise ValueError(
+                f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
+            )
+
+        if option == 0:
+            plot_parameters["colors"] = color_contourlines
+            plot_parameters["levels"] = levels
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters.setdefault("linestyles", "-")
+            plot_parameters.setdefault("linewidths", 0.5)
+            pic = bathy.plot.contour(**plot_parameters)
+            label_parameters["CS"] = pic
+            label_parameters["levels"] = pic.levels
+            label_parameters.setdefault("inline", True)
+            label_parameters.setdefault("fmt", "%.0f")
+            label_parameters.setdefault("fontsize", 10)
+            self.ax.flat[ax].clabel(**label_parameters)
+        elif option == 1:
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["norm"] = norm
+            plot_parameters.setdefault("cmap", cmo.cm.topo)
+            plot_parameters.setdefault("interpolation", None)
+            plot_parameters.setdefault("add_colorbar", False)
+            bathy.plot.imshow(**plot_parameters)
+        elif option == 2:
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["norm"] = norm
+            plot_parameters.setdefault("cmap", cmo.cm.topo)
+            plot_parameters.setdefault("interpolation", None)
+            plot_parameters.setdefault("add_colorbar", False)
+            pic = bathy.plot.imshow(**plot_parameters)
+            label_parameters["mappable"] = pic
+            label_parameters["ax"] = self.ax.flat[ax]
+            label_parameters.setdefault("pad", 0.02)
+            label_parameters.setdefault("extend", "neither")
+            tick_parameters: dict[str, Any] = label_parameters.pop("tick_params", {})
+            if not isinstance(tick_parameters, dict):
+                raise ValueError(
+                    f"'tick_parameters' in 'label_parameters' should be a dict, not a {type(tick_parameters).__name__}."
+                )
+            set_ylabel_parameters: dict[str, Any] = label_parameters.pop(
+                "set_ylabel", {}
+            )
+            if not isinstance(set_ylabel_parameters, dict):
+                raise ValueError(
+                    f"'set_ylabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
+                )
+            cbar: plt.Colorbar = plt.colorbar(**label_parameters)
+            tick_parameters.setdefault("axis", "y")
+            tick_parameters.setdefault("labelsize", 10)
+            cbar.ax.tick_params(**tick_parameters)
+            set_ylabel_parameters.setdefault("ylabel", "Height [m]")
+            set_ylabel_parameters.setdefault("fontsize", 10)
+            cbar.ax.set_ylabel(**set_ylabel_parameters)
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        if more_custom:
+            if option == 0:
+                return self, pic
+            elif option == 2:
+                return self, pic, cbar
+            else:
+                warnings.warn(
+                    f"There is nothing more to return for further customization of option '{option}'."
+                )
+
+        return self
+
+    def add_topography(
+        self,
+        option: int,
+        color_contourlines: (
+            str
+            | tuple[float, float, float]
+            | tuple[float, float, float, float]
+            | LinearSegmentedColormap
+        ),
+        contour_params: float | tuple[float] | list[float],
+        ax: int = 0,
+        path_mapdata: str = ...,
+        plot_parameters: dict[str, Any] = None,
+        label_parameters: dict[str, Any] = None,
+        more_custom: bool = False,
+    ) -> Self | tuple[Self, QuadContourSet, Colorbar | None]:
+        """Function to plot either contour lines of the topography
+        with the specified color or colored contours of the topography.
+        Several options are available for the style of
+        the topography contours (see below).
+
+        Args:
+            option (int): Switch to distinguish different styles. Valid options:
+                0 : Topography as contour lines, low resolution.
+                1 : Topography as contour lines, high resolution.
+                2 : Topography as filled contours, no colorbar, low resolution.
+                3 : Topography as filled contours, no colorbar, high resolution.
+                4 : Topography as filled contours, with colorbar, low resolution.
+                5 : Topography as filled contours, with colorbar, high resolution.
+            color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with options 0 or 1)
+            contour_params (float or array_like): At which levels contour levels shoud be.
+                - single value : Resolution (distance between contour levels) of the bathymetry.
+                - array_like : Contour levels of the bathymetry.
+            ax (int, optional): Gives the position for which map the topography is added. Defaults to 0.
+                - Starts to count from 0 and continues like the normal reading flow.
+            path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
+                - Will be set as default for the map(s), if not set in the class initialisation.
+            plot_parameters (dict[str, Any], optional):
+                option:
+                    0-1 : - For available options check xarray.DataArray.plot.contour.
+                          - Always sets colors = color_contourlines, levels = contour_params.
+                          - If not specified, linestyles = "-", linewidths = 0.5, is always set by default.
+                    2-5 : - For available options check xarray.DataArray.plot.imshow.
+                          - Always sets levels = contour_params.
+                          - If not specified, cmap = cmocean.cm.turbid, interpolation = None, add_colorbar = False, is always set by default.
+            label_parameters (dict[str, Any], optional):
+                option:
+                    0-1 : - For available options check cartopy.mpl.geoaxes.clabel.
+                          - Always sets levels = contour_params.
+                          - If not specified, inline = True, fmt = "%.0f", fontsize = 10 is always set by default.
+                    4-5 : - For available options check matplotlib.pyplot.colorbar.
+                          - If not specified, pad = 0.02, extend = "neither", tick_params = {}, set_ylabel = {}, is always set by default.
+                          - To modify matplotlib.colorbar.Colorbar.ax.tick_params or .ax.set_ylabel, use:
+                          - 'tick_params = {}' (default: axis = "y", labelsize = 10).
+                          - 'set_ylabel = {}' (default: ylabel = "Height [m]", fontsize = 10).
+            more_custom (bool, optional): If True, returns additional objects ('QuadContourSet' and 'Colorbar'). Defaults to False.
+
+        Returns:
+            MapGenerator or tuple[MapGenerator, QuadContourSet, Colorbar or None]:
+                - If more_custom = False: Returns self.
+                - If more_custom = True: Returns a tuple with extra objects.
+        """
+        if not isinstance(option, int):
+            raise ValueError(
+                f"'option' should be a int, not a {type(option).__name__}."
+            )
+
+        if not isinstance(
+            color_contourlines, (str, tuple, mpl.colors.LinearSegmentedColormap)
+        ):
+            raise ValueError(
+                f"'color' should be a str or tuple, not a {type(color_contourlines).__name__}."
+            )
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if path_mapdata == ...:
+            if self.path_mapdata != ...:
+                path_mapdata = self.path_mapdata
+            else:
+                raise ValueError(f"'path_mapdata' needs to be set.")
+        if not (isinstance(path_mapdata, str) or option == 0):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not path_mapdata == ...:
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+        if not path_mapdata == ... and self.path_mapdata == ...:
+            self.path_mapdata = path_mapdata
+            logging.info(
+                f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        if label_parameters == None:
+            label_parameters = {}
+        if not isinstance(label_parameters, dict):
+            raise ValueError(
+                f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
+            )
+
+        if not isinstance(more_custom, bool):
+            raise ValueError(
+                f"'more_custom' schould be a bool, not a {type(more_custom).__name__}."
+            )
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        if option % 2 == 0:  # for 0,2,4
+            dem = rxr.open_rasterio(
+                f"{path_mapdata}NP_S0_DTM50/S0_DTM50.tif", masked=True
+            ).squeeze()
+        elif option % 2 == 1:  # for 1,3,5
+            dem = rxr.open_rasterio(
+                f"{path_mapdata}NP_S0_DTM20/S0_DTM20.tif", masked=True
+            ).squeeze()
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        dem = dem.rio.reproject("EPSG:4326")
+        dem = dem.rio.clip_box(
+            minx=self.lon_limits[0],
+            miny=self.lat_limits[0],
+            maxx=self.lon_limits[1],
+            maxy=self.lat_limits[1],
+        )
+        dem = dem.rio.reproject(ccrs.Mercator().proj4_init)
+
+        if isinstance(contour_params, (float, int)):
+            levels: np.ndarray[float] = np.arange(
+                0,
+                contour_params * np.ceil(np.nanmax(dem) / contour_params) + 1.0,
+                contour_params,
+            )
+        elif pd.api.types.is_list_like(contour_params):
+            if not all([isinstance(x, (int, float)) for x in contour_params]):
+                raise ValueError(f"List of 'contour_params' shout just contain floats.")
+            else:
+                fail_values: list[float] = [
+                    x
+                    for x in contour_params
+                    if not (x <= np.nanmax(dem) and x >= np.nanmin(dem))
+                ]
+                if len(fail_values) != 0:
+                    raise ValueError(
+                        f"The following 'contour_params' values are out of range: {fail_values}"
+                    )
+                levels = np.array(contour_params)
+        else:
+            raise ValueError(
+                f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
+            )
+
+        if (option == 0) | (option == 1):
+            dem = dem.where(dem >= 0.0)
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["levels"] = levels
+            plot_parameters["colors"] = color_contourlines
+            plot_parameters.setdefault("linestyles", "-")
+            plot_parameters.setdefault("linewidths", 0.5)
+            pic = dem.plot.contour(**plot_parameters)
+            label_parameters["CS"] = pic
+            label_parameters["levels"] = pic.levels
+            label_parameters.setdefault("inline", True)
+            label_parameters.setdefault("fmt", "%.0f")
+            label_parameters.setdefault("fontsize", 10)
+            self.ax.flat[ax].clabel(**label_parameters)
+        elif (option == 2) | (option == 3):
+            dem = dem.where(dem > 0.0)
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["levels"] = levels
+            plot_parameters.setdefault("cmap", cmo.cm.turbid)
+            plot_parameters.setdefault("interpolation", None)
+            plot_parameters.setdefault("add_colorbar", False)
+            dem.plot.imshow(**plot_parameters)
+        elif (option == 4) | (option == 5):
+            dem = dem.where(dem > 0.0)
+            plot_parameters["ax"] = self.ax.flat[ax]
+            plot_parameters["levels"] = levels
+            plot_parameters.setdefault("cmap", cmo.cm.turbid)
+            plot_parameters.setdefault("interpolation", None)
+            plot_parameters.setdefault("add_colorbar", False)
+            pic = dem.plot.imshow(**plot_parameters)
+            label_parameters["mappable"] = pic
+            label_parameters["ax"] = self.ax.flat[ax]
+            label_parameters.setdefault("pad", 0.02)
+            label_parameters.setdefault("extend", "neither")
+            tick_parameters: dict[str, Any] = label_parameters.pop("tick_params", {})
+            if not isinstance(tick_parameters, dict):
+                raise ValueError(
+                    f"'tick_parameters' in 'label_parameters' should be a dict, not a {type(tick_parameters).__name__}."
+                )
+            set_ylabel_parameters: dict[str, Any] = label_parameters.pop(
+                "set_ylabel", {}
+            )
+            if not isinstance(set_ylabel_parameters, dict):
+                raise ValueError(
+                    f"'set_ylabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
+                )
+            cbar: plt.Colorbar = plt.colorbar(**label_parameters)
+            tick_parameters.setdefault("axis", "y")
+            tick_parameters.setdefault("labelsize", 10)
+            cbar.ax.tick_params(**tick_parameters)
+            set_ylabel_parameters.setdefault("ylabel", "Height [m]")
+            set_ylabel_parameters.setdefault("fontsize", 10)
+            cbar.ax.set_ylabel(**set_ylabel_parameters)
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        if more_custom:
+            if option == 0:
+                return self, pic
+            elif option == 2:
+                return self, pic, cbar
+            else:
+                warnings.warn(
+                    f"There is nothing more to return for further customization of option '{option}'."
+                )
+
+        return self
+
+    def add_surface_cover(
+        self,
+        option: int,
+        ax: int = 0,
+        path_mapdata: str = ...,
+        plot_parameters: dict[str, dict[str, Any]] = None,
+    ) -> Self:
+        """Function to colorize different types of surface cover on a previously created
+        MapGenerator object. Several options are available for the resolution of the data used
+        to define the surface cover areas (see below).
+
+            Args:
+                option (int): Switch to distinguish different resolutions. Valid options:
+                    0 : Low resolution (1km) based on data from the Norwegian Polar Institute.
+                        - Used properties: 'Land', 'Vann', 'Isbreer'
+                    1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute.
+                        - Used properties: 'Land', 'Vann', 'Isbreer', 'Morener', 'TekniskSituasjon', 'Elvesletter'
+                    2 : High resolution (100 m) based on data from the Norwegian Polar Institute.
+                        - Used properties: 'Land', 'Vann', 'Isbreer', 'Morener', 'TekniskSituasjon', 'Elvesletter', 'Hav'
+                ax (int, optional): Gives the position for which map the surface cover is added. Defaults to 0.
+                    - Starts to count from 0 and continues like the normal reading flow.
+                path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
+                    - Will be set as default for the map(s), if not set in the class initialisation.
+                plot_parameters (dict[str, dict[str, Any]], optional): Parameters for plotting
+                    - For available options check GeoAxes.plot.
+                    - Provide parameters to .plot use: {'name_of_property':{'arg_name':arg_value}}.
+                    - Property names: 'Land', 'Vann', 'Isbreer', 'Morener', 'TekniskSituasjon', 'Elvesletter', 'Hav'
+                        - Translation: 'Land', 'Water', 'Glaciers', 'Morains', 'TechnicalSituation', 'Floodplains', 'Sea'
+                        - Don't use the translation!
+                        - To exclude a property, use: {'name_of_property':{"color":"none","facecolor":None}}.
+
+
+            Returns:
+                MapGenerator
+        """
+
+        if not isinstance(option, int):
+            raise ValueError(
+                f"'option' should be a int, not a {type(option).__name__}."
+            )
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if path_mapdata == ...:
+            if self.path_mapdata != ...:
+                path_mapdata = self.path_mapdata
+            else:
+                raise ValueError(f"'path_mapdata' needs to be set.")
+        if not (isinstance(path_mapdata, str) or option == 0):
+            raise ValueError(
+                f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
+            )
+        elif not path_mapdata == ...:
+            if not path_mapdata.endswith("/"):
+                path_mapdata += "/"
+            if not os.path.isdir(path_mapdata):
+                raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
+        if not path_mapdata == ... and self.path_mapdata == ...:
+            self.path_mapdata = path_mapdata
+            logging.info(
+                f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        colors: dict[str, str] = {
+            "Elvesletter": "#CCBDA9",
+            "Hav": "#FFFFFF",
+            "Isbreer": "#B3FFFF",
+            "Land": "#E7D3B8",
+            "Morener": "#CED8D9",
+            "TekniskSituasjon": "#FF8080",
+            "Vann": "#99CAEB",
+        }
+
+        if option == 0:
+            layers: list[str] = ["Land", "Vann", "Isbreer"]
+            res = "1000"
+        elif option == 1:
+            layers = [
+                "Land",
+                "Vann",
+                "Elvesletter",
+                "Isbreer",
+                "Morener",
+                "TekniskSituasjon",
+            ]
+            res = "250"
+        elif option == 2:
+            layers = [
+                "Land",
+                "Vann",
+                "Hav" "Elvesletter",
+                "Isbreer",
+                "Morener",
+                "TekniskSituasjon",
+            ]
+            res = "100"
+        else:
+            raise ValueError(f"{option} not a valid option!")
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        self.ax.flat[ax].set_facecolor("#FFFFFF")
+        for layer in layers:
+            print(layer)
+            input_file: str = f"{path_mapdata}NP_S{res}_SHP/S{res}_{layer}_f.shp"
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="Non closed ring detected. To avoid accepting it, set the OGR_GEOMETRY_ACCEPT_UNCLOSED_RING configuration option to NO",
+                    category=RuntimeWarning,
+                )
+                try:
+                    df_layer = gpd.read_file(input_file)
+                except UnicodeDecodeError:
+                    df_layer = gpd.read_file(input_file, encoding="Windows-1252")
+            try:
+                df_layer = df_layer.to_crs(ccrs.Mercator().proj4_init)
+            except GEOSException:
+                df_layer = (
+                    df_layer["geometry"]
+                    .buffer(1e-100)
+                    .to_crs(ccrs.Mercator().proj4_init)
+                )
+            layer_plot_parameters: dict[str, Any] = plot_parameters.pop(layer, {})
+            if not isinstance(layer_plot_parameters, dict):
+                raise ValueError(
+                    f"In 'plot_parameters' the key '{layer}' as an invailed value. The value should be a dictionary, not a {type(plot_parameters).__name__}."
+                )
+            layer_plot_parameters["ax"] = self.ax.flat[ax]
+            layer_plot_parameters.setdefault("edgecolor", None)
+            layer_plot_parameters.setdefault("facecolor", colors[layer])
+            df_layer.plot(**layer_plot_parameters)
+            self.ax.flat[ax].set_extent(
+                self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree()
+            )
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        return self
+
+    def add_crosssection_line(
+        self,
+        lat: list[float],
+        lon: list[float],
+        color: (
+            str | tuple[float, float, float] | tuple[float, float, float, float]
+        ) = "k",
+        ax: int = 0,
+        plot_parameters: dict[str, Any] = None,
+    ) -> Self:
+        """Function to add a line indicating the position of a cross section
+        on a previously created MapGenerator object.
+
+        Args:
+            lat (array_like): List with the latitude coordinates.
+                - [lat_0, lat_1, ...]
+            lon (array_like): List with the lonitute coordinates.
+                - [lon_0, lon_1, ...]
+            color (str or RGB or RGBA, optional): Color for the cross section line. Defaults to "k".
+            ax (int, optional): Gives the position for which map the crosssection line is added. Defaults to 0.
+                    - Starts to count from 0 and continues like the normal reading flow.
+            plot_parameters (dict[str,Any], optional): Additional parameters passed to geopandas.GeoDataFrame.plot.
+                - For available options check matplotlib.pyplot.subplots.
+                - Always sets color = color.
+
+        Returns:
+            MapGenerator
+        """
+
+        if not pd.api.types.is_list_like(lon):
+            raise ValueError(
+                f"'lon' should be a array_like, not a {type(lon).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in lon):
+            raise ValueError(f"'lon' should contain just float.")
+        if not pd.api.types.is_list_like(lat):
+            raise ValueError(
+                f"'lat' should be a array_like, not a {type(lat).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in lat):
+            raise ValueError(f"'lat' should contain just float.")
+        if len(lat) != len(lon):
+            raise ValueError(f"'lon' and 'lat' should have the same lenght.")
+
+        if not isinstance(color, (str, tuple)):
+            raise ValueError(
+                f"'color' should be a str or tuple, not a {type(color).__name__}."
+            )
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        df: pd.DataFrame = pd.DataFrame(
+            {"latitude": lat, "longitude": lon, "section": 1}
+        )
+        gdf = gpd.GeoDataFrame(
+            df, geometry=gpd.points_from_xy(df.longitude, df.latitude)
+        )
+        gdf = gdf.groupby(["section"])["geometry"].apply(
+            lambda x: LineString(x.tolist())
+        )
+        gdf = gpd.GeoDataFrame(gdf, geometry="geometry", crs="EPSG:4326")
+        gdf: gpd.GeoDataFrame = gdf.to_crs(ccrs.Mercator().proj4_init)
+        plot_parameters["ax"] = self.ax.flat[ax]
+        plot_parameters["color"] = color
+        gdf.plot(**plot_parameters)
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        return self
+
+    def add_points(
+        self,
+        lat: list[float],
+        lon: list[float],
+        color: str | tuple[float, float, float] | tuple[float, float, float, float],
+        size: float | list[float],
+        ax: int = 0,
+        cbar_label: str = ...,
+        point_label_title: str = ...,
+        point_labels: list[str] = ...,
+        plot_parameters: dict[str, Any] = None,
+        label_parameters: dict[str, Any] = None,
+        point_label_parameters: dict[str, Any | dict[str, Any]] = None,
+        more_custom: bool = False,
+    ) -> Self | tuple[Self, QuadContourSet, Colorbar | None]:
+        """Function to add a set of points on a previously created MapGenerator object.
+        The points can either all be in the same color and size, e.g. to indicate the locations
+        of instruments, or their color and/or size can be set according to data,
+        e.g. colorcode the temperature at different locations.
+
+        Args:
+            lat (array_like): List with the latitude coordinates.
+                - [lat_0, lat_1, ...]
+            lon (array_like): List with the lonitude coordinates.
+                - [lon_0, lon_1, ...]
+            color (str or RGB or RGBA, optional):
+                Color for the points. Either one fixed color for all, fixed individual colors for all or data that is going to be
+                represented by the coloring.
+            size (float or array_like):
+                Size of the points. Either one fixed value or data that is going to be
+                represented by the size.
+            ax (int, optional): Gives the position for which map the crosssection line is added. Defaults to 0.
+                    - Starts to count from 0 and continues like the normal reading flow.
+            cbar_label (str, optional): Label for the colorbar. Defaults to ....
+                - Has to be set to show a colorbar.
+            point_label_title (str, optional): Title for the legend. Defaults to ....
+                - Has to be set to show automatically show a legend.
+                - The legend displayes the scale of the dots.
+            point_labels (list[str], optional): List of names for the different legend entries. Default to ....
+            plot_parameters (dict[str,Any], optional): Additional parameters passed to GeoAxes.scatter.
+                - For available options check GeoAxes.scatter.
+                - Always sets color = color, size = size, transform = ccrs.PlateCarree().
+                - If not specified, zorder = 10, cmap = cmo.cm.theramal is always set by default.
+            label_parameters (dict[str, Any], optional):
+                - For available options check matplotlib.pyplot.colorbar.
+                            - If not specified, pad = 0.1, orientation = "horizontal", tick_params = {}, set_ylabel = {}, is always set by default.
+                            - To modify matplotlib.colorbar.Colorbar.ax.tick_params or .ax.set_xlabel, use:
+                                - 'tick_params = {}' (default: axis = "x", labelsize = 10).
+                                - 'set_ylabel = {}' (default: xlabel = cbar_label, fontsize = 10).
+            point_label_parameters (dict[str, Any], optional):
+                        - For available options check matplotlib.collections.PathCollection.legend_elements.
+                        - If not specified, prop = "sizes", color = "black", legend_parameters = {} is always set by default.
+                        - Sets num = 3 if not specified and 'sizes' is not in 'point_label_parameters'.
+                        - To modify GeoAxes.legend.
+                            - 'legend_parameters = {}' (default: axis = "y", labels = point_labels|labels (labels is generated by matplotlib.collections.PathCollection.legend_elements)).
+            more_custom (bool, optional): If True, returns additional objects ('matplotlib.collections.PathCollection' and 'Colorbar'). Defaults to False.
+
+        Returns:
+            MapGenerator or tuple[MapGenerator, matplotlib.collections.PathCollection, Colorbar or None]:
+                - If more_custom = False: Returns self.
+                - If more_custom = True: Returns a tuple with extra objects.
+        """
+
+        if not pd.api.types.is_list_like(lon):
+            raise ValueError(
+                f"'lon' should be a tuple or list, not a {type(lon).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in lon):
+            raise ValueError(f"'lon' should contain just float.")
+        if not pd.api.types.is_list_like(lat):
+            raise ValueError(
+                f"'lat' should be a tuple or list, not a {type(lat).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in lat):
+            raise ValueError(f"'lat' should contain just float.")
+        if len(lat) != len(lon):
+            raise ValueError(f"'lon' and 'lat' should have the same lenght.")
+
+        if not (isinstance(color, str) or pd.api.types.is_list_like(color)):
+            raise ValueError(
+                f"'color' should be a str or array_like, not a {type(color).__name__}."
+            )
+        else:
+            single_color = True
+        if pd.api.types.is_list_like(color):
+            single_color: bool = False  # to see if it is a RGB or RGBA
+            if len(color) == 3 or len(color) == 4:
+                if not any(
+                    [(pd.api.types.is_array_like(x) or isinstance(str)) for x in color]
+                ):
+                    if all([(x <= 1 and x >= 0) for x in color]):
+                        single_color = True
+            if len(color) != len(lat) and not single_color:
+                raise ValueError(
+                    f"'color' has not enough values for every point. Needs {len(lat)}, but has {len(color)}."
+                )
+            if all([isinstance(x, (float, int)) for x in color]):
+                color_values: bool = True
+            else:
+                color_values = False
+
+        if not (isinstance(size, (float, int)) or pd.api.types.is_list_like(size)):
+            raise ValueError(
+                f"'size' should be a float or array_like, not a {type(color).__name__}."
+            )
+        single_size: bool = True
+        if pd.api.types.is_list_like(size):
+            if len(size) != len(lat):
+                raise ValueError(
+                    f"'size' has not enough values for every point. Needs {len(lat)}, but has {len(size)}."
+                )
+            else:
+                single_size = False
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if not isinstance(cbar_label, str) and not cbar_label == ...:
+            raise ValueError(
+                f"'cbar_label' should be a str, not a {type(cbar_label).__name__}."
+            )
+
+        if not isinstance(point_label_title, str) and not point_label_title == ...:
+            raise ValueError(
+                f"'point_label' should be a str, not a {type(point_label_title).__name__}."
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        if label_parameters == None:
+            label_parameters = {}
+        if not isinstance(label_parameters, dict):
+            raise ValueError(
+                f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
+            )
+
+        if point_label_parameters == None:
+            point_label_parameters = {}
+        if not isinstance(point_label_parameters, dict):
+            raise ValueError(
+                f"'point_label_parameters' should be a dictionary, not a {type(point_label_parameters).__name__}."
+            )
+
+        if point_labels != ...:
+            if not pd.api.types.is_list_like(point_labels):
+                raise ValueError(f"'point_labels' should be array_like.")
+            if "size" in point_label_parameters.keys():
+                if not pd.api.types.is_list_like(point_label_parameters["size"]):
+                    raise ValueError(
+                        f"'size' in 'point_label_parameters' should be array_like."
+                    )
+                else:
+                    len_legend: int = len(point_label_parameters["size"])
+            elif "num" in point_label_parameters.keys():
+                if not isinstance(point_label_parameters["num"]):
+                    raise ValueError(
+                        f"'num' in 'point_label_parameters' should be a int, not a {type(point_label_parameters['num']).__name__}."
+                    )
+                else:
+                    len_legend = point_label_parameters["num"]
+            else:
+                len_legend = 3
+            if len(point_labels) != len_legend:
+                raise ValueError(
+                    f"'point_labels' should have a length of {len_legend}, but has {len(point_labels)}."
+                )
+
+        if single_size and single_color:
+            color = [color] * len(lat)
+            size = [size] * len(lat)
+        elif single_color and not single_size:
+            color = [color] * len(lat)
+        elif not single_color and single_size:
+            size = [size] * len(lat)
+        elif not (single_color and single_size):
+            pass
+        else:
+            raise ValueError(f"Something went wrong, this shouldn't happen :(.")
+        df = pd.DataFrame(
+            {"latitude": lat, "longitude": lon, "color": color, "size": size}
+        )
+
+        gdf = gpd.GeoDataFrame(
+            df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326"
+        )
+        gdf: gpd.GeoDataFrame = gdf.to_crs(ccrs.Mercator().proj4_init)
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        plot_parameters["x"] = gdf["longitude"]
+        plot_parameters["y"] = gdf["latitude"]
+        plot_parameters["c"] = gdf["color"]
+        plot_parameters["s"] = gdf["size"]
+        plot_parameters["transform"] = ccrs.PlateCarree()
+        plot_parameters.setdefault("zorder", 10)
+        if color_values:
+            plot_parameters.setdefault("cmap", cmo.cm.thermal)
+        pic = self.ax.flat[ax].scatter(**plot_parameters)
+
+        if not single_color and color_values and cbar_label != ...:
+            label_parameters["mappable"] = pic
+            label_parameters["ax"] = self.ax.flat[ax]
+            label_parameters.setdefault("pad", 0.1)
+            label_parameters.setdefault("orientation", "horizontal")
+            tick_params: dict[str, Any] = label_parameters.pop("tick_params", {})
+            if not isinstance(tick_params, dict):
+                raise ValueError(
+                    f"'tick_params' in 'label_parameters' should be a dict, not a {type(tick_params).__name__}."
+                )
+            set_xlabel_parameters: dict[str, Any] = label_parameters.pop(
+                "set_xlabel", {}
+            )
+            if not isinstance(set_xlabel_parameters, dict):
+                raise ValueError(
+                    f"'set_xlabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
+                )
+            cbar: Colorbar = plt.colorbar(**label_parameters)
+            tick_params.setdefault("axis", "x")
+            tick_params.setdefault("labelsize", 10)
+            cbar.ax.tick_params(**tick_params)
+            set_xlabel_parameters.setdefault("xlabel", cbar_label)
+            set_xlabel_parameters.setdefault("fontsize", 10)
+            cbar.ax.set_xlabel(**set_xlabel_parameters)
+        if point_label_title != ...:
+            legend_parameters: dict[str, Any] = point_label_parameters.pop(
+                "legend_parameters", {}
+            )
+            if not isinstance(legend_parameters, dict):
+                raise ValueError(
+                    f"'legend_parameters' in 'point_label_parameters' should be a dict, not a {type(legend_parameters).__name__}."
+                )
+            point_label_parameters.setdefault("prop", "sizes")
+            point_label_parameters.setdefault("color", "black")
+            if not "sizes" in point_label_parameters.keys():
+                point_label_parameters.setdefault("num", 3)
+            else:
+                point_label_parameters.setdefault("num", None)
+            handles, labels = pic.legend_elements(**point_label_parameters)
+            legend_parameters["handles"] = handles
+            legend_parameters["title"] = point_label_title
+            if point_labels != ...:
+                legend_parameters["labels"] = point_labels
+            legend_parameters.setdefault("labels", labels)
+            self.ax.flat[ax].legend(**legend_parameters)
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        if more_custom:
+            if not single_color and color_values and cbar_label != ...:
+                return self, pic, cbar
+            else:
+                return self, pic
+
+        return self
+
+    def add_wind_arrows(
+        self,
+        lat: list[float],
+        lon: list[float],
+        u: list[float],
+        v: list[float],
+        length: float = 10,
+        lw: float = 1,
+        ax: int = 0,
+        plot_parameters: dict[str, Any] = None,
+    ) -> Self:
+        """Function to add meteorological wind arrows on a previously created MapGenerator object.
+        The scaling of the arrows follows the meteorological convention:
+        small bar = 5 knots
+        large bar = 10 knots
+        tiangle = 50 knots
+
+        Args:
+            lat (array_like): List with the latitude coordinates.
+                - [lat_0, lat_1, ...]
+            lon (array_like): List with the lonitude coordinates.
+                - [lon_0, lon_1, ...]
+            u (list[float]): List or array with the x component of the winds.
+            v (list[float]): List or array with the y component of the winds.
+            length (float, optional): Reference for the length of the arrows. Defaults to 10.
+            lw (float, optional): Line thickness of the arrows. Defaults to 1.
+            ax (int, optional): Gives the position for which map the bathymetry is added. Defaults to 0.
+                - Starts to count from 0 and continues like the normal reading flow.
+            plot_parameters (dict[str, Any], optional):
+                - For available options check cartopy.mpl.geoaxes.barbs.
+                - Always sets x = lat, y = lon, u = u, v = v, lenght = length, linewidth = lw.
+
+        Returns:
+            MapGenerator
+        """
+
+        if not pd.api.types.is_list_like(lon):
+            raise ValueError(
+                f"'lon' should be a tuple or list, not a {type(lon).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in lon):
+            raise ValueError(f"'lon' should contain just float.")
+        if not pd.api.types.is_list_like(lat):
+            raise ValueError(
+                f"'lat' should be a tuple or list, not a {type(lat).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in lat):
+            raise ValueError(f"'lat' should contain just float.")
+        if len(lat) != len(lon):
+            raise ValueError(f"'lon' and 'lat' should have the same lenght.")
+
+        if not pd.api.types.is_list_like(u):
+            raise ValueError(
+                f"'u' should be a tuple or list, not a {type(u).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in u):
+            raise ValueError(f"'u' should contain just float.")
+        if len(u) != len(lat):
+            raise ValueError(f"'u' should have a length of {lat}, but has {len(u)}.")
+
+        if not pd.api.types.is_list_like(v):
+            raise ValueError(
+                f"'v' should be a tuple or list, not a {type(v).__name__}."
+            )
+        if not all(isinstance(x, (int, float)) for x in v):
+            raise ValueError(f"'v' should contain just float.")
+        if len(v) != len(lat):
+            raise ValueError(f"'v' should have a length of {lat}, but has {len(v)}.")
+
+        if not isinstance(length, (float, int)):
+            raise ValueError(
+                f"'lenght' should be a float, not a {type(length).__name__}."
+            )
+
+        if not isinstance(lw, (float, int)):
+            raise ValueError(f"'lw' should be a float, not a {type(lw).__name__}.")
+
+        if not isinstance(ax, int):
+            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+        if ax >= len(self.ax.flat):
+            raise ValueError(
+                f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
+            )
+
+        if plot_parameters == None:
+            plot_parameters = {}
+        if not isinstance(plot_parameters, dict):
+            raise ValueError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
+
+        u = np.array(u) * 1.94384
+        v = np.array(v) * 1.94384
+
+        df = pd.DataFrame({"latitude": lat, "longitude": lon, "u": u, "v": v})
+        gdf = gpd.GeoDataFrame(
+            df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326"
+        )
+        gdf: gpd.GeoDataFrame = gdf.to_crs(ccrs.Mercator().proj4_init)
+
+        title: str = self.ax.flat[ax].get_title()
+        xlabel: str = self.ax.flat[ax].get_xlabel()
+        ylabel: str = self.ax.flat[ax].get_ylabel()
+
+        plot_parameters["x"] = gdf["geometry"].x
+        plot_parameters["y"] = gdf["geometry"].y
+        plot_parameters["u"] = gdf["u"]
+        plot_parameters["v"] = gdf["v"]
+        plot_parameters["length"] = length
+        plot_parameters["linewidth"] = lw
+        self.ax.flat[ax].barbs(**plot_parameters)
+
+        self.ax.flat[ax].set_title(title)
+        self.ax.flat[ax].set_xlabel(xlabel)
+        self.ax.flat[ax].set_ylabel(ylabel)
+
+        return self
+
+    def get_ax(self) -> np.ndarray[GeoAxes]:
+        """Returns an array of the axis/axes.
+
+        Returns:
+            np.ndarray[GeoAxes]: An array of the axis/axes.
+        """
+        return self.ax
+
+    def get_fig(self) -> Figure:
+        """Returns the mathplotlib.figure.Figure
+
+        Returns:
+            mathplotlib.figure.Figure: Figure of the plt.subplot.
+        """
+        return self.fig
+
+
+############################################################################
+# UAV FUNCTIONS
+############################################################################
