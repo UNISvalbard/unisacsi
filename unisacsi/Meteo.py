@@ -13,7 +13,7 @@ meteorological instrument data. This includes:
 The functions were developed at the University Centre in Svalbard. They were
 optimized for the file formats typically used in the UNIS courses.
 """
-
+# %%
 
 import unisacsi
 import pandas as pd
@@ -25,6 +25,9 @@ import numpy as np
 import cmocean as cmo
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.contour import QuadContourSet
+from matplotlib.colorbar import Colorbar
 from matplotlib.figure import Figure
 from shapely.geometry import LineString
 from shapely.errors import GEOSException
@@ -73,27 +76,6 @@ generall_variables: list[str] = [
     "SW",
     "precip",
 ]
-generall_units: list[str] = ["degC", "%RH", "m/s", "deg", "hPa", "W/m^2", "W/m^2", "mm"]
-
-# Remove:
-met_file = "/Users/pselle/Documents/Uni/Svalbard/AGF-214/DATA/Weather/table-3.csv"
-met_dst_w = (
-    "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/1st_oct_dst.csv"
-)
-met_norsk = (
-    "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/table_norsk.csv"
-)
-cambell_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/MaggieMay/*.dat"
-eddypro_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/eddypro_1_full_output_2024-04-06T104841_adv.csv"
-TT_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/UAV_data/20240830_SST_Abbey/TT_Bonnie_202408302030.txt"
-TH_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/Stan/TH_Stan_full.txt"
-CEB_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/Rosanna/CEB_Rosanna_full.txt"
-Test_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/TT_CEB.txt"
-HOBO_p = "/Users/pselle/Documents/Uni/Svalbard/AGF-213/unisacsi_example_data/AWS_Hobo/HOBO_20210913.txt"
-Rain_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/Eileen/HOBOrain_Eileen_full.txt"
-iwin_p = "/Users/pselle/Documents/Uni/Svalbard/AGF-213/unisacsi_example_data/IWIN/lighthouse_AWS_1884_Table_1min_20220701.nc"
-imet_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/STUDENTS_READ_ONLY/FIELDWORK/DATA/2024_DATA/Petuniabukta/Data_final/UAV_data/20240830_VP_a1/imet_Lucy_VP_a1_20240830.csv"
-radiosonde_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/2023-09-07_1251.raw_history.csv"
 
 ############################################################################
 # READING FUNCTIONS
