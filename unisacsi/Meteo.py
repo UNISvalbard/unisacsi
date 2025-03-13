@@ -101,6 +101,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
         )
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"File not found: {filepath}")
+
     if filepath.endswith(".csv"):
         df: pd.DataFrame = pd.read_csv(
             filepath,
@@ -129,6 +130,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
                 for i in stations
             }
             return dic
+
     except KeyError:
         df["TIMESTAMP"] = df["Time(norwegian mean time)"] - pd.Timedelta("1h")
         df.set_index("TIMESTAMP", inplace=True)
@@ -923,14 +925,14 @@ def download_IWIN_from_THREDDS(
     """Function to download data from one IWIN station and save it locally in a netCDF file.
 
     Args:
-        station_name (str | iwin_stations): String specifying the station.
+        station_name (str): String specifying the station.
             - Available options are MSBerg (2023-), MSBard (2021-2022), MSPolargirl, MSBillefjord, RVHannaResvoll (2024-), Bohemanneset (2021-), Narveneset (2022-), Daudmannsodden (2022-), Gåsøyane (2022-), KappThordsen (2023-).
         start_time (str): String specifying the first hour to download. Format YYYY-MM-DD HH.
         end_time (str): String specifying the last hour (included) to download. Format YYYY-MM-DD HH.
             - If you wish to download data from exactly one day, set HH=23, 00 from the following day.
         local_out_path (str, optional): String specifying the path to the folder where the data should be saved. The default is the current working directory.
             - Don't add a file name here, the file name will be given automatically from the script.
-        resolution (str | {'20sec', '1min', '10min'}, optional): String specifying the temporal resolution of the time series to download. Defaults to "1min".
+        resolution (str, optional): String specifying the temporal resolution of the time series to download. Defaults to "1min".
             - Available options are '1min' and '10min' for lighthouse stations and additionally '20sec' for mobile stations.
 
     Returns:
@@ -1265,9 +1267,9 @@ class MapGenerator:
 
         Args:
             option (int): Switch to distinguish different resolutions. Valid options:
-                0 : Low resolution coastline based on the cartopy database.
-                1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute.
-                2 : High resolution (100 m) based on data from the Norwegian Polar Institute.
+                0 : Low resolution based on the cartopy database
+                1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute
+                2 : High resolution (100 m) based on data from the Norwegian Polar Institute
                 3 : Uses 'custom_path' for map data.
             color (str or RGB or RGBA): Color for the land patches.
             ax (int, optional): Gives the position for which map the land fill is added. Defaults to 0.
@@ -2416,11 +2418,15 @@ class MapGenerator:
             )
         else:
             single_color = True
+            color_values = False
         if pd.api.types.is_list_like(color):
             single_color: bool = False  # to see if it is a RGB or RGBA
             if len(color) == 3 or len(color) == 4:
                 if not any(
-                    [(pd.api.types.is_array_like(x) or isinstance(str)) for x in color]
+                    [
+                        (pd.api.types.is_array_like(x) or isinstance(x, str))
+                        for x in color
+                    ]
                 ):
                     if all([(x <= 1 and x >= 0) for x in color]):
                         single_color = True
@@ -2430,8 +2436,6 @@ class MapGenerator:
                 )
             if all([isinstance(x, (float, int)) for x in color]):
                 color_values: bool = True
-            else:
-                color_values = False
 
         if not (isinstance(size, (float, int)) or pd.api.types.is_list_like(size)):
             raise ValueError(
