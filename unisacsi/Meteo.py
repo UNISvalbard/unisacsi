@@ -2192,7 +2192,7 @@ class MapGenerator:
             layers = [
                 "Land",
                 "Vann",
-                "Hav" "Elvesletter",
+                "Elvesletter",
                 "Isbreer",
                 "Morener",
                 "TekniskSituasjon",
@@ -2207,7 +2207,6 @@ class MapGenerator:
 
         self.ax.flat[ax].set_facecolor("#FFFFFF")
         for layer in layers:
-            print(layer)
             input_file: str = f"{path_mapdata}NP_S{res}_SHP/S{res}_{layer}_f.shp"
             with warnings.catch_warnings():
                 warnings.filterwarnings(
@@ -2430,11 +2429,11 @@ class MapGenerator:
                 ):
                     if all([(x <= 1 and x >= 0) for x in color]):
                         single_color = True
-            if len(color) != len(lat) and not single_color:
+            elif len(color) != len(lat) and not single_color:
                 raise ValueError(
                     f"'color' has not enough values for every point. Needs {len(lat)}, but has {len(color)}."
                 )
-            if all([isinstance(x, (float, int)) for x in color]):
+            elif all([isinstance(x, (float, int)) for x in color]):
                 color_values: bool = True
 
         if not (isinstance(size, (float, int)) or pd.api.types.is_list_like(size)):
