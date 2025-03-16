@@ -48,7 +48,7 @@ conda activate myenv
 
 Two more packages can only be installed using pip. The first one you will need to process RBR data, the second one provides functionality to do tidal harmonic analyses.
 ```
-pip install pyrsktools
+pip install pyrsktools==1.1.1
 pip install uptide
 pip install seabird
 ```
