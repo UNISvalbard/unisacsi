@@ -22,6 +22,7 @@ import xarray as xr
 import glob
 import geopandas as gpd
 import numpy as np
+import numpy.typing as npt
 import cmocean as cmo
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -1391,7 +1392,7 @@ class MapGenerator:
             | tuple[float, float, float, float]
             | LinearSegmentedColormap
         ),
-        contour_params: float | tuple[float] | list[float],
+        contour_params: float | npt.ArrayLike,
         ax: int = 0,
         path_mapdata: str = ...,
         plot_parameters: dict[str, Any] = None,
@@ -1411,7 +1412,7 @@ class MapGenerator:
             color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with option 0).
             contour_params (float or array_like): At which levels contour levels shoud be.
                 - single value : Resolution (distance between contour levels) of the bathymetry.
-                - array_lke : Contour levels of the bathymetry.
+                - array_like : Contour levels of the bathymetry.
             ax (int, optional): Gives the position for which map the bathymetry is added. Defaults to 0.
                 - Starts to count from 0 and continues like the normal reading flow.
             path_mapdata (str, optional): Absolute or relative path to the directory including the map data. Defaults to not set.
@@ -1523,7 +1524,7 @@ class MapGenerator:
                 1.0,
                 contour_params,
             )
-        elif pd.api.types.is_list_like(contour_params):
+        elif pd.api.types.is_array_like(contour_params):
             if not all([isinstance(x, (int, float)) for x in contour_params]):
                 raise ValueError(f"List of 'contour_params' shout just contain floats.")
             else:
@@ -1620,7 +1621,7 @@ class MapGenerator:
             | tuple[float, float, float, float]
             | LinearSegmentedColormap
         ),
-        contour_params: float | tuple[float] | list[float],
+        contour_params: float | npt.ArrayLike,
         ax: int = 0,
         path_mapdata: str = ...,
         plot_parameters: dict[str, Any] = None,
@@ -1759,7 +1760,7 @@ class MapGenerator:
                     contour_params * np.floor(np.nanmin(bathy) / contour_params),
                     contour_params * np.ceil(np.nanmax(bathy) / contour_params),
                 )
-        elif pd.api.types.is_list_like(contour_params):
+        elif pd.api.types.is_array_like(contour_params):
             if option != 0:
                 raise ValueError(f"Lists or tuples can only be used with option 0.")
             if not all([isinstance(x, (int, float)) for x in contour_params]):
@@ -1858,7 +1859,7 @@ class MapGenerator:
             | tuple[float, float, float, float]
             | LinearSegmentedColormap
         ),
-        contour_params: float | tuple[float] | list[float],
+        contour_params: float | npt.ArrayLike,
         ax: int = 0,
         path_mapdata: str = ...,
         plot_parameters: dict[str, Any] = None,
@@ -1999,7 +2000,7 @@ class MapGenerator:
                 contour_params * np.ceil(np.nanmax(dem) / contour_params) + 1.0,
                 contour_params,
             )
-        elif pd.api.types.is_list_like(contour_params):
+        elif pd.api.types.is_array_like(contour_params):
             if not all([isinstance(x, (int, float)) for x in contour_params]):
                 raise ValueError(f"List of 'contour_params' shout just contain floats.")
             else:
@@ -2247,8 +2248,8 @@ class MapGenerator:
 
     def add_crosssection_line(
         self,
-        lat: list[float],
-        lon: list[float],
+        lat: npt.ArrayLike,
+        lon: npt.ArrayLike,
         color: (
             str | tuple[float, float, float] | tuple[float, float, float, float]
         ) = "k",
@@ -2274,13 +2275,13 @@ class MapGenerator:
             MapGenerator
         """
 
-        if not pd.api.types.is_list_like(lon):
+        if not pd.api.types.is_array_like(lon):
             raise ValueError(
                 f"'lon' should be a array_like, not a {type(lon).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lon):
             raise ValueError(f"'lon' should contain just float.")
-        if not pd.api.types.is_list_like(lat):
+        if not pd.api.types.is_array_like(lat):
             raise ValueError(
                 f"'lat' should be a array_like, not a {type(lat).__name__}."
             )
@@ -2335,10 +2336,10 @@ class MapGenerator:
 
     def add_points(
         self,
-        lat: list[float],
-        lon: list[float],
+        lat: npt.ArrayLike,
+        lon: npt.ArrayLike,
         color: str | tuple[float, float, float] | tuple[float, float, float, float],
-        size: float | list[float],
+        size: float | npt.ArrayLike,
         ax: int = 0,
         cbar_label: str = ...,
         point_label_title: str = ...,
@@ -2396,15 +2397,15 @@ class MapGenerator:
                 - If more_custom = True: Returns a tuple with extra objects.
         """
 
-        if not pd.api.types.is_list_like(lon):
+        if not pd.api.types.is_array_like(lon):
             raise ValueError(
-                f"'lon' should be a tuple or list, not a {type(lon).__name__}."
+                f"'lon' should be a array_like, not a {type(lon).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lon):
             raise ValueError(f"'lon' should contain just float.")
-        if not pd.api.types.is_list_like(lat):
+        if not pd.api.types.is_array_like(lat):
             raise ValueError(
-                f"'lat' should be a tuple or list, not a {type(lat).__name__}."
+                f"'lat' should be a array_like, not a {type(lat).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lat):
             raise ValueError(f"'lat' should contain just float.")
@@ -2436,7 +2437,7 @@ class MapGenerator:
             elif all([isinstance(x, (float, int)) for x in color]):
                 color_values: bool = True
 
-        if not (isinstance(size, (float, int)) or pd.api.types.is_list_like(size)):
+        if not (isinstance(size, (float, int)) or pd.api.types.is_array_like(size)):
             raise ValueError(
                 f"'size' should be a float or array_like, not a {type(color).__name__}."
             )
@@ -2489,9 +2490,9 @@ class MapGenerator:
 
         if point_labels != ...:
             if not pd.api.types.is_list_like(point_labels):
-                raise ValueError(f"'point_labels' should be array_like.")
+                raise ValueError(f"'point_labels' should be a list.")
             if "size" in point_label_parameters.keys():
-                if not pd.api.types.is_list_like(point_label_parameters["size"]):
+                if not pd.api.types.is_array_like(point_label_parameters["size"]):
                     raise ValueError(
                         f"'size' in 'point_label_parameters' should be array_like."
                     )
@@ -2605,8 +2606,8 @@ class MapGenerator:
 
     def add_wind_arrows(
         self,
-        lat: list[float],
-        lon: list[float],
+        lat: npt.ArrayLike,
+        lon: npt.ArrayLike,
         u: list[float],
         v: list[float],
         length: float = 10,
@@ -2639,16 +2640,12 @@ class MapGenerator:
             MapGenerator
         """
 
-        if not pd.api.types.is_list_like(lon):
-            raise ValueError(
-                f"'lon' should be a tuple or list, not a {type(lon).__name__}."
-            )
+        if not pd.api.types.is_array_like(lon):
+            raise ValueError(f"'lon' should be array_like, not a {type(lon).__name__}.")
         if not all(isinstance(x, (int, float)) for x in lon):
             raise ValueError(f"'lon' should contain just float.")
-        if not pd.api.types.is_list_like(lat):
-            raise ValueError(
-                f"'lat' should be a tuple or list, not a {type(lat).__name__}."
-            )
+        if not pd.api.types.is_array_like(lat):
+            raise ValueError(f"'lat' should be array_like, not a {type(lat).__name__}.")
         if not all(isinstance(x, (int, float)) for x in lat):
             raise ValueError(f"'lat' should contain just float.")
         if len(lat) != len(lon):
