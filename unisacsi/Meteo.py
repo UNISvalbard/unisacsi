@@ -55,8 +55,7 @@ rename_dict: dict[str, str] = {
     "relative_humidity": "RH",
     "rel_humidity": "RH",
     "Relative humidity (%)": "RH [%RH]",
-    "speed": "V",
-    "Speed": "V",
+    "speed": "Speed",
     "direction": "Dir",
     "Direction": "Dir",
     "pressure": "p",
@@ -70,7 +69,7 @@ generall_variables: list[str] = [
     "T",
     "RH",
     "Humidity",
-    "V",
+    "Speed",
     "Dir",
     "p",
     "LW",
@@ -119,6 +118,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
 
     try:
         df["TIMESTAMP"] = df["Tid(norsk normaltid)"] - pd.Timedelta("1h")
+        df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
         df.set_index("TIMESTAMP", inplace=True)
         df.drop(["Tid(norsk normaltid)"], axis=1, inplace=True)
         stations: list = df["Navn"].unique().tolist()
@@ -134,6 +134,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
 
     except KeyError:
         df["TIMESTAMP"] = df["Time(norwegian mean time)"] - pd.Timedelta("1h")
+        df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
         df.set_index("TIMESTAMP", inplace=True)
         df.drop(["Time(norwegian mean time)"], axis=1, inplace=True)
         stations: list = df["Name"].unique().tolist()
@@ -203,6 +204,7 @@ def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
         na_values=["NAN"],
     )
     df: pd.DataFrame = d_df.compute()
+    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -302,6 +304,7 @@ def read_EddyPro_full_output(filepath: str) -> pd.DataFrame:
     df["TIMESTAMP"] = pd.to_datetime(
         df.pop("date") + " " + df.pop("time"), format=date_format + " " + time_format
     )
+    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -402,6 +405,7 @@ def read_Tinytag(
         )
 
     df: pd.DataFrame = d_df.compute()
+    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
     df.set_index("TIMESTAMP", inplace=True)
 
     for key in list(df.columns):
@@ -475,6 +479,7 @@ def read_HOBO(filepath: str, get_sn: bool = False) -> pd.DataFrame:
         df: pd.DataFrame = d_df.compute()
 
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
+    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -575,6 +580,7 @@ def read_Raingauge(filepath: str) -> pd.DataFrame:
         df: pd.DataFrame = d_df.compute()
 
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
+    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -611,12 +617,11 @@ def read_IWIN(filepath: str) -> xr.Dataset:
         xarray.Dataset: Dataset representing the netCDF file(s).
     """
 
-    files: list[str] = sorted(glob.glob(filepath))
-
     if not isinstance(filepath, str):
         raise TypeError(
             f"Expected filepath as a string, but got {type(filepath).__name__}."
         )
+    files: list[str] = sorted(glob.glob(filepath))
     if len(files) == 0:
         raise ValueError(f"No such file(s):'{filepath}'")
     for i in files:
@@ -641,17 +646,19 @@ def read_IWIN(filepath: str) -> xr.Dataset:
     )
     for old_name in imet_rename_dict.items():
         if "_" in old_name[1]:
-            old_name_split = old_name[1].split("_")
+            old_name_split: list[str] = old_name[1].split("_")
         else:
             old_name_split = []
-        existing_variable = [x for x in generall_variables if x in old_name_split]
+        existing_variable: list[str] = [
+            x for x in generall_variables if x in old_name_split
+        ]
         if len(existing_variable) == 1:
-            filterd_name = [
+            filterd_name: list[str] = [
                 x[0].lower() + x[1:]
                 for x in old_name_split
                 if x not in existing_variable
             ]
-            name = existing_variable + filterd_name
+            name: list[str] = existing_variable + filterd_name
             imet_rename_dict[old_name[0]] = "_".join(name)
         else:
             imet_rename_dict[old_name[0]] = old_name[1]
@@ -671,12 +678,11 @@ def read_AROME(filepath: str) -> xr.Dataset:
         xarray.Dataset: Dataset representing the netCDF file(s).
     """
 
-    files: list[str] = sorted(glob.glob(filepath))
-
     if not isinstance(filepath, str):
         raise TypeError(
             f"Expected filepath as a string, but got {type(filepath).__name__}."
         )
+    files: list[str] = sorted(glob.glob(filepath))
     if len(files) == 0:
         raise ValueError(f"No such file(s):'{filepath}'")
     for i in files:
@@ -701,13 +707,17 @@ def read_AROME(filepath: str) -> xr.Dataset:
     )
     for old_name in AROME_rename_dict.items():
         if "_" in old_name[1]:
-            old_name_split = old_name[1].split("_")
+            old_name_split: list[str] = old_name[1].split("_")
         else:
             old_name_split = []
-        existing_variable = [x for x in generall_variables if x in old_name_split]
+        existing_variable: list[str] = [
+            x for x in generall_variables if x in old_name_split
+        ]
         if len(existing_variable) == 1:
-            filterd_name = [x for x in old_name_split if x not in existing_variable]
-            name = existing_variable + filterd_name
+            filterd_name: list[str] = [
+                x for x in old_name_split if x not in existing_variable
+            ]
+            name: list[str] = existing_variable + filterd_name
             AROME_rename_dict[old_name[0]] = "_".join(name)
         else:
             AROME_rename_dict[old_name[0]] = old_name[1]
@@ -783,6 +793,7 @@ def read_radiosonde(
         inplace=True,
     )
     df.rename({"UTC time": "TIMESTAMP"}, axis=1, inplace=True)
+    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -1050,26 +1061,26 @@ class MapGenerator:
         if subplots_parameters is None:
             subplots_parameters = {}
         elif not isinstance(subplots_parameters, dict):
-            raise ValueError("'subplots_parameters' should be a dictionary.")
+            raise TypeError("'subplots_parameters' should be a dictionary.")
         if gridlines_parameters is None:
             gridlines_parameters = {"draw_labels": False}
         elif not isinstance(gridlines_parameters, dict):
-            raise ValueError("'gridlines_parameters' should be a dictionary.")
+            raise TypeError("'gridlines_parameters' should be a dictionary.")
         gridlines_parameters.setdefault("draw_labels", False)
         if len(lon_limits) != 2:
             raise ValueError(f"'lon_limits' should contain exactly two values.")
         if not all(isinstance(x, (int, float)) for x in lon_limits):
-            raise ValueError(f"'lon_limits' should contain just float.")
+            raise TypeError(f"'lon_limits' should contain just float.")
         if len(lat_limits) != 2:
             raise ValueError(f"'lat_limits' should contain exactly two values.")
         if not all(isinstance(x, (int, float)) for x in lat_limits):
-            raise ValueError(f"'lat_limits' should contain just float.")
+            raise TypeError(f"'lat_limits' should contain just float.")
         if not isinstance(nrows, int):
-            raise ValueError(f"'nrows' should be a int, not a {type(nrows).__name__}.")
+            raise TypeError(f"'nrows' should be a int, not a {type(nrows).__name__}.")
         if not isinstance(ncols, int):
-            raise ValueError(f"'nrows' should be a int, not a {type(ncols).__name__}.")
+            raise TypeError(f"'nrows' should be a int, not a {type(ncols).__name__}.")
         if not (isinstance(path_mapdata, str) or path_mapdata == ...):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not path_mapdata == ...:
@@ -1147,15 +1158,13 @@ class MapGenerator:
             MapGenerator
         """
         if not isinstance(option, int):
-            raise ValueError(
-                f"'option' should be a int, not a {type(option).__name__}."
-            )
+            raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
         if not isinstance(color, (str, tuple)):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color).__name__}."
             )
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -1169,7 +1178,7 @@ class MapGenerator:
                     f"'path_mapdata' needs to be set, if option 1 or 2 is selected."
                 )
         if not (isinstance(path_mapdata, str) or option == 0):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not (path_mapdata == ... or option == 0):
@@ -1186,7 +1195,7 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(f"'plot_parameters' should be a dictionary.")
+            raise TypeError(f"'plot_parameters' should be a dictionary.")
 
         title: str = self.ax.flat[ax].get_title()
         xlabel: str = self.ax.flat[ax].get_xlabel()
@@ -1225,7 +1234,7 @@ class MapGenerator:
             if custom_path == ...:
                 raise ValueError(f"'custom_path' needs to be set for option 3.")
             if not isinstance(custom_path, str):
-                raise ValueError(
+                raise TypeError(
                     f"'custom_path' should be a str, not a {type(custom_path).__name__}."
                 )
             if not os.path.isfile(custom_path):
@@ -1290,15 +1299,13 @@ class MapGenerator:
             MapGenerator
         """
         if not isinstance(option, int):
-            raise ValueError(
-                f"'option' should be a int, not a {type(option).__name__}."
-            )
+            raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
         if not isinstance(color, (str, tuple)):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color).__name__}."
             )
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -1312,7 +1319,7 @@ class MapGenerator:
                     f"'path_mapdata' needs to be set, if option 1 or 2 is selected."
                 )
         if not (isinstance(path_mapdata, str) or option == 0):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not (path_mapdata == ... or option == 0):
@@ -1329,7 +1336,7 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(f"'plot_parameters' should be a dictionary.")
+            raise TypeError(f"'plot_parameters' should be a dictionary.")
 
         title: str = self.ax.flat[ax].get_title()
         xlabel: str = self.ax.flat[ax].get_xlabel()
@@ -1359,7 +1366,7 @@ class MapGenerator:
             if custom_path == ...:
                 raise ValueError(f"'custom_path' needs to be set for option 3.")
             if not isinstance(custom_path, str):
-                raise ValueError(
+                raise TypeError(
                     f"'custom_path' should be a str, not a {type(custom_path).__name__}."
                 )
             if not os.path.isfile(custom_path):
@@ -1443,19 +1450,17 @@ class MapGenerator:
                 - If more_custom = True: Returns a tuple with extra objects.
         """
         if not isinstance(option, int):
-            raise ValueError(
-                f"'option' should be a int, not a {type(option).__name__}."
-            )
+            raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
 
         if not isinstance(
             color_contourlines, (str, tuple, mpl.colors.LinearSegmentedColormap)
         ):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color_contourlines).__name__}."
             )
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -1467,7 +1472,7 @@ class MapGenerator:
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
         if not (isinstance(path_mapdata, str) or option == 0):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not path_mapdata == ...:
@@ -1484,20 +1489,20 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
         if label_parameters == None:
             label_parameters = {}
         if not isinstance(label_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
             )
 
         if not isinstance(more_custom, bool):
-            raise ValueError(
-                f"'more_custom' schould be a bool, not a {type(more_custom).__name__}."
+            raise TypeError(
+                f"'more_custom' should be a bool, not a {type(more_custom).__name__}."
             )
 
         title: str = self.ax.flat[ax].get_title()
@@ -1524,7 +1529,7 @@ class MapGenerator:
                 1.0,
                 contour_params,
             )
-        elif pd.api.types.is_array_like(contour_params):
+        elif pd.api.types.is_list_like(contour_params):
             if not all([isinstance(x, (int, float)) for x in contour_params]):
                 raise ValueError(f"List of 'contour_params' shout just contain floats.")
             else:
@@ -1539,7 +1544,7 @@ class MapGenerator:
                     )
                 levels = np.array(contour_params)
         else:
-            raise ValueError(
+            raise TypeError(
                 f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
             )
 
@@ -1576,14 +1581,14 @@ class MapGenerator:
             label_parameters.setdefault("extend", "neither")
             tick_parameters: dict[str, Any] = label_parameters.pop("tick_params", {})
             if not isinstance(tick_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'tick_parameters' in 'label_parameters' should be a dict, not a {type(tick_parameters).__name__}."
                 )
             set_ylabel_parameters: dict[str, Any] = label_parameters.pop(
                 "set_ylabel", {}
             )
             if not isinstance(set_ylabel_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'set_ylabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
                 )
             cbar: plt.Colorbar = plt.colorbar(**label_parameters)
@@ -1672,19 +1677,17 @@ class MapGenerator:
                 - If more_custom = True: Returns a tuple with extra objects.
         """
         if not isinstance(option, int):
-            raise ValueError(
-                f"'option' should be a int, not a {type(option).__name__}."
-            )
+            raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
 
         if not isinstance(
             color_contourlines, (str, tuple, mpl.colors.LinearSegmentedColormap)
         ):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color_contourlines).__name__}."
             )
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -1696,7 +1699,7 @@ class MapGenerator:
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
         if not (isinstance(path_mapdata, str) or option == 0):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not path_mapdata == ...:
@@ -1713,20 +1716,20 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
         if label_parameters == None:
             label_parameters = {}
         if not isinstance(label_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
             )
 
         if not isinstance(more_custom, bool):
-            raise ValueError(
-                f"'more_custom' schould be a bool, not a {type(more_custom).__name__}."
+            raise TypeError(
+                f"'more_custom' should be a bool, not a {type(more_custom).__name__}."
             )
 
         title: str = self.ax.flat[ax].get_title()
@@ -1760,7 +1763,7 @@ class MapGenerator:
                     contour_params * np.floor(np.nanmin(bathy) / contour_params),
                     contour_params * np.ceil(np.nanmax(bathy) / contour_params),
                 )
-        elif pd.api.types.is_array_like(contour_params):
+        elif pd.api.types.is_list_like(contour_params):
             if option != 0:
                 raise ValueError(f"Lists or tuples can only be used with option 0.")
             if not all([isinstance(x, (int, float)) for x in contour_params]):
@@ -1777,7 +1780,7 @@ class MapGenerator:
                     )
                 levels = np.array(contour_params)
         else:
-            raise ValueError(
+            raise TypeError(
                 f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
             )
 
@@ -1814,14 +1817,14 @@ class MapGenerator:
             label_parameters.setdefault("extend", "neither")
             tick_parameters: dict[str, Any] = label_parameters.pop("tick_params", {})
             if not isinstance(tick_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'tick_parameters' in 'label_parameters' should be a dict, not a {type(tick_parameters).__name__}."
                 )
             set_ylabel_parameters: dict[str, Any] = label_parameters.pop(
                 "set_ylabel", {}
             )
             if not isinstance(set_ylabel_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'set_ylabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
                 )
             cbar: plt.Colorbar = plt.colorbar(**label_parameters)
@@ -1913,19 +1916,17 @@ class MapGenerator:
                 - If more_custom = True: Returns a tuple with extra objects.
         """
         if not isinstance(option, int):
-            raise ValueError(
-                f"'option' should be a int, not a {type(option).__name__}."
-            )
+            raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
 
         if not isinstance(
             color_contourlines, (str, tuple, mpl.colors.LinearSegmentedColormap)
         ):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color_contourlines).__name__}."
             )
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -1937,7 +1938,7 @@ class MapGenerator:
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
         if not (isinstance(path_mapdata, str) or option == 0):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not path_mapdata == ...:
@@ -1954,20 +1955,20 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
         if label_parameters == None:
             label_parameters = {}
         if not isinstance(label_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
             )
 
         if not isinstance(more_custom, bool):
-            raise ValueError(
-                f"'more_custom' schould be a bool, not a {type(more_custom).__name__}."
+            raise TypeError(
+                f"'more_custom' should be a bool, not a {type(more_custom).__name__}."
             )
 
         title: str = self.ax.flat[ax].get_title()
@@ -2000,7 +2001,7 @@ class MapGenerator:
                 contour_params * np.ceil(np.nanmax(dem) / contour_params) + 1.0,
                 contour_params,
             )
-        elif pd.api.types.is_array_like(contour_params):
+        elif pd.api.types.is_list_like(contour_params):
             if not all([isinstance(x, (int, float)) for x in contour_params]):
                 raise ValueError(f"List of 'contour_params' shout just contain floats.")
             else:
@@ -2015,7 +2016,7 @@ class MapGenerator:
                     )
                 levels = np.array(contour_params)
         else:
-            raise ValueError(
+            raise TypeError(
                 f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
             )
 
@@ -2055,14 +2056,14 @@ class MapGenerator:
             label_parameters.setdefault("extend", "neither")
             tick_parameters: dict[str, Any] = label_parameters.pop("tick_params", {})
             if not isinstance(tick_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'tick_parameters' in 'label_parameters' should be a dict, not a {type(tick_parameters).__name__}."
                 )
             set_ylabel_parameters: dict[str, Any] = label_parameters.pop(
                 "set_ylabel", {}
             )
             if not isinstance(set_ylabel_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'set_ylabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
                 )
             cbar: plt.Colorbar = plt.colorbar(**label_parameters)
@@ -2128,12 +2129,10 @@ class MapGenerator:
         """
 
         if not isinstance(option, int):
-            raise ValueError(
-                f"'option' should be a int, not a {type(option).__name__}."
-            )
+            raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -2145,7 +2144,7 @@ class MapGenerator:
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
         if not (isinstance(path_mapdata, str) or option == 0):
-            raise ValueError(
+            raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
         elif not path_mapdata == ...:
@@ -2162,7 +2161,7 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
@@ -2229,7 +2228,7 @@ class MapGenerator:
                 )
             layer_plot_parameters: dict[str, Any] = plot_parameters.pop(layer, {})
             if not isinstance(layer_plot_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"In 'plot_parameters' the key '{layer}' as an invailed value. The value should be a dictionary, not a {type(plot_parameters).__name__}."
                 )
             layer_plot_parameters["ax"] = self.ax.flat[ax]
@@ -2275,28 +2274,28 @@ class MapGenerator:
             MapGenerator
         """
 
-        if not pd.api.types.is_array_like(lon):
-            raise ValueError(
+        if not pd.api.types.is_list_like(lon):
+            raise TypeError(
                 f"'lon' should be a array_like, not a {type(lon).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lon):
-            raise ValueError(f"'lon' should contain just float.")
-        if not pd.api.types.is_array_like(lat):
-            raise ValueError(
+            raise TypeError(f"'lon' should contain just float.")
+        if not pd.api.types.is_list_like(lat):
+            raise TypeError(
                 f"'lat' should be a array_like, not a {type(lat).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lat):
-            raise ValueError(f"'lat' should contain just float.")
+            raise TypeError(f"'lat' should contain just float.")
         if len(lat) != len(lon):
             raise ValueError(f"'lon' and 'lat' should have the same lenght.")
 
         if not isinstance(color, (str, tuple)):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color).__name__}."
             )
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -2305,7 +2304,7 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
@@ -2397,23 +2396,23 @@ class MapGenerator:
                 - If more_custom = True: Returns a tuple with extra objects.
         """
 
-        if not pd.api.types.is_array_like(lon):
-            raise ValueError(
+        if not pd.api.types.is_list_like(lon):
+            raise TypeError(
                 f"'lon' should be a array_like, not a {type(lon).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lon):
-            raise ValueError(f"'lon' should contain just float.")
-        if not pd.api.types.is_array_like(lat):
-            raise ValueError(
+            raise TypeError(f"'lon' should contain just float.")
+        if not pd.api.types.is_list_like(lat):
+            raise TypeError(
                 f"'lat' should be a array_like, not a {type(lat).__name__}."
             )
         if not all(isinstance(x, (int, float)) for x in lat):
-            raise ValueError(f"'lat' should contain just float.")
+            raise TypeError(f"'lat' should contain just float.")
         if len(lat) != len(lon):
             raise ValueError(f"'lon' and 'lat' should have the same lenght.")
 
         if not (isinstance(color, str) or pd.api.types.is_list_like(color)):
-            raise ValueError(
+            raise TypeError(
                 f"'color' should be a str or array_like, not a {type(color).__name__}."
             )
         else:
@@ -2424,7 +2423,7 @@ class MapGenerator:
             if len(color) == 3 or len(color) == 4:
                 if not any(
                     [
-                        (pd.api.types.is_array_like(x) or isinstance(x, str))
+                        (pd.api.types.is_list_like(x) or isinstance(x, str))
                         for x in color
                     ]
                 ):
@@ -2437,8 +2436,8 @@ class MapGenerator:
             elif all([isinstance(x, (float, int)) for x in color]):
                 color_values: bool = True
 
-        if not (isinstance(size, (float, int)) or pd.api.types.is_array_like(size)):
-            raise ValueError(
+        if not (isinstance(size, (float, int)) or pd.api.types.is_list_like(size)):
+            raise TypeError(
                 f"'size' should be a float or array_like, not a {type(color).__name__}."
             )
         single_size: bool = True
@@ -2451,56 +2450,56 @@ class MapGenerator:
                 single_size = False
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
             )
 
         if not isinstance(cbar_label, str) and not cbar_label == ...:
-            raise ValueError(
+            raise TypeError(
                 f"'cbar_label' should be a str, not a {type(cbar_label).__name__}."
             )
 
         if not isinstance(point_label_title, str) and not point_label_title == ...:
-            raise ValueError(
+            raise TypeError(
                 f"'point_label' should be a str, not a {type(point_label_title).__name__}."
             )
 
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
         if label_parameters == None:
             label_parameters = {}
         if not isinstance(label_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'label_parameters' should be a dictionary, not a {type(label_parameters).__name__}."
             )
 
         if point_label_parameters == None:
             point_label_parameters = {}
         if not isinstance(point_label_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'point_label_parameters' should be a dictionary, not a {type(point_label_parameters).__name__}."
             )
 
         if point_labels != ...:
             if not pd.api.types.is_list_like(point_labels):
-                raise ValueError(f"'point_labels' should be a list.")
+                raise TypeError(f"'point_labels' should be a list.")
             if "size" in point_label_parameters.keys():
-                if not pd.api.types.is_array_like(point_label_parameters["size"]):
-                    raise ValueError(
+                if not pd.api.types.is_list_like(point_label_parameters["size"]):
+                    raise TypeError(
                         f"'size' in 'point_label_parameters' should be array_like."
                     )
                 else:
                     len_legend: int = len(point_label_parameters["size"])
             elif "num" in point_label_parameters.keys():
                 if not isinstance(point_label_parameters["num"]):
-                    raise ValueError(
+                    raise TypeError(
                         f"'num' in 'point_label_parameters' should be a int, not a {type(point_label_parameters['num']).__name__}."
                     )
                 else:
@@ -2553,14 +2552,14 @@ class MapGenerator:
             label_parameters.setdefault("orientation", "horizontal")
             tick_params: dict[str, Any] = label_parameters.pop("tick_params", {})
             if not isinstance(tick_params, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'tick_params' in 'label_parameters' should be a dict, not a {type(tick_params).__name__}."
                 )
             set_xlabel_parameters: dict[str, Any] = label_parameters.pop(
                 "set_xlabel", {}
             )
             if not isinstance(set_xlabel_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'set_xlabel_parameters' in 'label_parameters' should be a dict, not a {type(set_ylabel_parameters).__name__}."
                 )
             cbar: Colorbar = plt.colorbar(**label_parameters)
@@ -2575,7 +2574,7 @@ class MapGenerator:
                 "legend_parameters", {}
             )
             if not isinstance(legend_parameters, dict):
-                raise ValueError(
+                raise TypeError(
                     f"'legend_parameters' in 'point_label_parameters' should be a dict, not a {type(legend_parameters).__name__}."
                 )
             point_label_parameters.setdefault("prop", "sizes")
@@ -2640,45 +2639,41 @@ class MapGenerator:
             MapGenerator
         """
 
-        if not pd.api.types.is_array_like(lon):
-            raise ValueError(f"'lon' should be array_like, not a {type(lon).__name__}.")
+        if not pd.api.types.is_list_like(lon):
+            raise TypeError(f"'lon' should be array_like, not a {type(lon).__name__}.")
         if not all(isinstance(x, (int, float)) for x in lon):
-            raise ValueError(f"'lon' should contain just float.")
-        if not pd.api.types.is_array_like(lat):
-            raise ValueError(f"'lat' should be array_like, not a {type(lat).__name__}.")
+            raise TypeError(f"'lon' should contain just float.")
+        if not pd.api.types.is_list_like(lat):
+            raise TypeError(f"'lat' should be array_like, not a {type(lat).__name__}.")
         if not all(isinstance(x, (int, float)) for x in lat):
-            raise ValueError(f"'lat' should contain just float.")
+            raise TypeError(f"'lat' should contain just float.")
         if len(lat) != len(lon):
-            raise ValueError(f"'lon' and 'lat' should have the same lenght.")
+            raise TypeError(f"'lon' and 'lat' should have the same lenght.")
 
         if not pd.api.types.is_list_like(u):
-            raise ValueError(
-                f"'u' should be a tuple or list, not a {type(u).__name__}."
-            )
+            raise TypeError(f"'u' should be a tuple or list, not a {type(u).__name__}.")
         if not all(isinstance(x, (int, float)) for x in u):
-            raise ValueError(f"'u' should contain just float.")
+            raise TypeError(f"'u' should contain just float.")
         if len(u) != len(lat):
             raise ValueError(f"'u' should have a length of {lat}, but has {len(u)}.")
 
         if not pd.api.types.is_list_like(v):
-            raise ValueError(
-                f"'v' should be a tuple or list, not a {type(v).__name__}."
-            )
+            raise TypeError(f"'v' should be a tuple or list, not a {type(v).__name__}.")
         if not all(isinstance(x, (int, float)) for x in v):
-            raise ValueError(f"'v' should contain just float.")
+            raise TypeError(f"'v' should contain just float.")
         if len(v) != len(lat):
             raise ValueError(f"'v' should have a length of {lat}, but has {len(v)}.")
 
         if not isinstance(length, (float, int)):
-            raise ValueError(
+            raise TypeError(
                 f"'lenght' should be a float, not a {type(length).__name__}."
             )
 
         if not isinstance(lw, (float, int)):
-            raise ValueError(f"'lw' should be a float, not a {type(lw).__name__}.")
+            raise TypeError(f"'lw' should be a float, not a {type(lw).__name__}.")
 
         if not isinstance(ax, int):
-            raise ValueError(f"'ax' should be a int, not a {type(ax).__name__}.")
+            raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
             raise ValueError(
                 f"Invalid axis index {ax}, max index is {len(self.ax.flat)-1}"
@@ -2687,7 +2682,7 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise ValueError(
+            raise TypeError(
                 f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
             )
 
