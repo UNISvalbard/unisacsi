@@ -48,6 +48,11 @@ import logging
 import re
 
 
+############################################################################
+# VARIBLES
+############################################################################
+
+
 rename_dict: dict[str, str] = {
     "temperature": "T",
     "temp": "T",
@@ -58,6 +63,7 @@ rename_dict: dict[str, str] = {
     "speed": "Speed",
     "direction": "Dir",
     "Direction": "Dir",
+    "dir": "Dir",
     "pressure": "p",
     "Shortwave": "SW",
     "Longwave": "LW",
@@ -77,6 +83,14 @@ generall_variables: list[str] = [
     "precip",
 ]
 
+var_attr: list[str] = [
+    "max",
+    "min",
+    "std",
+    "var",
+    "mean",
+]
+
 ############################################################################
 # READING FUNCTIONS
 ############################################################################
@@ -85,6 +99,7 @@ generall_variables: list[str] = [
 def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
     """Reads data from a CSV file downloaded from seklima.met.no.
     Can handle CSV with multiple stations and one.
+    Standard variable names and convention are not used!
 
     Args:
         filepath (str): String with path to CSV file.
@@ -118,7 +133,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
 
     try:
         df["TIMESTAMP"] = df["Tid(norsk normaltid)"] - pd.Timedelta("1h")
-        df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+        df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
         df.set_index("TIMESTAMP", inplace=True)
         df.drop(["Tid(norsk normaltid)"], axis=1, inplace=True)
         stations: list = df["Navn"].unique().tolist()
@@ -134,7 +149,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
 
     except KeyError:
         df["TIMESTAMP"] = df["Time(norwegian mean time)"] - pd.Timedelta("1h")
-        df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+        df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
         df.set_index("TIMESTAMP", inplace=True)
         df.drop(["Time(norwegian mean time)"], axis=1, inplace=True)
         stations: list = df["Name"].unique().tolist()
@@ -151,6 +166,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
 
 def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
     """Reads data from one or several TOA5 files from Campbell data loggers.
+    Standard variable names and convention are used (e.g. T_1 [degC], T_air [degC]).
 
     Args:
         filepath (str): Path to one or more '.dat' file(s).
@@ -204,7 +220,7 @@ def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
         na_values=["NAN"],
     )
     df: pd.DataFrame = d_df.compute()
-    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -213,18 +229,21 @@ def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
     col_names: list[str] = []
     for col_name in df.columns:
         if "RH" in col_name:
-            col_name = col_name.replace("%", "%RH")
-        split_name = col_name.split(" ")
+            col_name: str = col_name.replace("%", "%RH")
+        split_name: list[str] = col_name.split(" ")
         if "SW" == split_name[0][0:2]:
             split_name[0] = f"SW_" + split_name[0][2:]
         elif "LW" == split_name[0][0:2]:
             split_name[0] = f"LW_" + split_name[0][2:]
         if len(split_name) == 2:
-            name = split_name[0].split("_")
-            existing_variable = [x for x in generall_variables if x in name]
+            name: list[str] = split_name[0].split("_")
+            existing_variable: list[str] = [x for x in generall_variables if x in name]
             if len(existing_variable) == 1:
-                filterd_name = [x for x in name if x not in existing_variable]
-                name = existing_variable + filterd_name
+                filterd_name: list[str] = [
+                    x for x in name if x not in existing_variable and x not in var_attr
+                ]
+                var_attr_name: list[str] = [x for x in name if x in var_attr]
+                name = existing_variable + filterd_name + var_attr_name
             split_name[0] = "_".join(name)
         col_names.append(" ".join(split_name))
     df.columns = col_names
@@ -234,6 +253,7 @@ def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
 
 def read_EddyPro_full_output(filepath: str) -> pd.DataFrame:
     """Reads data from one or several EddyPro full output file(s).
+    Standard variable names and convention are used (e.g. T_1 [degC], T_air [degC]).
 
     Args:
         filepath (str): Path to one or more '.csv' file(s).
@@ -304,9 +324,160 @@ def read_EddyPro_full_output(filepath: str) -> pd.DataFrame:
     df["TIMESTAMP"] = pd.to_datetime(
         df.pop("date") + " " + df.pop("time"), format=date_format + " " + time_format
     )
-    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
+
+    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+
+    col_names: list[str] = []
+    for col_name in df.columns:
+        if "RH" in col_name:
+            col_name: str = col_name.replace("%", "%RH")
+        split_name: list[str] = col_name.split(" ")
+        if "SW" == split_name[0][0:2]:
+            split_name[0] = f"SW_" + split_name[0][2:]
+        elif "LW" == split_name[0][0:2]:
+            split_name[0] = f"LW_" + split_name[0][2:]
+        if len(split_name) == 2:
+            name: list[str] = split_name[0].split("_")
+            existing_variable: list[str] = [x for x in generall_variables if x in name]
+            if len(existing_variable) == 1:
+                filterd_name: list[str] = [
+                    x for x in name if x not in existing_variable and x not in var_attr
+                ]
+                var_attr_name: list[str] = [x for x in name if x in var_attr]
+                name = existing_variable + filterd_name + var_attr_name
+            split_name[0] = "_".join(name)
+            # working on UNITS
+            if "[" in split_name[1] and "]" in split_name[1]:
+                if re.search(r"\d", split_name[1]):
+                    old_unit: str = split_name[1].strip("[]")
+                    plus_minus_index: list[int] = [
+                        i for i, x in enumerate(old_unit) if x in "+-"
+                    ]
+                    edit_unit: str = ""
+                    below: bool = False  # to check if we're already in the denominator
+                    last_pos_old_str: int = 0
+                    for position in plus_minus_index:
+                        digit_count: int = 0
+                        # count how many digits follow
+                        for i in range(position + 1, len(old_unit)):
+                            if old_unit[i].isdigit():
+                                digit_count += 1
+                            else:
+                                break
+                        if digit_count > 0:
+                            if old_unit[position] == "+":
+                                if (
+                                    old_unit[position + 1 : position + digit_count + 1]
+                                    == "1"
+                                ):
+                                    if last_pos_old_str != 0:
+                                        if not edit_unit[-1].isdigit():
+                                            edit_unit += (
+                                                "^1"
+                                                + old_unit[last_pos_old_str:position]
+                                            )
+                                        else:
+                                            edit_unit += old_unit[
+                                                last_pos_old_str:position
+                                            ]
+                                    else:
+                                        edit_unit += old_unit[last_pos_old_str:position]
+                                else:
+                                    edit_unit += (
+                                        old_unit[last_pos_old_str:position]
+                                        + "^"
+                                        + old_unit[
+                                            position + 1 : position + digit_count + 1
+                                        ]
+                                    )
+                            elif old_unit[position] == "-":
+                                if (
+                                    old_unit[position + 1 : position + digit_count + 1]
+                                    == "1"
+                                ):
+                                    if below:
+                                        if not edit_unit[-1].isdigit():
+                                            edit_unit += (
+                                                "^1"
+                                                + old_unit[last_pos_old_str:position]
+                                            )
+                                        else:
+                                            edit_unit += old_unit[
+                                                last_pos_old_str:position
+                                            ]
+                                    else:
+                                        if last_pos_old_str == 0:
+                                            edit_unit += (
+                                                "1/"
+                                                + old_unit[last_pos_old_str:position]
+                                            )
+                                        else:
+                                            edit_unit += (
+                                                "/"
+                                                + old_unit[last_pos_old_str:position]
+                                            )
+                                        below = True
+                                else:
+                                    if below:
+                                        if not edit_unit[-1].isdigit():
+                                            edit_unit += (
+                                                "^1"
+                                                + old_unit[last_pos_old_str:position]
+                                                + "^"
+                                                + old_unit[
+                                                    position
+                                                    + 1 : position
+                                                    + digit_count
+                                                    + 1
+                                                ]
+                                            )
+                                        else:
+                                            edit_unit += (
+                                                old_unit[last_pos_old_str:position]
+                                                + "^"
+                                                + old_unit[
+                                                    position
+                                                    + 1 : position
+                                                    + digit_count
+                                                    + 1
+                                                ]
+                                            )
+                                    else:
+                                        if last_pos_old_str == 0:
+                                            edit_unit += (
+                                                "1/"
+                                                + old_unit[last_pos_old_str:position]
+                                                + "^"
+                                                + old_unit[
+                                                    position
+                                                    + 1 : position
+                                                    + digit_count
+                                                    + 1
+                                                ]
+                                            )
+                                        else:
+                                            edit_unit += (
+                                                "/"
+                                                + old_unit[last_pos_old_str:position]
+                                                + "^"
+                                                + old_unit[
+                                                    position
+                                                    + 1 : position
+                                                    + digit_count
+                                                    + 1
+                                                ]
+                                            )
+                                        below = True
+                        last_pos_old_str = position + digit_count + 1
+                    if edit_unit == "":
+                        split_name[1] = old_unit
+                    else:
+                        split_name[1] = "[" + edit_unit + "]"
+        col_names.append(" ".join(split_name))
+    df.columns = col_names
 
     return df
 
@@ -315,6 +486,7 @@ def read_Tinytag(
     filepath: str, sensor: None | Literal["TT", "TH", "CEB"] = None
 ) -> pd.DataFrame:
     """Reads data from one or several data files from the Tinytag output files.
+    Standard variable names and convention are used (e.g. T_1 [degC], T_air [degC]).
 
     Args:
         filepath (str): Path to one or more '.txt' file(s).
@@ -405,7 +577,7 @@ def read_Tinytag(
         )
 
     df: pd.DataFrame = d_df.compute()
-    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
 
     for key in list(df.columns):
@@ -429,6 +601,7 @@ def read_Tinytag(
 
 def read_HOBO(filepath: str, get_sn: bool = False) -> pd.DataFrame:
     """Reads data from one or several data files from the HOBO output files.
+    Standard variable names and convention are used (e.g. T_1 [degC], T_air [degC]).
 
     Args:
         filepath (str): Path to one or more '.txt' file(s).
@@ -479,7 +652,7 @@ def read_HOBO(filepath: str, get_sn: bool = False) -> pd.DataFrame:
         df: pd.DataFrame = d_df.compute()
 
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
-    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -513,15 +686,16 @@ def read_HOBO(filepath: str, get_sn: bool = False) -> pd.DataFrame:
 
     col_names: list[str] = []
     for col_name in df.columns:
-        split_name = col_name.split(" ")
+        split_name: list[str] = col_name.split(" ")
         if len(split_name) == 2:
             name = split_name[0].split("_")
-            existing_variable = [x for x in generall_variables if x in name]
+            existing_variable: list[str] = [x for x in generall_variables if x in name]
             if len(existing_variable) == 1:
-                filterd_name = [
-                    x[0].lower() + x[1:] for x in name if x not in existing_variable
+                filterd_name: list[str] = [
+                    x for x in name if x not in existing_variable and x not in var_attr
                 ]
-                name = existing_variable + filterd_name
+                var_attr_name: list[str] = [x for x in name if x in var_attr]
+                name = existing_variable + filterd_name + var_attr_name
             split_name[0] = "_".join(name)
         col_names.append(" ".join(split_name))
     df.columns = col_names
@@ -580,7 +754,7 @@ def read_Raingauge(filepath: str) -> pd.DataFrame:
         df: pd.DataFrame = d_df.compute()
 
     df.rename({"Date Time, GMT+00:00": "TIMESTAMP"}, axis=1, inplace=True)
-    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -631,7 +805,6 @@ def read_IWIN(filepath: str) -> xr.Dataset:
             )
         if not i.endswith(".nc"):
             raise ValueError(f"Invalid file format: '{i}'. Expected a .nc file.")
-
     if len(files) == 1:
         with xr.open_dataset(files[0]) as f:
             ds: xr.Dataset = f.load()
@@ -656,9 +829,10 @@ def read_IWIN(filepath: str) -> xr.Dataset:
             filterd_name: list[str] = [
                 x[0].lower() + x[1:]
                 for x in old_name_split
-                if x not in existing_variable
+                if x not in existing_variable and x not in var_attr
             ]
-            name: list[str] = existing_variable + filterd_name
+            var_attr_name: list[str] = [x for x in old_name_split if x in var_attr]
+            name: list[str] = existing_variable + filterd_name + var_attr_name
             imet_rename_dict[old_name[0]] = "_".join(name)
         else:
             imet_rename_dict[old_name[0]] = old_name[1]
@@ -692,7 +866,6 @@ def read_AROME(filepath: str) -> xr.Dataset:
             )
         if not i.endswith(".nc"):
             raise ValueError(f"Invalid file format: '{i}'. Expected a .nc file.")
-
     if len(files) == 1:
         with xr.open_dataset(filepath) as f:
             ds: xr.Dataset = f.load()
@@ -715,9 +888,12 @@ def read_AROME(filepath: str) -> xr.Dataset:
         ]
         if len(existing_variable) == 1:
             filterd_name: list[str] = [
-                x for x in old_name_split if x not in existing_variable
+                x
+                for x in old_name_split
+                if x not in existing_variable and x not in var_attr
             ]
-            name: list[str] = existing_variable + filterd_name
+            var_attr_name: list[str] = [x for x in old_name_split if x in var_attr]
+            name: list[str] = existing_variable + filterd_name + var_attr_name
             AROME_rename_dict[old_name[0]] = "_".join(name)
         else:
             AROME_rename_dict[old_name[0]] = old_name[1]
@@ -754,6 +930,7 @@ def read_radiosonde(
             )
         if not i.endswith(".csv"):
             raise ValueError(f"Invalid file format: '{i}'. Expected a .csv file.")
+
     if not isinstance(date, str):
         raise TypeError(f"Expected date as a string, but got {type(date).__name__}.")
     try:
@@ -793,7 +970,7 @@ def read_radiosonde(
         inplace=True,
     )
     df.rename({"UTC time": "TIMESTAMP"}, axis=1, inplace=True)
-    df["TIMESTEMP"] = pd.to_datetime(df["TIMESTEMP"])
+    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
@@ -1062,23 +1239,29 @@ class MapGenerator:
             subplots_parameters = {}
         elif not isinstance(subplots_parameters, dict):
             raise TypeError("'subplots_parameters' should be a dictionary.")
+
         if gridlines_parameters is None:
             gridlines_parameters = {"draw_labels": False}
         elif not isinstance(gridlines_parameters, dict):
             raise TypeError("'gridlines_parameters' should be a dictionary.")
         gridlines_parameters.setdefault("draw_labels", False)
+
         if len(lon_limits) != 2:
             raise ValueError(f"'lon_limits' should contain exactly two values.")
         if not all(isinstance(x, (int, float)) for x in lon_limits):
-            raise TypeError(f"'lon_limits' should contain just float.")
+            raise TypeError(f"'lon_limits' should contain just floats.")
+
         if len(lat_limits) != 2:
             raise ValueError(f"'lat_limits' should contain exactly two values.")
         if not all(isinstance(x, (int, float)) for x in lat_limits):
-            raise TypeError(f"'lat_limits' should contain just float.")
+            raise TypeError(f"'lat_limits' should contain just floats.")
+
         if not isinstance(nrows, int):
             raise TypeError(f"'nrows' should be a int, not a {type(nrows).__name__}.")
+
         if not isinstance(ncols, int):
             raise TypeError(f"'nrows' should be a int, not a {type(ncols).__name__}.")
+
         if not (isinstance(path_mapdata, str) or path_mapdata == ...):
             raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
@@ -1139,6 +1322,7 @@ class MapGenerator:
                 1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute.
                 2 : High resolution (100 m) based on data from the Norwegian Polar Institute.
                 3 : Uses 'custom_path' for map data.
+                    - Needs a .shp file with the coastline data. (Projection should be WGS84)
             color (str or RGB or RGBA, optional): Color for the coastline. Defaults to "black".
             ax (int, optional): Gives the position for which map the coastline is added. Defaults to 0.
                 - Starts to count from 0 and continues like the normal reading flow.
@@ -1159,10 +1343,12 @@ class MapGenerator:
         """
         if not isinstance(option, int):
             raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
+
         if not isinstance(color, (str, tuple)):
             raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color).__name__}."
             )
+
         if not isinstance(ax, int):
             raise TypeError(f"'ax' should be a int, not a {type(ax).__name__}.")
         if ax >= len(self.ax.flat):
@@ -1281,6 +1467,7 @@ class MapGenerator:
                 1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute
                 2 : High resolution (100 m) based on data from the Norwegian Polar Institute
                 3 : Uses 'custom_path' for map data.
+                    - Needs a .shp file with the land data. (Projection should be WGS84)
             color (str or RGB or RGBA): Color for the land patches.
             ax (int, optional): Gives the position for which map the land fill is added. Defaults to 0.
                 - Starts to count from 0 and continues like the normal reading flow.
@@ -1300,6 +1487,7 @@ class MapGenerator:
         """
         if not isinstance(option, int):
             raise TypeError(f"'option' should be a int, not a {type(option).__name__}.")
+
         if not isinstance(color, (str, tuple)):
             raise TypeError(
                 f"'color' should be a str or tuple, not a {type(color).__name__}."
@@ -1416,6 +1604,9 @@ class MapGenerator:
                 0 : Bathymetry as contour lines.
                 1 : Bathymetry as filled contours, no colorbar.
                 2 : Bathymetry as filled contours, with colorbar.
+                3X: Uses path_mapdata as costom path for map data.
+                    - X = 0, 1, 2 : Same as above.
+                    - Needs a .tif file. (Projection should be EPSG:3996)
             color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with option 0).
             contour_params (float or array_like): At which levels contour levels shoud be.
                 - single value : Resolution (distance between contour levels) of the bathymetry.
@@ -1469,18 +1660,22 @@ class MapGenerator:
         if path_mapdata == ...:
             if self.path_mapdata != ...:
                 path_mapdata = self.path_mapdata
+                if option > 3:
+                    logging.warning(
+                        f"Using 'path_mapdata' ({path_mapdata}) from the class. Be aware that you chose a option with a costum path."
+                    )
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
-        if not (isinstance(path_mapdata, str) or option == 0):
+        if not isinstance(path_mapdata, str):
             raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
-        elif not path_mapdata == ...:
+        elif not path_mapdata == ... and option < 3:
             if not path_mapdata.endswith("/"):
                 path_mapdata += "/"
             if not os.path.isdir(path_mapdata):
                 raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
-        if not path_mapdata == ... and self.path_mapdata == ...:
+        if not path_mapdata == ... and self.path_mapdata == ... and option < 3:
             self.path_mapdata = path_mapdata
             logging.info(
                 f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
@@ -1509,7 +1704,17 @@ class MapGenerator:
         xlabel: str = self.ax.flat[ax].get_xlabel()
         ylabel: str = self.ax.flat[ax].get_ylabel()
 
-        path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
+        if int(option / 10) == 3:
+            if not os.path.isfile(path_mapdata):
+                raise FileNotFoundError(f"File not found: {path_mapdata}")
+            if not path_mapdata.endswith(".tif"):
+                raise ValueError(
+                    f"Invalid file format: {path_mapdata}. Expected a .tif file."
+                )
+            path_ibcao: str = path_mapdata
+            option = option - 30
+        else:
+            path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
 
         bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
         bathy.rio.write_crs(3996, inplace=True)
@@ -1643,6 +1848,9 @@ class MapGenerator:
                 0 : Topography as contour lines.
                 1 : Topography as filled contours, no colorbar.
                 2 : Topography as filled contours, with colorbar.
+                3X: Uses path_mapdata as costom path for map data.
+                    - X = 0, 1, 2 : Same as above.
+                    - Needs a .tif file. (Projection should be EPSG:3996)
             color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with option 0).
             contour_params (float or array_like): At which levels contour levels shoud be.
                 - single value : Resolution (distance between contour levels) of the bathymetry.
@@ -1696,18 +1904,22 @@ class MapGenerator:
         if path_mapdata == ...:
             if self.path_mapdata != ...:
                 path_mapdata = self.path_mapdata
+                if option > 3:
+                    logging.warning(
+                        f"Using 'path_mapdata' ({path_mapdata}) from the class. Be aware that you chose a option with a costum path."
+                    )
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
-        if not (isinstance(path_mapdata, str) or option == 0):
+        if not isinstance(path_mapdata, str):
             raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
-        elif not path_mapdata == ...:
+        elif not path_mapdata == ... and option < 3:
             if not path_mapdata.endswith("/"):
                 path_mapdata += "/"
             if not os.path.isdir(path_mapdata):
                 raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
-        if not path_mapdata == ... and self.path_mapdata == ...:
+        if not path_mapdata == ... and self.path_mapdata == ... and option < 3:
             self.path_mapdata = path_mapdata
             logging.info(
                 f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
@@ -1736,7 +1948,17 @@ class MapGenerator:
         xlabel: str = self.ax.flat[ax].get_xlabel()
         ylabel: str = self.ax.flat[ax].get_ylabel()
 
-        path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
+        if int(option / 10) == 3:
+            if not os.path.isfile(path_mapdata):
+                raise FileNotFoundError(f"File not found: {path_mapdata}")
+            if not path_mapdata.endswith(".tif"):
+                raise ValueError(
+                    f"Invalid file format: {path_mapdata}. Expected a .tif file."
+                )
+            path_ibcao: str = path_mapdata
+            option = option - 30
+        else:
+            path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
 
         bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
         bathy.rio.write_crs(3996, inplace=True)
@@ -1878,10 +2100,13 @@ class MapGenerator:
             option (int): Switch to distinguish different styles. Valid options:
                 0 : Topography as contour lines, low resolution.
                 1 : Topography as contour lines, high resolution.
-                2 : Topography as filled contours, no colorbar, low resolution.
-                3 : Topography as filled contours, no colorbar, high resolution.
-                4 : Topography as filled contours, with colorbar, low resolution.
-                5 : Topography as filled contours, with colorbar, high resolution.
+                2 : Topography as contour lines, costum .tif file.
+                3 : Topography as filled contours, no colorbar, low resolution.
+                4 : Topography as filled contours, no colorbar, high resolution.
+                5 : Topography as filled contours, no colorbar, costum .tif file.
+                6 : Topography as filled contours, with colorbar, low resolution.
+                7 : Topography as filled contours, with colorbar, high resolution.
+                8 : Topography as filled contours, with colorbar, costum .tif file.
             color_contourlines (str or RGB or RGBA or LinearSegmentedColormap): Color for the topography contour lines (only used with options 0 or 1)
             contour_params (float or array_like): At which levels contour levels shoud be.
                 - single value : Resolution (distance between contour levels) of the bathymetry.
@@ -1892,18 +2117,18 @@ class MapGenerator:
                 - Will be set as default for the map(s), if not set in the class initialisation.
             plot_parameters (dict[str, Any], optional):
                 option:
-                    0-1 : - For available options check xarray.DataArray.plot.contour.
+                    0-2 : - For available options check xarray.DataArray.plot.contour.
                           - Always sets colors = color_contourlines, levels = contour_params.
                           - If not specified, linestyles = "-", linewidths = 0.5, is always set by default.
-                    2-5 : - For available options check xarray.DataArray.plot.imshow.
+                    3-8 : - For available options check xarray.DataArray.plot.imshow.
                           - Always sets levels = contour_params.
                           - If not specified, cmap = cmocean.cm.turbid, interpolation = None, add_colorbar = False, is always set by default.
             label_parameters (dict[str, Any], optional):
                 option:
-                    0-1 : - For available options check cartopy.mpl.geoaxes.clabel.
+                    0-2 : - For available options check cartopy.mpl.geoaxes.clabel.
                           - Always sets levels = contour_params.
                           - If not specified, inline = True, fmt = "%.0f", fontsize = 10 is always set by default.
-                    4-5 : - For available options check matplotlib.pyplot.colorbar.
+                    3-8 : - For available options check matplotlib.pyplot.colorbar.
                           - If not specified, pad = 0.02, extend = "neither", tick_params = {}, set_ylabel = {}, is always set by default.
                           - To modify matplotlib.colorbar.Colorbar.ax.tick_params or .ax.set_ylabel, use:
                           - 'tick_params = {}' (default: axis = "y", labelsize = 10).
@@ -1935,18 +2160,22 @@ class MapGenerator:
         if path_mapdata == ...:
             if self.path_mapdata != ...:
                 path_mapdata = self.path_mapdata
+                if option % 3 == 2:
+                    logging.warning(
+                        f"Using 'path_mapdata' ({path_mapdata}) from the class. Be aware that you chose a option with a costum path."
+                    )
             else:
                 raise ValueError(f"'path_mapdata' needs to be set.")
-        if not (isinstance(path_mapdata, str) or option == 0):
+        if not isinstance(path_mapdata, str):
             raise TypeError(
                 f"'path_mapdata' should be a str, not a {type(path_mapdata).__name__}."
             )
-        elif not path_mapdata == ...:
+        elif not path_mapdata == ... and option % 3 != 2:
             if not path_mapdata.endswith("/"):
                 path_mapdata += "/"
             if not os.path.isdir(path_mapdata):
                 raise NotADirectoryError(f"'{path_mapdata}' is not a valid directory.")
-        if not path_mapdata == ... and self.path_mapdata == ...:
+        if not path_mapdata == ... and self.path_mapdata == ... and option % 3 != 2:
             self.path_mapdata = path_mapdata
             logging.info(
                 f"Changing the 'path_mapdata' for the object to '{path_mapdata}'. "
@@ -1975,14 +2204,22 @@ class MapGenerator:
         xlabel: str = self.ax.flat[ax].get_xlabel()
         ylabel: str = self.ax.flat[ax].get_ylabel()
 
-        if option % 2 == 0:  # for 0,2,4
+        if option % 3 == 0:  # for 0,3,6
             dem = rxr.open_rasterio(
                 f"{path_mapdata}NP_S0_DTM50/S0_DTM50.tif", masked=True
             ).squeeze()
-        elif option % 2 == 1:  # for 1,3,5
+        elif option % 3 == 1:  # for 1,4,7
             dem = rxr.open_rasterio(
                 f"{path_mapdata}NP_S0_DTM20/S0_DTM20.tif", masked=True
             ).squeeze()
+        elif option % 3 == 2:  # for 2,5,8
+            if not os.path.isfile(path_mapdata):
+                raise FileNotFoundError(f"File not found: {path_mapdata}")
+            if not path_mapdata.endswith(".tif"):
+                raise ValueError(
+                    f"Invalid file format: {path_mapdata}. Expected a .tif file."
+                )
+            dem = rxr.open_rasterio(path_mapdata, masked=True).squeeze()
         else:
             raise ValueError(f"{option} not a valid option!")
 
@@ -2020,7 +2257,7 @@ class MapGenerator:
                 f"'contour_params' should be a tuple or a list, not a {type(contour_params).__name__}."
             )
 
-        if (option == 0) | (option == 1):
+        if (option == 0) | (option == 1) | (option == 2):
             dem = dem.where(dem >= 0.0)
             plot_parameters["ax"] = self.ax.flat[ax]
             plot_parameters["levels"] = levels
@@ -2034,7 +2271,7 @@ class MapGenerator:
             label_parameters.setdefault("fmt", "%.0f")
             label_parameters.setdefault("fontsize", 10)
             self.ax.flat[ax].clabel(**label_parameters)
-        elif (option == 2) | (option == 3):
+        elif (option == 3) | (option == 4) | (option == 5):
             dem = dem.where(dem > 0.0)
             plot_parameters["ax"] = self.ax.flat[ax]
             plot_parameters["levels"] = levels
@@ -2042,7 +2279,7 @@ class MapGenerator:
             plot_parameters.setdefault("interpolation", None)
             plot_parameters.setdefault("add_colorbar", False)
             dem.plot.imshow(**plot_parameters)
-        elif (option == 4) | (option == 5):
+        elif (option == 6) | (option == 7) | (option == 8):
             dem = dem.where(dem > 0.0)
             plot_parameters["ax"] = self.ax.flat[ax]
             plot_parameters["levels"] = levels
@@ -2081,9 +2318,9 @@ class MapGenerator:
         self.ax.flat[ax].set_ylabel(ylabel)
 
         if more_custom:
-            if option == 0:
+            if option % 3 == 0:
                 return self, pic
-            elif option == 2:
+            elif option % 3 == 2:
                 return self, pic, cbar
             else:
                 warnings.warn(
@@ -2733,3 +2970,5 @@ class MapGenerator:
 ############################################################################
 # UAV FUNCTIONS
 ############################################################################
+
+# %%
