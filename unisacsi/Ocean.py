@@ -12,10 +12,13 @@ in student cruises at UNIS.
 """
 
 from __future__ import print_function, annotations
+
+from numpy._typing._array_like import NDArray
 import unisacsi
 from seabird.cnv import fCNV
 import gsw
 import numpy as np
+import numpy.typing as npt
 import matplotlib.pyplot as plt
 import matplotlib
 from netCDF4 import Dataset
@@ -50,101 +53,121 @@ import posixpath
 import pyTMD.utilities
 import pyTMD.compute
 
+import numbers as num
+from typing import Literal, Any, get_args
+import logging
+import warnings
+
 
 ############################################################################
 # MISCELLANEOUS FUNCTIONS
 ############################################################################
-def cal_dist_dir_on_sphere(longitude, latitude):
-    """
-    function to calculate a series of distances between
+def cal_dist_dir_on_sphere(
+    longitude: pd.Series, latitude: pd.Series
+) -> tuple[pd.Series, pd.Series]:
+    """Function to calculate a series of distances between
     coordinate points (longitude and latitude)
-    of the drifter between sequential timesteps
+    of the drifter between sequential timesteps.
 
-    Parameters
-    ----------
-    longitude : pd.Series
-         time Series of logitudinal coordinates [deg] of the ship
-    latitude : pd.Series
-        time Series of latitudinal coordinates [deg] of the ship
+    Args:
+        longitude (pd.Series): Time Series of logitudinal coordinates [deg] of the ship.
+        latitude (pd.Series): Time Series of latitudinal coordinates [deg] of the ship.
 
-    Returns
-    -------
-    speed : pd.Series
-        speed the drifter travelled between each of the timesteps
-    heading : pd.Series
-        direction drifter headed between each of the timesteps
-
+    Returns:
+        tuple(pd.Series, pd.Series):
+            - Speed the drifter travelled between each of the timesteps
+            - Direction drifter headed between each of the timesteps
     """
+
+    if not isinstance(longitude, pd.Series):
+        raise TypeError(
+            f"'longnitude' should be a pd.Series, not a {type(longitude).__name__}."
+        )
+    if not isinstance(latitude, pd.Series):
+        raise TypeError(
+            f"'longnitude' should be a pd.Series, not a {type(latitude).__name__}."
+        )
 
     # Define the Earths Radius (needed to estimate distance on Earth's sphere)
-    R = 6378137.0  # [m]
+    R: float = 6378137.0  # [m]
 
     # Convert latitude and logitude to radians
-    lon = longitude * np.pi / 180.0
-    lat = latitude * np.pi / 180.0
+    lon: pd.Series = longitude * np.pi / 180.0
+    lat: pd.Series = latitude * np.pi / 180.0
 
     # Calculate the differential of lon and lat between the timestamps
-    dlon = lon.diff()
-    dlat = lat.diff()
+    dlon: pd.Series = lon.diff()
+    dlat: pd.Series = lat.diff()
 
     # Create a shifted time Series
-    lat_t1 = lat.shift(periods=1)
-    lat_t2 = lat.copy()
+    lat_t1: pd.Series = lat.shift(periods=1)
+    lat_t2: pd.Series = lat.copy()
 
     # Calculate interim stage
-    alpha = (
+    alpha: pd.Series = (
         np.sin(dlat / 2.0) ** 2
         + np.cos(lat_t1) * np.cos(lat_t2) * np.sin(dlon / 2.0) ** 2
     )
 
-    distance = (
+    distance: pd.Series = (
         2 * R * np.arctan2(np.sqrt(alpha), np.sqrt(1 - alpha))
     )  # (np.arcsin(np.sqrt(alpha))
 
-    time_delta = pd.Series(
+    time_delta: pd.Series = pd.Series(
         (lat.index[1:] - lat.index[0:-1]).seconds, index=lat.index[1::]
     )
-    speed = distance / time_delta
+    speed: pd.Series = distance / time_delta
 
     # Calculate the ships heading
-    arg1 = np.sin(dlon) * np.cos(lat_t2)
-    arg2 = np.cos(lat_t1) * np.sin(lat_t2) - np.sin(lat_t1) * np.cos(lat_t2) * np.cos(
-        dlon
-    )
+    arg1: pd.Series = np.sin(dlon) * np.cos(lat_t2)
+    arg2: pd.Series = np.cos(lat_t1) * np.sin(lat_t2) - np.sin(lat_t1) * np.cos(
+        lat_t2
+    ) * np.cos(dlon)
 
-    heading = np.arctan2(arg1, arg2) * (-180.0 / np.pi) + 90.0
+    heading: pd.Series = np.arctan2(arg1, arg2) * (-180.0 / np.pi) + 90.0
     heading[heading < 0.0] = heading + 360.0
     heading[heading > 360.0] = heading - 360.0
 
     return speed, heading
 
 
-def cart2pol(u, v, ctype="math"):
-    """
-    Converts cartesian velocity (u,v) to polar velocity (angle,speed),
-    using either
-    1) mathematical
-    2) oceanographical, or
-    3) meteorological
+__ctype__ = Literal["math", "ocean", "meteo"]
+
+
+def cart2pol(
+    u: num.Real | npt.ArrayLike,
+    v: num.Real | npt.ArrayLike,
+    ctype: __ctype__ = "math",
+) -> tuple[npt.ArrayLike | num.Real]:
+    """Converts cartesian velocity (u,v) to polar velocity (angle,speed),
+    using either mathematical, oceanographical or meteorological
     definition.
-    Parameters
-    ----------
-    u : numeric, or array-like
-        u-Component of velocity.
-    v : numeric, or array-like
-        v-Component of velocity.
-    ctype : string, optional
-        Type of definitition, 'math', 'ocean' or 'meteo'. The default is 'math'.
-    Returns
-    -------
-    angle : numeric, or array-like
-        Angle of polar velocity.
-    speed : numeric, or array-like
-        Speed of polar velocity.
+
+    Args:
+        u (numeric or array_like): u-Component of velocity.
+        v (numeric or array_like): v-Component of velocity.
+        ctype (str, optional): Type of definitition, 'math', 'ocean' or 'meteo'. Defaults to "math".
+
+    Returns:
+        tuple[npt.ArrayLike | numeric]:
+            - Angle of polar velocity.
+            - Speed of polar velocity.
     """
-    speed = np.sqrt(u**2 + v**2)
+
+    if not (pd.api.types.is_array_like(u) or isinstance(u, num.Real)):
+        raise TypeError(
+            f"'u' should be numeric or array_like, not a {type(u).__name__}."
+        )
+    if not (pd.api.types.is_array_like(v) or isinstance(v, num.Real)):
+        raise TypeError(
+            f"'u' should be numeric or array_like, not a {type(v).__name__}."
+        )
+    if ctype not in get_args(__ctype__):
+        raise ValueError(f"'ctype' should be 'math', 'ocean' or 'meteo', not {ctype}.")
+
+    speed: num.Number | npt.ArrayLike = np.sqrt(u**2 + v**2)
     if ctype == "math":
-        angle = 180 / np.pi * np.arctan2(v, u)
+        angle: num.Number | npt.ArrayLike = 180 / np.pi * np.arctan2(v, u)
     if ctype in ["meteo", "ocean"]:
         angle = 180 / np.pi * np.arctan2(u, v)
         if ctype == "meteo":
@@ -153,32 +176,40 @@ def cart2pol(u, v, ctype="math"):
     return angle, speed
 
 
-def pol2cart(angle, speed, ctype="math"):
-    """
-    Converts polar velocity (angle,speed) to cartesian velocity (u,v),
-    using either
-    1) mathematical
-    2) oceanographical, or
-    3) meteorological
+def pol2cart(
+    angle: num.Real | npt.ArrayLike,
+    speed: num.Real | npt.ArrayLike,
+    ctype: __ctype__ = "math",
+) -> tuple[npt.ArrayLike | num.Real]:
+    """Converts polar velocity (angle,speed) to cartesian velocity (u,v),
+    using either mathematical, oceanographical or meteorological
     definition.
-    Parameters
-    ----------
-    angle : numeric, or array-like
-        Angle of polar velocity.
-    speed : numeric, or array-like
-        Speed of polar velocity.
-    ctype : string, optional
-        Type of definitition, 'math', 'ocean' or 'meteo'. The default is 'math'.
-    Returns
-    -------
-    u : numeric, or array-like
-        u-Component of velocity.
-    v : numeric, or array-like
-        v-Component of velocity.
+
+    Args:
+        angle (numeric | npt.ArrayLike): Angle of polar velocity.
+        speed (numeric | npt.ArrayLike): Speed of polar velocity.
+        ctype (__ctype__, optional): Type of definitition, 'math', 'ocean' or 'meteo'. Defaults to "math".
+
+    Returns:
+        tuple[npt.ArrayLike | numeric]:
+            - u-component of velocity.
+            - v-component of velocity.
     """
+
+    if not (pd.api.types.is_array_like(angle) or isinstance(angle, num.Real)):
+        raise TypeError(
+            f"'u' should be numeric or array_like, not a {type(angle).__name__}."
+        )
+    if not (pd.api.types.is_array_like(speed) or isinstance(speed, num.Real)):
+        raise TypeError(
+            f"'u' should be numeric or array_like, not a {type(speed).__name__}."
+        )
+    if ctype not in get_args(__ctype__):
+        raise ValueError(f"'ctype' should be 'math', 'ocean' or 'meteo', not {ctype}.")
+
     if ctype == "math":
-        u = speed * np.cos(angle * np.pi / 180.0)
-        v = speed * np.sin(angle * np.pi / 180.0)
+        u: num.Number | npt.ArrayLike = speed * np.cos(angle * np.pi / 180.0)
+        v: num.Number | npt.ArrayLike = speed * np.sin(angle * np.pi / 180.0)
     elif ctype == "meteo":
         u = -speed * np.sin(angle * np.pi / 180.0)
         v = -speed * np.cos(angle * np.pi / 180.0)
@@ -189,96 +220,133 @@ def pol2cart(angle, speed, ctype="math"):
     return u, v
 
 
-def create_latlon_text(lat, lon):
+def create_latlon_text(lat: num.Real, lon: num.Real) -> tuple[str, str]:
+    """Creates two strings which contain a text for latitude and longitude.
+
+    Args:
+        lat (scalar): Latitude value.
+        lon (scalar): Longitude value.
+
+    Returns:
+        tuple[str, str]:
+            - The string for the latitude.
+            - The string for the longitude.
     """
-    Creates two strings which contain a text for latitude and longitude
-    Parameters
-    ----------
-    lat : scalar
-        latitude.
-    lon : scalar
-        longitude.
-    Returns
-    -------
-    latstring : str
-        the string for the latitude.
-    lonstring : str
-        the string for the longitude.
-    """
-    lat_minutes = str(np.round((np.abs(lat - int(lat))) * 60, 5))
+
+    lat_minutes: str = str(np.round((np.abs(lat - int(lat))) * 60, 5))
     if lat < 0:
-        lat_letter = "S"
+        lat_letter: str = "S"
     else:
         lat_letter = "N"
-    latstring = str(int(np.abs(lat))) + " " + lat_minutes + " " + lat_letter
+    latstring: str = str(int(np.abs(lat))) + " " + lat_minutes + " " + lat_letter
 
-    lon_minutes = str(np.round((np.abs(lon - int(lon))) * 60, 5))
+    lon_minutes: str = str(np.round((np.abs(lon - int(lon))) * 60, 5))
     if lon < 0:
-        lon_letter = "W"
+        lon_letter: str = "W"
     else:
         lon_letter = "E"
-    lonstring = str(int(np.abs(lon))) + " " + lon_minutes + " " + lon_letter
+    lonstring: str = str(int(np.abs(lon))) + " " + lon_minutes + " " + lon_letter
 
     return latstring, lonstring
 
 
-def CTD_to_grid(CTD, stations=None, interp_opt=1, x_type="distance", z_fine=False):
-    """
-    This function accepts a CTD dict of dicts, finds out the maximum
+__x_type__ = Literal["time", "distance"]
+
+
+def CTD_to_grid(
+    CTD: dict[dict],
+    stations: npt.ArrayLike = None,
+    interp_opt: int = 1,
+    x_type: __x_type__ = "distance",
+    z_fine: bool = False,
+) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
+    """This function accepts a CTD dict of dicts, finds out the maximum
     length of the depth vectors for the given stations, and fills all
     fields to that maximum length, using np.nan values.
-    Parameters
-    ----------
-    CTD : dict of dicts
-        CTD data. Is created by `read_CTD`
-    stations : array_like, optional
-        list of stations to select from `CTD`.
-    interp_opt : int, optional
-        flag how to interpolate over X (optional).
-                     0: no interpolation,
-                     1: linear interpolation, fine grid (default),
-                     2: linear interpolation, coarse grid. The default is 1.
-    x_type : str, optional
-        whether X is 'time' or 'distance'. The default is 'distance'.
-    z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
-    Returns
-    -------
-    fCTD : dict
-        dict with the gridded CTD data.
-    Z : array_like
-        common depth vector.
-    X : array_like
-        common X vector.
-    station_locs : array_like
-        locations of the stations as X units.
+
+    Args:
+        CTD (dict[dict]): CTD data.
+            - Is created by 'read_CTD'.
+        stations (array_like, optional): List of stations to select from CTD. Defaults to None.
+            - If set to None all stations are used.
+        interp_opt (int, optional): flag how to interpolate over X. Defaults to 1.
+            0 : no interpolation.
+            1 : linear interpolation, fine grid.
+            2 : linear interpolation, coarse grid.
+        x_type (str, optional): Whether X is 'time' or 'distance'. Defaults to "distance".
+        z_fine (bool, optional): Whether to use a fine z grid. Defaults to False.
+            - If True, will be 10 cm, otherwise 1 m.
+
+    Returns:
+        tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
+            - Dict with the gridded CTD data.
+            - Common depth vector.
+            - Common X vector.
+            - Locations of the stations as X units.
     """
 
     # if no stations are given, take all stations available
+    if not isinstance(CTD, dict):
+        raise TypeError(f"'CTD' should be a dict, not a {type(CTD).__name__}")
     if stations is None:
         stations = list(CTD.keys())
     else:
+        if not pd.api.types.is_list_like(stations):
+            raise TypeError(
+                f"'stations' should be a array_like, not a {type(stations).__name__}."
+            )
+        if type(stations) != list:
+            stations = [x for x in stations]
+        notfound_stations: list = [
+            key for key in stations if not key in list(CTD.keys())
+        ]
+        if len(notfound_stations) != 0:
+            logging.info(
+                f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+            )
+            for i in notfound_stations:
+                stations.remove(i)
+            if len(stations) == 0:
+                raise ValueError(f"There are no CTD stations left.")
         CTD = {key: CTD[key] for key in stations}
+    if len(stations) == 0:
+        raise ValueError(f"The CTD is empty.")
+
+    if not isinstance(interp_opt, int):
+        raise TypeError(
+            f"'interp_opt' should be a int, not a {type(interp_opt).__name__}."
+        )
+    if interp_opt < 0 or interp_opt > 2:
+        raise ValueError(f"'interp_opt' should be a 0,1,2, not {interp_opt}.")
+
+    if x_type not in get_args(__x_type__):
+        raise ValueError(f"'ctype' should be 'time' or 'distance', not {x_type}.")
+
+    if not isinstance(z_fine, bool):
+        raise TypeError(f"'z_fine' should be a bool, not a {type(z_fine).__name__}.")
 
     # construct the Z-vector from the max and min depth of the given stations
-    maxdepth = np.nanmax([np.nanmax(-CTD[i]["z"]) for i in stations])
-    mindepth = np.nanmin([np.nanmin(-CTD[i]["z"]) for i in stations])
+    maxdepth: float = np.nanmax([np.nanmax(-CTD[i]["z"]) for i in stations])
+    mindepth: float = np.nanmin([np.nanmin(-CTD[i]["z"]) for i in stations])
     if z_fine:
-        Z = np.linspace(mindepth, maxdepth, int((maxdepth - mindepth) * 10) + 1)
+        Z: np.ndarray = np.linspace(
+            mindepth, maxdepth, int((maxdepth - mindepth) * 10) + 1
+        )
     else:
         Z = np.linspace(mindepth, maxdepth, int(maxdepth - mindepth) + 1)
 
     # construct the X-vector, either distance or time
     if x_type == "distance":
-        LAT = np.asarray([d["LAT"] for d in CTD.values()])
-        LON = np.asarray([d["LON"] for d in CTD.values()])
-        X = np.insert(np.cumsum(gsw.distance(LON, LAT) / 1000), 0, 0)
+        LAT: np.ndarray = np.asarray([d["LAT"] for d in CTD.values()])
+        LON: np.ndarray = np.asarray([d["LON"] for d in CTD.values()])
+        X: np.ndarray = np.insert(np.cumsum(gsw.distance(LON, LAT) / 1000), 0, 0)
     elif x_type == "time":
         X = np.array([date2num(d["datetime"]) for d in CTD.values()])
         X = (X - X[0]) * 24
 
     # this X vector is where the stations are located, so save that
-    station_locs = X[:]
-    fields = list(
+    station_locs: np.ndarray = X[:]
+    fields: list = list(
         set(
             [
                 field
@@ -292,17 +360,19 @@ def CTD_to_grid(CTD, stations=None, interp_opt=1, x_type="distance", z_fine=Fals
     X_orig, Z_orig = [f.ravel() for f in np.meshgrid(X, Z)]
     # new grids in case of 2-d interpolation
     if interp_opt == 1:
-        X_int = np.linspace(np.min(X), np.max(X), len(X) * 20)  # create fine X grid
-        Z_int = Z[:]
+        X_int: np.ndarray = np.linspace(
+            np.min(X), np.max(X), len(X) * 20
+        )  # create fine X grid
+        Z_int: np.ndarray = Z[:]
     elif interp_opt == 2:
         X_int = np.linspace(np.min(X), np.max(X), 20)  # create coarse X grid
         Z_int = np.linspace(mindepth, maxdepth, 50)
 
-    fCTD = {}
+    fCTD: dict = {}
     for field in fields:
         try:
             # grid over Z
-            temp_array = []
+            temp_array: list = []
             for value in CTD.values():
                 if field in value:
                     temp_array.append(
@@ -327,9 +397,8 @@ def CTD_to_grid(CTD, stations=None, interp_opt=1, x_type="distance", z_fine=Fals
             if field == "water_mass":
                 fCTD["water_mass"] = np.round(fCTD["water_mass"])
         except:
-            print(
-                "Warning: No gridding possible for " + field + ". Maybe "
-                "no valid data? Setting to nan..."
+            logging.warning(
+                f"Warning: No gridding possible for '{field}'. Maybe no valid data? Setting to nan..."
             )
             if interp_opt == 0:
                 fCTD[field] = np.meshgrid(X, Z)[0] * np.nan
@@ -342,46 +411,52 @@ def CTD_to_grid(CTD, stations=None, interp_opt=1, x_type="distance", z_fine=Fals
     return fCTD, Z, X, station_locs
 
 
-def CTD_to_xarray(CTD, switch_xdim="station"):
+__switch_xdim__ = Literal["station", "time"]
+
+
+def CTD_to_xarray(
+    CTD: dict[dict], switch_xdim: __switch_xdim__ = "station"
+) -> xr.Dataset:
+    """Function to store CTD data in a xarray dataset instead of a dictionary.
+
+    Args:
+        CTD (dict[dict]): CTD data. Is created by `read_CTD`
+        switch_xdim (str, optional): Keyword to switch between time and station as x dimension for the returned data set. Defaults to "station".
+            -  'station' means UNIS station number.
+
+    Returns:
+        xr.Dataset: Dataset with two dimensions depth and distance along the section and all measured variables.
     """
-    Function to store CTD data in a xarray dataset instead of a dictionary.
+    if not isinstance(CTD, dict):
+        raise TypeError(f"'CTD' should be a dict, not a {type(CTD).__name__}")
 
-    Parameters
-    ----------
-    CTD : dict of dicts
-        CTD data. Is created by `read_CTD`
-    switch_xdim : str
-        Keyword to switch between time and station as x dimension for the returned data set. Default is station (UNIS station number).
-
-    Returns
-    -------
-    ds : xarray dataset with two dimensions depth and distance along the section, and all measured variables
-
-    """
-
-    # CTD_i,Z,X,_ = CTD_to_grid(CTD,stations,interp_opt=0)
+    if switch_xdim not in get_args(__switch_xdim__):
+        raise ValueError(
+            f"'switch_xdim' should be 'time' or 'distance', not {switch_xdim}."
+        )
 
     # take all stations available
-    stations = list(CTD.keys())
+    stations: list = list(CTD.keys())
+    if len(stations) == 0:
+        raise ValueError(f"The CTD is empty.")
 
     # construct the Z-vector from the max and min depth of the given stations
-    maxdepth = np.nanmax([np.nanmax(-CTD[i]["z"]) for i in stations])
-    mindepth = np.nanmin([np.nanmin(-CTD[i]["z"]) for i in stations])
+    maxdepth: np.ndarray = np.nanmax([np.nanmax(-CTD[i]["z"]) for i in stations])
+    mindepth: np.ndarray = np.nanmin([np.nanmin(-CTD[i]["z"]) for i in stations])
 
-    Z = np.linspace(mindepth, maxdepth, int(maxdepth - mindepth) + 1)
+    Z: np.ndarray = np.linspace(mindepth, maxdepth, int(maxdepth - mindepth) + 1)
 
     # collect station numbers and other metadata
-    ship_station = np.array([d["st"] for d in CTD.values()])
-    station = np.array([d["unis_st"] for d in CTD.values()])
-    lat = np.array([d["LAT"] for d in CTD.values()])
-    lon = np.array([d["LON"] for d in CTD.values()])
-    bdepth = np.array([d["BottomDepth"] for d in CTD.values()])
+    ship_station: np.ndarray = np.array([d["st"] for d in CTD.values()])
+    station: np.ndarray = np.array([d["unis_st"] for d in CTD.values()])
+    lat: np.ndarray = np.array([d["LAT"] for d in CTD.values()])
+    lon: np.ndarray = np.array([d["LON"] for d in CTD.values()])
+    bdepth: np.ndarray = np.array([d["BottomDepth"] for d in CTD.values()])
 
     # construct the X-vector
-    X = np.array([d["datetime"] for d in CTD.values()])
-    # X = pd.to_datetime(X-719529., unit='D').round('1s')
+    X: np.ndarray = np.array([d["datetime"] for d in CTD.values()])
 
-    fields = list(
+    fields: list = list(
         set(
             [
                 field
@@ -391,11 +466,11 @@ def CTD_to_xarray(CTD, switch_xdim="station"):
         )
     )
 
-    fCTD = {}
+    fCTD: dict = {}
     for field in fields:
         try:
             # grid over Z
-            temp_array = []
+            temp_array: list = []
             for value in CTD.values():
                 if field in value:
                     temp_array.append(
@@ -410,14 +485,13 @@ def CTD_to_xarray(CTD, switch_xdim="station"):
             if field == "water_mass":
                 fCTD["water_mass"] = np.round(fCTD["water_mass"])
         except:
-            print(
-                "Warning: No gridding possible for " + field + ". Maybe "
-                "no valid data? Setting to nan..."
+            logging.warning(
+                f"Warning: No gridding possible for '{field}'. Maybe no valid data? Setting to nan..."
             )
 
             fCTD[field] = np.ones([len(X), len(Z)]) * np.nan
 
-    list_da = []
+    list_da: list = []
     for vari in fCTD.keys():
         list_da.append(
             xr.DataArray(
@@ -436,7 +510,7 @@ def CTD_to_xarray(CTD, switch_xdim="station"):
             )
         )
 
-    ds = xr.merge(list_da)
+    ds: xr.Dataset = xr.merge(list_da)
 
     ds = ds.sortby("time")
     ds = ds.interp(depth=np.arange(np.ceil(ds.depth[0]), np.floor(ds.depth[-1]) + 1.0))
@@ -456,29 +530,32 @@ def CTD_to_xarray(CTD, switch_xdim="station"):
     return ds
 
 
-def section_to_xarray(ds, stations=None, time_periods=None, ship_speed_threshold=1.0):
+def section_to_xarray(
+    ds: xr.Dataset,
+    stations: list = None,
+    time_periods: list = None,
+    ship_speed_threshold: float = 1.0,
+) -> xr.Dataset:
+    """Function to extract one section from the CTD/ADCP dataset from the whole cruise and return a new dataset, where distance along the section is the new dimension.
+
+    Args:
+        ds (xr.Dataset): Data from CTD or ADCP, read and transformed with the respective functions (see example notebook).
+        stations (list, optional): List with the UNIS station numbers in the section. This is used for CTD and LADCP. Defaults to None.
+        time_periods (list, optional): List with the start and end points for each time period that contributes to the section. This is used for the VM-ADCPs. Defaults to None.
+        ship_speed_threshold (float, optional): Threshold value for the ship speed (m/s) for use of VM-ADCP. Data during times with ship speeds lower than the threshold will be discarded. Only applies for VM-ADCP. Defaults to 1.0.
+
+    Returns:
+        xr.Dataset: Dataset with two dimensions depth and distance along the section, and all measured variables.
     """
-    Function to extract one section from the CTD/ADCP dataset from the whole cruise and return a new dataset, where distance along the section is the new dimension.
-
-    Parameters
-    ----------
-    ds : xarray dataset
-        Data from CTD or ADCP, read and transformed with the respective functions (see example notebook).
-    stations : list
-            List with the UNIS station numbers in the section. This is used for CTD and LADCP.
-    time_preiods : list
-        List with the start and end points for each time period that contributes to the section. This is used for the VM-ADCPs.
-    ship_speed_threshold: float
-        Threshold value for the ship speed for use of VM-ADCP. Data during times with ship speeds' lower than the threshold will be discarded. Only applies for VM-ADCP. Default: 1 m/s
-
-    Returns
-    -------
-    ds : xarray dataset with two dimensions depth and distance along the section, and all measured variables
-
-    """
+    if not isinstance(ds, xr.Dataset):
+        raise TypeError(f"'ds' should be a xr.Dataset, not a {type(ds).__name__}.")
+    if not pd.api.types.is_number(ship_speed_threshold):
+        raise TypeError(
+            f"'ship_speed_threshold' should be a float, not a {type(ship_speed_threshold).__name__}."
+        )
 
     if (stations == None) & (time_periods != None):  # for VM-ADCP
-        ds_section = []
+        ds_section: list = []
         for start, end in time_periods:
             if end > start:
                 ds_section.append(ds.sel(time=slice(start, end)))
@@ -533,39 +610,63 @@ def section_to_xarray(ds, stations=None, time_periods=None, ship_speed_threshold
         return ds_section
 
     else:
-        print(
-            "Please specify either stations (for CTD and L-ADCP) or time_periods (for VM_ADCP)!"
+        raise ValueError(
+            f"Please specify either stations (for CTD and L-ADCP) or time_periods (for VM_ADCP)!"
         )
-        return None
 
 
-def mooring_into_xarray(dict_of_instr):
+def mooring_into_xarray(
+    dict_of_instr: dict[pd.DataFrame],
+    transfer_vars: list[str] = ["T", "S", "SIGTH", "U", "V", "OX", "P"],
+) -> xr.Dataset:
+    """Function to store mooring data from a mooring in an xarray dataset.
+    The returned dataset can be regridded onto a regular time/depth grid using the xarray methods interpolate_na and interp.
+
+    Args:
+        dict_of_instr (dict[pd.DataFrame]): Dictionary with the dataframes returned from the respective read functions for the different instruments, keys: depth levels.
+        transfer_vars (list[str], optional): Variables to read into the dataset. Defaults to ["T", "S", "SIGTH", "U", "V", "OX", "P"].
+
+    Returns:
+        xr.Dataset: Dataset with two dimensions depth and time, and the variables from transfer_vars (Units are striped).
     """
-    Function to store mooring data (T, S, SIGTH) from a mooring in an xarray dataset. The returned dataset can be regridded onto a regular time/depth grid using the xarray methods interpolate_na and interp.
 
-    Parameters
-    ----------
-    dict_of_instr : dictionary with the dataframes returned from the respective read functions for the different instruments, keys: depth levels
+    if not isinstance(dict_of_instr, dict):
+        raise TypeError(
+            f"'dict_of_instr' should be a dict, not a {type(dict_of_instr).__name__}."
+        )
+    for i in dict_of_instr.keys():
+        if not isinstance(dict_of_instr[i], pd.DataFrame):
+            raise TypeError(
+                f"'{i}' in dict_of_instr should be a pd.DataFrame, not a {type(dict_of_instr[i]).__name__}."
+            )
 
-    Returns
-    -------
-    ds : xarray dataset with two dimensions depth and time, and three variables T, S and SIGTH.
-
-    """
-
-    all_varis = ["T", "S", "SIGTH", "U", "V", "OX", "P"]
+    if not isinstance(transfer_vars, list):
+        raise TypeError(
+            f"'transfer_vars' should be a list, not a {type(transfer_vars).__name__}."
+        )
+    for i in transfer_vars:
+        if not isinstance(i, str):
+            raise TypeError(
+                f"'{i}' in transfer_vars should be a str, not a {type(i).__name__}."
+            )
 
     for d in dict_of_instr.keys():
-        varis_instr = [v for v in all_varis if v in list(dict_of_instr[d].columns)]
+        varis_instr: list[str] = [
+            v for v in transfer_vars if v in list(dict_of_instr[d].columns)
+        ]
         dict_of_instr[d] = dict_of_instr[d][varis_instr]
 
-    list_da = []
-    for vari in all_varis:
-        list_df = []
+    list_da: list[xr.DataArray] = []
+    for vari in transfer_vars:
+        list_df: list[pd.DataFrame] = []
         for d, df_instr in dict_of_instr.items():
             if vari in list(df_instr.keys()):
                 list_df.append(df_instr[vari].rename(d))
-        df_vari = pd.concat(list_df, axis=1)
+        if len(list_df) == 0:  # to continue if no data is available
+            logging.warning(f"No data for '{vari}' in the mooring data.")
+            df_vari: pd.DataFrame = pd.DataFrame(index=pd.DatetimeIndex([]))
+        else:
+            df_vari = pd.concat(list_df, axis=1)
         df_vari = df_vari.resample("20min").mean()
 
         list_da.append(
@@ -580,50 +681,60 @@ def mooring_into_xarray(dict_of_instr):
             )
         )
 
-    ds = xr.merge(list_da)
+    ds: xr.Dataset = xr.merge(list_da)
+
+    var_name: list[str] = []
+    for name in transfer_vars:
+        split_name: list[str] = name.split(" ")
+        if len(split_name) == 2:
+            ds[name].attrs["unit"] = split_name[1].strip("[]")
+            split_name[0] = " ".join(split_name[0].split("_"))
+        var_name.append(split_name[0])
 
     return ds
 
 
-def calc_freshwater_content(salinity, depth, ref_salinity=34.8):
-    """
-    Calculates the freshwater content from a profile of salinity and depth.
+def calc_freshwater_content(
+    salinity: npt.ArrayLike, depth: npt.ArrayLike, ref_salinity: float = 34.8
+) -> float:
+    """Calculates the freshwater content from a profile of salinity and depth.
 
-    Parameters
-    ----------
-    salinity : array-like
-        The salinity vector.
-    depth : TYPE
-        The depth vector.
-    ref_salinity : float, optional
-        The reference salinity. The default is 34.8.
-    Returns
-    -------
-    float
-        The freshwater content for the profile, in meters
+    Args:
+        salinity (array_like): The salinity vector.
+        depth (array_like): The depth vector.
+        ref_salinity (float, optional): The reference salinity. Defaults to 34.8.
+            - make sure it is the same unit as 'salinity'.
+
+    Returns:
+        float: The freshwater content for the profile, same unit as 'depth'.
     """
 
-    sal = salinity.copy()
+    sal: npt.ArrayLike = salinity.copy()
 
-    idx = np.where(sal > ref_salinity)[0]
+    idx: np.ndarray = np.where(sal > ref_salinity)[0]
     sal[idx] = ref_salinity
 
     sal = 0.5 * (sal[1:] + sal[:-1])
 
-    dz = np.diff(depth)
+    dz: np.ndarray = np.diff(depth)
 
     return -1.0 * np.sum(((sal - ref_salinity) / ref_salinity) * dz)
 
 
-def myloadmat(filename):
-    """
-    this function should be called instead of direct spio.loadmat
+def myloadmat(filename: str) -> dict:
+    """This function should be called instead of direct spio.loadmat
     as it cures the problem of not properly recovering python dictionaries
     from mat files. It calls the function check keys to cure all entries
-    which are still mat-objects
+    which are still mat-objects.
+
+    Args:
+        filename (str): Name of the mat file.
+
+    Returns:
+        dict: Dictionary with variable names as keys and loaded matrices as values.
     """
 
-    def _check_keys(d):
+    def _check_keys(d: dict) -> dict:
         """
         checks if entries in dictionary are mat-objects. If yes
         todict is called to change them to nested dictionaries
@@ -633,11 +744,11 @@ def myloadmat(filename):
                 d[key] = _todict(d[key])
         return d
 
-    def _todict(matobj):
+    def _todict(matobj: spio.matlab.mat_struct) -> dict:
         """
         A recursive function which constructs from matobjects nested dictionaries
         """
-        d = {}
+        d: dict = {}
         for strg in matobj._fieldnames:
             elem = matobj.__dict__[strg]
             if isinstance(elem, spio.matlab.mat_struct):
@@ -646,15 +757,16 @@ def myloadmat(filename):
                 d[strg] = _tolist(elem)
             else:
                 d[strg] = elem
+
         return d
 
-    def _tolist(ndarray):
+    def _tolist(ndarray: np.ndarray) -> NDArray:
         """
         A recursive function which constructs lists from cellarrays
         (which are loaded as numpy ndarrays), recursing into the elements
         if they contain matobjects.
         """
-        elem_list = []
+        elem_list: list = []
         for sub_elem in ndarray:
             if isinstance(sub_elem, spio.matlab.mat_struct):
                 elem_list.append(_todict(sub_elem))
@@ -664,22 +776,21 @@ def myloadmat(filename):
                 elem_list.append(sub_elem)
         return np.asarray(elem_list)
 
-    data = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
+    data: dict = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
     return _check_keys(data)
 
 
-def mat2py_time(matlab_dnum):
+def mat2py_time(matlab_dnum: np.array) -> pd.DatetimeIndex:
     """
-    Converts matlab datenum to python datetime objects
-    Parameters
-    ----------
-    matlab_dnum : int
-        The matlab datenum.
-    Returns
-    -------
-    pydate : datetime object
-        The python datetime
+    Converts matlab datenum to python datetime objects.
+
+    Args:
+        matlab_dnum (np.array): The matlab datenum.
+
+    Returns:
+        pd.DatetimeIndex: The python datetime
     """
+
     return pd.to_datetime(np.asarray(matlab_dnum) - 719529, unit="D").round("1s")
     # try:
     #     len(matlab_dnum)
@@ -689,24 +800,26 @@ def mat2py_time(matlab_dnum):
     #                         timedelta(days = 366) for t in matlab_dnum]
 
 
-def present_dict(d, offset=""):
-    """
-    Iterative function to present the contents of a dictionary. Prints in
+def present_dict(d: dict, offset="") -> None:
+    """Iterative function to present the contents of a dictionary. Prints in
     the terminal.
-    Parameters
-    ----------
-    d : dict
-        The dictionary.
-    offset : str, optional
-        Offset used for iterative calls. The default is ''.
-    Returns
-    -------
-    None.
+
+    Args:
+        d (dict): The dictionary.
+        offset (str, optional): Offset used for iterative calls. Defaults to "".
+
+    Returns:
+        None
     """
+    if not isinstance(d, dict):
+        raise TypeError(f"'d' should be a dict, not a {type(d).__name__}.")
+    if not isinstance(offset, str):
+        raise TypeError(f"'offset' should be a dict, not a {type(offset).__name__}.")
+
     if len(d.keys()) > 50:
         print(offset, "keys:", list(d.keys()))
         print(offset, "first one containing:")
-        f = d[list(d.keys())[0]]
+        f: Any = d[list(d.keys())[0]]
         if type(f) == dict:
             present_dict(f, offset=" |" + offset + "       ")
         else:
@@ -727,34 +840,381 @@ def present_dict(d, offset=""):
             else:
                 print(offset, i, ":", type(k), ", size:", np.size(k))
 
+    return None
 
-def ctd_identify_water_masses(CTD, water_mass_def, stations=None):
+
+__output__ = Literal["pd.DataFrame", "csv", "df_func", "None"]
+
+
+def create_water_mass_DataFrame(
+    output: __output__ | str,
+    Abbr: list = ...,
+    T_min: list = ...,
+    T_max: list = ...,
+    S_psu_min: list = ...,
+    S_psu_max: list = ...,
+) -> None | pd.DataFrame | str:
+    """Creates a DataFrame containing the abbreviation of the water mass,
+    as well as the minimum and maximum temperature/salinity values (as used by ctd_identify_water_masses()).
+    If 'Abbr', 'T_min', 'T_max', 'S_psu_min', and 'S_psu_max' are provided,
+    the function skips user input and directly assigns these lists to the DataFrame.
+    The resulting DataFrame can be saved as a .csv file and later read using pd.read_csv(filepath).
+    To close the input, enter: "done", "quit", "exit" or "save". Press ESC to exit without saving or making any changes.
+
+    Args:
+        output (str): Used to define which dataformat is required.
+            - 'pd.DataFrame'  : Returns a pandas DataFrame.
+            - 'csv'           : Creates a .csv with the Dataframe in the current working directory. Returns None.
+            - 'df_func'       : Prints and returns the string which is used to create the DataFrame with pd.DataFrame().
+            - 'None'          : Returns None.
+            - output directory: The path to the directory the .csv should be saved. Returns None.
+        Abbr (list, optional): List with abbreviations. Defaults to None.
+            - Needs to be set, to skip the inputs.
+        T_min (list, optional): List with the minimum temperatures. Defaults to None.
+            - Needs to be set, to skip the inputs.
+        T_max (list, optional): List with the maximum temperatures. Defaults to None.
+            - Needs to be set, to skip the inputs.
+        S_psu_min (list, optional): List with the minimum salinities. Defaults to None.
+            - Needs to be set, to skip the inputs.
+        S_psu_max (list, optional): List with the maximum salinities. Defaults to None.
+            - Needs to be set, to skip the inputs.
+
+    Returns:
+        None or pd.DataFrame or str: See 'output'.
     """
-    Function to assign each ctd measurement tuple of T and S the corresponding water mass (AW, TAW, LW etc.)
 
-    Parameters
-    ----------
-    CTD : dict
-        CTD data. Is created by `read_CTD`
-    stations : array_like, optional
-        list of stations to select from `CTD`.
-    water_mass_def : pandas DataFrame
-        contains the water mass abbreviations, T and S limits and colorcodes
+    def _createListStr(List: list) -> str:
+        """Creates a list to recreate the list in a normal command.
 
-    Returns
-    -------
-    CTD : dict
-        dict with the ctd data, each station has a new variable 'water_mass'
+        Args:
+            List (list): List thats supposed to be converted.
+
+        Returns:
+            str: Converted list.
+        """
+
+        List_str: str = "["
+        for x in List:
+            if not np.isnan(x) and x != float("inf") and x != float("-inf"):
+                List_str += str(x) + ","
+            elif x == float("inf") or np.isnan(x):
+                List_str += "np." + str(x) + ","
+            else:
+                List_str += "-np.inf,"
+
+        List_str = List_str[:-1]
+        List_str += "]"
+        return List_str
+
+    if output not in get_args(__output__) and not os.path.isdir(output):
+        raise ValueError(
+            f"'switch_xdim' should be 'pd.DataFrame', 'csv', 'df_func', 'None' or a path, not {output}."
+        )
+
+    userinput: str = ""
+    if os.path.isdir(output) or output == "csv":
+        userinput = input("Please enter a filename (without .csv).")
+        if not output.endswith("/"):
+            output += "/" + userinput + ".csv"
+        else:
+            if output == "csv":
+                output = os.getcwd() + "/" + userinput + ".csv"
+            else:
+                output += userinput + ".csv"
+        userinput: str = ""
+
+    if (
+        Abbr == ...
+        and T_min == ...
+        and T_max == ...
+        and S_psu_max == ...
+        and S_psu_min == ...
+    ):
+        Abbr: list = []
+        T_min: list = []
+        T_max: list = []
+        S_psu_min: list = []
+        S_psu_max: list = []
+        go: bool = True
+    else:
+        go = False
+        if not pd.api.types.is_list_like(Abbr):
+            raise TypeError(
+                f"'Abbr' should be a list_like, not a {type(Abbr).__name__}."
+            )
+        if not pd.api.types.is_list_like(T_min):
+            raise TypeError(
+                f"'T_min' should be a list_like, not a {type(T_min).__name__}."
+            )
+        if len(Abbr) != len(T_min):
+            raise ValueError(
+                f"'T_min' should have the same size as 'Abbr'. Has size {len(T_min)} should {len(Abbr)}."
+            )
+        if not pd.api.types.is_list_like(T_max):
+            raise TypeError(
+                f"'T_max' should be a list_like, not a {type(T_max).__name__}."
+            )
+        if len(Abbr) != len(T_max):
+            raise ValueError(
+                f"'T_max' should have the same size as 'Abbr'. Has size {len(T_max)} should {len(Abbr)}."
+            )
+        if not pd.api.types.is_list_like(S_psu_min):
+            raise TypeError(
+                f"'S_psu_min' should be a list_like, not a {type(S_psu_min).__name__}."
+            )
+        if len(Abbr) != len(S_psu_min):
+            raise ValueError(
+                f"'S_psu_min' should have the same size as 'Abbr'. Has size {len(S_psu_min)} should {len(Abbr)}."
+            )
+        if not pd.api.types.is_list_like(S_psu_max):
+            raise TypeError(
+                f"'S_psu_max' should be a list_like, not a {type(S_psu_max).__name__}."
+            )
+        if len(Abbr) != len(S_psu_max):
+            raise ValueError(
+                f"'S_psu_max' should have the same size as 'Abbr'. Has size {len(S_psu_max)} should {len(Abbr)}."
+            )
+
+    exitstrs: list = ["quit", "exit", "letmefree", "done", "save"]
+    conv: dict = {"np.nan": np.nan, "np.inf": np.inf, "-np.inf": -np.inf}
+
+    while go:
+        userinput = input("Please enter the abbreviation of the water mass.")
+        if userinput.lower().replace(" ", "") in exitstrs:
+            go = False
+            break
+        else:
+            Abbr.append(userinput)
+
+        repeat: int = 1  # 0:finished successfully, 1: first time, 2: repeated run
+        while repeat > 0 and go:
+            if repeat == 1:
+                userinput = input(
+                    f"Please enter the minimum temperature for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            elif repeat == 2:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the minimum temperature for '{Abbr[-1]}' again."
+                )
+                repeat = 0
+            if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
+                go = False
+                T_min.append(np.nan)
+                T_max.append(np.nan)
+                S_psu_min.append(np.nan)
+                S_psu_max.append(np.nan)
+            else:
+                try:
+                    T_min.append(
+                        conv.get(userinput, float(userinput.replace(",", ".")))
+                    )
+                except ValueError:
+                    repeat = 2
+                    logging.warning(
+                        f"The input '{userinput}' for for T_min for '{Abbr[-1]}' was not valid!"
+                    )
+
+        repeat: int = 1  # 0:finished successfully, 1: first time, 2: repeated run
+        while repeat > 0 and go:
+            if repeat == 1:
+                userinput = input(
+                    f"Please enter the maximum temperature for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            elif repeat == 2:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the maximum temperature for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
+                go = False
+                T_max.append(np.nan)
+                S_psu_min.append(np.nan)
+                S_psu_max.append(np.nan)
+            else:
+                try:
+                    T_max.append(
+                        conv.get(userinput, float(userinput.replace(",", ".")))
+                    )
+                except ValueError:
+                    repeat = 2
+                    logging.warning(
+                        f"The input '{userinput}' for T_max for '{Abbr[-1]}' was not valid!"
+                    )
+
+        repeat: int = 1  # 0:finished successfully, 1: first time, 2: repeated run
+        while repeat > 0 and go:
+            if repeat == 1:
+                userinput = input(
+                    f"Please enter the minumum salinity for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            elif repeat == 2:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the minumum salinity for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
+                go = False
+                S_psu_min.append(np.nan)
+                S_psu_max.append(np.nan)
+            else:
+                try:
+                    S_psu_min.append(
+                        conv.get(userinput, float(userinput.replace(",", ".")))
+                    )
+                except ValueError:
+                    repeat = 2
+                    logging.warning(
+                        f"The input '{userinput}' for S_psu_min for '{Abbr[-1]}' was not valid!"
+                    )
+
+        repeat: int = 1  # 0:finished successfully, 1: first time, 2: repeated run
+        while repeat > 0 and go:
+            if repeat == 1:
+                userinput = input(
+                    f"Please enter the maximum salinity for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            elif repeat == 2:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the maximum salinity for '{Abbr[-1]}'."
+                )
+                repeat = 0
+            if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
+                go = False
+                S_psu_max.append(np.nan)
+            else:
+                try:
+                    S_psu_max.append(
+                        conv.get(userinput, float(userinput.replace(",", ".")))
+                    )
+                except ValueError:
+                    repeat = 2
+                    logging.warning(
+                        f"The input '{userinput}' for S_psu_max for '{Abbr[-1]}' was not valid!"
+                    )
+
+        if go:
+            if (
+                T_max[-1] < T_min[-1]
+                and T_max != float("nan")
+                and T_min != float("nan")
+            ):
+                logging.warning(
+                    f"'T_max' ({T_max[-1]}) is bigger then 'T_min' ({T_min[-1]}) for '{Abbr[-1]}'."
+                )
+            if (
+                S_psu_max[-1] < S_psu_min[-1]
+                and S_psu_max != float("nan")
+                and S_psu_min != float("nan")
+            ):
+                logging.warning(
+                    f"'S_psu_max' ({S_psu_max[-1]}) is bigger then 'S_psu_min' ({S_psu_min[-1]}) for '{Abbr[-1]}'."
+                )
+
+    df: pd.DataFrame = pd.DataFrame(
+        {
+            "Abbr": Abbr,
+            "T_max": T_max,
+            "T_min": T_min,
+            "S_psu_max": S_psu_max,
+            "S_psu_min": S_psu_min,
+        }
+    )
+
+    if output == "pd.Dataframe":
+        return df
+    if output == "df_func":
+        T_max_str: str = _createListStr(T_max)
+        T_min_str: str = _createListStr(T_min)
+        S_psu_max_str: str = _createListStr(S_psu_max)
+        S_psu_min_str: str = _createListStr(S_psu_min)
+        out_string: str = (
+            'df: pd.DataFrame = pd.DataFrame({"Abbr":',
+            Abbr,
+            ', "T_max":',
+            T_max_str,
+            ', "T_min":',
+            T_min_str,
+            ', "S_psu_max":',
+            S_psu_max_str,
+            ', "S_psu_min":',
+            S_psu_min_str,
+            "})",
+        )
+        print(out_string)
+        return out_string
+    if output == "None":
+        return None
+    print(df.head())
+    df.to_csv(output, index=False)
+    return None
+
+
+def ctd_identify_water_masses(
+    CTD: dict, water_mass_def: pd.DataFrame, stations: list = None
+) -> dict[dict]:
+    """Function to assign each ctd measurement tuple of T and S the corresponding water mass (AW, TAW, LW etc.).
+
+    Args:
+        CTD (dict): CTD data.
+            - Created by 'read_CTD'.
+        water_mass_def (pd.DataFrame): Contains the water mass abbreviations, T and S limits.
+            - Needs to contain columns with the name '['Abbr','T_min','T_max','S_psu_max','S_psu_min']'.
+        stations (array_like, optional): List of stations to select from CTD. Defaults to None.
+            - If set to None all stations are used.
+
+    Returns:
+        dict[dict]: Dict with the ctd data, each station has new variables 'water_mass' and 'water_mass_Abbr'.
     """
 
     # if no stations are given, take all stations available
+    if not isinstance(CTD, dict):
+        raise TypeError(f"'CTD' should be a dict, not a {type(CTD).__name__}")
     if stations is None:
         stations = list(CTD.keys())
     else:
+        if not pd.api.types.is_list_like(stations):
+            raise TypeError(
+                f"'stations' should be a array_like, not a {type(stations).__name__}."
+            )
+        if type(stations) != list:
+            stations = [x for x in stations]
+        notfound_stations: list = [
+            key for key in stations if not key in list(CTD.keys())
+        ]
+        if len(notfound_stations) != 0:
+            logging.info(
+                f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+            )
+            for i in notfound_stations:
+                stations.remove(i)
+            if len(stations) == 0:
+                raise ValueError(f"There are no CTD stations left.")
         CTD = {key: CTD[key] for key in stations}
+    if len(stations) == 0:
+        raise ValueError(f"The CTD is empty.")
+
+    if not isinstance(water_mass_def, pd.DataFrame):
+        raise TypeError(
+            f"'water_mass_def' should be a pandas Dataframe, not a {type(water_mass_def).__name__}."
+        )
+    if not "Abbr" in water_mass_def.columns:
+        raise ValueError(f"'Abbr' should be a column in 'water_mass_def.columns'.")
+    if not "T_min" in water_mass_def.columns:
+        raise ValueError(f"'T_min' should be a column in 'water_mass_def.columns'.")
+    if not "T_max" in water_mass_def.columns:
+        raise ValueError(f"'T_max' should be a column in 'water_mass_def.columns'.")
+    if not "S_psu_min" in water_mass_def.columns:
+        raise ValueError(f"'S_psu_min' should be a column in 'water_mass_def.columns'.")
+    if not "S_psu_max" in water_mass_def.columns:
+        raise ValueError(f"'S_psu_max' should be a column in 'water_mass_def.columns'.")
 
     for s in stations:
         CTD[s]["water_mass"] = np.ones_like(CTD[s]["T"]) * np.nan
+        CTD[s]["water_mass_Abbr"] = np.empty_like(CTD[s]["T"], dtype="object")
         for index, row in water_mass_def.iterrows():
             if row["Abbr"] != "ArW":
                 ind = np.all(
@@ -769,6 +1229,7 @@ def ctd_identify_water_masses(CTD, water_mass_def, stations=None):
                     axis=0,
                 )
                 CTD[s]["water_mass"][ind] = index
+                CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
 
     return CTD
 
@@ -778,23 +1239,78 @@ def ctd_identify_water_masses(CTD, water_mass_def, stations=None):
 ############################################################################
 
 
-def read_ADCP_CODAS(filename):
-    """
-    Reads ADCP data from a netCDF file processed by CODAS. To be used with the *short* file!
-    Parameters:
-    -------
-    filename: str
-        String with path to filename
-    Returns
-    -------
-    ds : xarray dataset
-        Dataset containing the adcp data. Current velocities are adjusted for the ship's motion.'
+def read_ADCP_CODAS(
+    filepath: str, loadadditional_var: str | list[str] = None
+) -> xr.Dataset:
+    """Reads ADCP data from a/multiple  netCDF file(s) processed by CODAS. To be used with the *short* file!
+
+    Args:
+        filepath (str): Path to one or more '.nc' file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
+        loadadditional_var (str or list[str], optional): Name(s) of variabels that should be imported as well. Defaults to None.
+            - Standard variabels: "u", "v", "lat", "lon", "depth", "amp", "pg", "heading", "uship", "vship"
+
+    Returns:
+        xr.Dataset: Dataset containing the adcp data. Current velocities are adjusted for the ship's motion.
     """
 
-    with xr.open_dataset(filename) as f:
-        ds = f[
-            ["u", "v", "lat", "lon", "depth", "amp", "pg", "heading", "uship", "vship"]
-        ].load()
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    if not ("short" in os.path.basename(filepath).lower()):
+        logging.warning(
+            "Warning: This function is written to work with the CODAS *short* file. 'short' was not found in the file name."
+        )
+    files: list[str] = sorted(glob.glob(filepath))
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{filepath}'")
+    for i in files:
+        if not os.path.isfile(i):
+            raise ValueError(
+                f"Invalid input: '{i}'. Expected valid file(s) name with .nc extension."
+            )
+        if not i.endswith(".nc"):
+            raise ValueError(f"Invalid file format: '{i}'. Expected a .nc file.")
+
+    if loadadditional_var == None:
+        loadadditional_var = []
+    if not isinstance(loadadditional_var, str) or not pd.api.types.is_list_like(
+        loadadditional_var
+    ):
+        if pd.api.types.is_list_like(loadadditional_var):
+            for i in loadadditional_var:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Objects in 'loadadditional_var' should be a string, not a {type(i).__name__}. ('{i}')"
+                    )
+        else:
+            raise TypeError(
+                f"'loadadditional_var' should be a string or a list of strings, not a {type(i).__name__}."
+            )
+    extract_vars: list[str] = [
+        "u",
+        "v",
+        "lat",
+        "lon",
+        "depth",
+        "amp",
+        "pg",
+        "heading",
+        "uship",
+        "vship",
+    ]
+    if isinstance(loadadditional_var, str):
+        extract_vars.append(loadadditional_var)
+    else:
+        extract_vars.extend(loadadditional_var)
+
+    if len(files) == 1:
+        with xr.open_dataset(files[0]) as f:
+            ds: xr.Dataset = f[extract_vars].load()
+    elif len(files) > 1:
+        with xr.open_mfdataset(files) as f:
+            ds: xr.Dataset = f[extract_vars].load()
 
     ds = ds.set_coords(("depth", "lon", "lat"))
 
@@ -811,42 +1327,43 @@ def read_ADCP_CODAS(filename):
     ds["heading"].attrs["long_name"] = "Ship heading"
     ds["speed_ship"].attrs["long_name"] = "Ship speed"
 
+    ds = ds.rename(
+        {"heading": "heading_ship", "uship": "u_ship", "vship": "v_ship"}
+    )  # renaming so it has the same naming convention
+
     return ds
 
 
-def split_CODAS_resolution(ds):
+def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
+    """Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
+
+    Args:
+        ds (xr.Dataset): Dataset containing the full (CODAS-processed) ADCP timeseries (the return from the function read_ADCP_CODAS)
+
+    Returns:
+        list[xr.Dataset]: List of xarray datasets with different depth resolutions
     """
-    Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
 
-    Parameters
-    ----------
-    ds : xarray dataset
-        Dataset containing the full (CODAS-processed) ADCP timeseries (the return from the function read_ADCP_CODAS)
-
-    Returns
-    -------
-    list_of_ds : list
-        List of xarray datasets with different depth resolutions
-
-    """
+    if not isinstance(ds, xr.Dataset):
+        raise TypeError(f"'ds' should be a xr.Dataset, not a {type(ds).__name__}.")
 
     ds["depth_binsize"] = (
         ds.depth.isel(depth_cell=slice(0, 2))
         .diff(dim="depth_cell")
         .squeeze("depth_cell", drop=True)
-        .drop("depth")
+        .drop_vars("depth")
     )
 
-    depth_resolutions = sorted(list(ds.groupby("depth_binsize").groups.keys()))
+    depth_resolutions: list = sorted(list(ds.groupby("depth_binsize").groups.keys()))
 
-    one_d_varis = ["heading", "uship", "vship", "speed_ship"]
+    one_d_varis: list[str] = ["heading", "uship", "vship", "speed_ship"]
 
-    list_of_ds = []
+    list_of_ds: list = []
     for d in depth_resolutions:
-        ds_d = ds.where(ds.depth_binsize == d, np.nan)
+        ds_d: xr.Dataset = ds.where(ds.depth_binsize == d, np.nan)
         ds_d["depth"] = ds_d.depth.isel(time=0)
-        ds_d = ds_d.swap_dims({"depth_cell": "depth"}).drop("depth_binsize")
-        ds_dd = ds_d[one_d_varis]
+        ds_d = ds_d.swap_dims({"depth_cell": "depth"}).drop_vars("depth_binsize")
+        ds_dd: xr.Dataset = ds_d[one_d_varis]
         ds_d = ds_d.where(ds_d.depth.notnull(), drop=True)
         for vari in one_d_varis:
             ds_d[vari] = ds_dd[vari]
@@ -856,24 +1373,32 @@ def split_CODAS_resolution(ds):
     return list_of_ds
 
 
-def read_WinADCP(filename):
-    """
-    Reads data from a .mat data file processed with WinADCP.
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
+def read_WinADCP(filepath: str) -> xr.Dataset:
+    """Reads data from a .mat data file processed with WinADCP.
+
+    Args:
+        filepath (str): String with path to file
+
+    Returns:
+        xr.Dataset: Dataset with time, depth as dimensions and the data.
     """
 
-    data = myloadmat(filename)
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}")
+    if not filepath.endswith(".mat"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .mat file.")
 
-    depth = np.round(data["RDIBin1Mid"] + (data["SerBins"] - 1) * data["RDIBinSize"])
+    data: dict = myloadmat(filepath)
 
-    time = [
+    depth: np.ndarray = np.round(
+        data["RDIBin1Mid"] + (data["SerBins"] - 1) * data["RDIBinSize"]
+    )
+
+    time: list[pd.Timestamp] = [
         pd.Timestamp(year=2000 + y, month=m, day=d, hour=H, minute=M, second=s)
         for y, m, d, H, M, s in zip(
             data["SerYear"],
@@ -885,7 +1410,7 @@ def read_WinADCP(filename):
         )
     ]
 
-    glattributes = {
+    glattributes: dict[str, Any] = {
         name: data[name]
         for name in [
             "RDIFileName",
@@ -897,7 +1422,7 @@ def read_WinADCP(filename):
     }
 
     data_vars = dict(
-        temperature=(
+        T=(
             ["time"],
             data["AnT100thDeg"] / 100.0,
             {
@@ -929,15 +1454,15 @@ def read_WinADCP(filename):
             data["SerPG4"] / 100.0,
             {"units": "percent", "name": "pg", "long_name": "Percent good"},
         ),
-        uship=(
+        u_ship=(
             ["time"],
             data["AnNVEmmpersec"] / 1000.0,
-            {"units": "m/s", "name": "uship", "long_name": "Eastward ship speed"},
+            {"units": "m/s", "name": "u_ship", "long_name": "Eastward ship speed"},
         ),
-        vship=(
+        v_ship=(
             ["time"],
             data["AnNVNmmpersec"] / 1000.0,
-            {"units": "m/s", "name": "vship", "long_name": "Northward ship speed"},
+            {"units": "m/s", "name": "v_ship", "long_name": "Northward ship speed"},
         ),
     )
     if "SerErmmpersec" in data.keys():
@@ -1030,25 +1555,25 @@ def read_WinADCP(filename):
         coords={"time": ds.time},
     )
 
-    ds = ds.set_coords(("lat", "lon"))
+    ds: xr.Dataset = ds.set_coords(("lat", "lon"))
 
-    ds["u"] = ds["u_raw"] + ds["uship"]
+    ds["u"] = ds["u_raw"] + ds["u_ship"]
     ds["u"].attrs["name"] = "u"
     ds["u"].attrs["units"] = "m/s"
     ds["u"].attrs["long_name"] = "Eastward current velocity"
 
-    ds["v"] = ds["v_raw"] + ds["vship"]
+    ds["v"] = ds["v_raw"] + ds["v_ship"]
     ds["v"].attrs["name"] = "v"
     ds["v"].attrs["units"] = "m/s"
     ds["v"].attrs["long_name"] = "Northward current velocity"
 
     if "u_barotropic_raw" in ds.data_vars:
-        ds["u_barotropic"] = ds["u_barotropic_raw"] + ds["uship"]
+        ds["u_barotropic"] = ds["u_barotropic_raw"] + ds["u_ship"]
         ds["u_barotropic"].attrs["name"] = "u_barotropic"
         ds["u_barotropic"].attrs["units"] = "m/s"
         ds["u_barotropic"].attrs["long_name"] = "Eastward barotropic current velocity"
 
-        ds["v_barotropic"] = ds["v_barotropic_raw"] + ds["vship"]
+        ds["v_barotropic"] = ds["v_barotropic_raw"] + ds["v_ship"]
         ds["v_barotropic"].attrs["name"] = "v_barotropic"
         ds["v_barotropic"].attrs["units"] = "m/s"
         ds["v_barotropic"].attrs["long_name"] = "Northward barotropic current velocity"
@@ -1057,41 +1582,49 @@ def read_WinADCP(filename):
         lambda u, v: (((np.rad2deg(np.arctan2(-u, -v)) + 360.0) % 360.0) + 180.0)
         % 360.0
     )
-    ds["heading"] = xr.apply_ufunc(calc_heading, ds["uship"], ds["vship"])
-    ds["heading"].attrs["name"] = "heading"
-    ds["heading"].attrs["units"] = "deg"
-    ds["heading"].attrs["long_name"] = "Ship heading"
+    ds["heading_ship"] = xr.apply_ufunc(calc_heading, ds["u_ship"], ds["v_ship"])
+    ds["heading_ship"].attrs["name"] = "heading_ship"
+    ds["heading_ship"].attrs["units"] = "deg"
+    ds["heading_ship"].attrs["long_name"] = "Ship heading"
 
-    ds["speed_ship"] = xr.apply_ufunc(np.sqrt, ds["uship"] ** 2.0 + ds["vship"] ** 2.0)
-    ds["speed_ship"].attrs["name"] = "speed_ship"
-    ds["speed_ship"].attrs["units"] = "m/s"
-    ds["speed_ship"].attrs["long_name"] = "Ship speed"
+    ds["Speed_ship"] = xr.apply_ufunc(
+        np.sqrt, ds["u_ship"] ** 2.0 + ds["v_ship"] ** 2.0
+    )
+    ds["Speed_ship"].attrs["name"] = "Speed_ship"
+    ds["Speed_ship"].attrs["units"] = "m/s"
+    ds["Speed_ship"].attrs["long_name"] = "Ship speed"
 
     ds = ds.transpose("depth", "time")
 
     return ds
 
 
-def VMADCP_calculate_crossvel(ds):
-    """
-    Function to calculate the current velocity perpendicular to the ship track from the detided East and North current velocities and the ship's heading.
+def VMADCP_calculate_crossvel(ds: xr.Dataset) -> xr.Dataset:
+    """Function to calculate the current velocity perpendicular to the ship track from the detided East and North current velocities and the ship's heading.
 
-    Parameters
-    ----------
-    ds : xarray dataset
-        Dataset containing the full VM-ADCP timeseries, after detiding!
+    Args:
+        ds (xr.Dataset): Dataset containing the full VM-ADCP timeseries, after detiding!
 
-    Returns
-    -------
-    ds : xarray dataset
-        Same dataset as input, but with additional variable crossvel
+    Returns:
+        xr.Dataset: Same dataset as input, but with additional variable crossvel
     """
+
+    if not isinstance(ds, xr.Dataset):
+        raise TypeError(f"'ds' should be a xr.Dataset, not a {type(ds).__name__}.")
+    if not "u_detide" in ds.data_vars:
+        raise ValueError(
+            f"'ds' needs to have a variable named 'u_detide' use 'detide_VMADCP()'."
+        )
+    if not "v_detide" in ds.data_vars:
+        raise ValueError(
+            f"'ds' needs to have a variable named 'v_detide' use 'detide_VMADCP()'."
+        )
 
     calc_crossvel = lambda u, v, angle_deg: v * np.sin(
         np.deg2rad(angle_deg)
     ) - u * np.cos(np.deg2rad(angle_deg))
     ds["crossvel"] = xr.apply_ufunc(
-        calc_crossvel, ds["u_detide"], ds["v_detide"], ds["heading"]
+        calc_crossvel, ds["u_detide"], ds["v_detide"], ds["heading_ship"]
     )
     ds["crossvel"].attrs["name"] = "crossvel"
     ds["crossvel"].attrs["units"] = "m/s"
@@ -1102,50 +1635,69 @@ def VMADCP_calculate_crossvel(ds):
     return ds
 
 
-def read_LADCP(filename, station_dict, switch_xdim="station"):
-    """
-    Function to read the data from the LADCP-mat-files.
+def read_LADCP(
+    filepath: str, station_dict: dict, switch_xdim: __switch_xdim__ = "station"
+) -> xr.Dataset:
+    """Function to read the data from the LADCP-mat-files.
 
-    Parameters
-    ----------
-    filename : str
-        String with path to the datafile
-    station_dict : dict
-        dictionary connecting the ship station numbers to the UNIS station numbers. Can be generated from the CTD-dict with 'stations_dict = {CTD[i]["st"]: i for i in CTD.keys()}'.
-        Be aware that if a UNIS station has been measured several times and not named differently (e.g. 987_1, 987_2 etc.), only the last measurement will be present in the CTD dict and the previous station numbers are missing.
-        In this case, it is easiest to manually rename the UNIS station numbers in the respective CTD data files (.cnv)
-    switch_xdim : str
-        Keyword to switch between time and station as x dimension for the returned data set. Default is station (UNIS station number).
-    Returns
-    -------
-    ds : xarray dataset containing the l-adcp data.
+    Args:
+        filepath (str): String with path to the .mat datafile.
+        station_dict (dict): The CTD dictionary or dictionary connecting the ship station numbers to the UNIS station numbers.
+            - Can be generated from the CTD-dict with 'stations_dict = {CTD[i]["st"]: i for i in CTD.keys()}'.
+        switch_xdim (str, optional): Keyword to switch between time and station (UNIS station number) as x dimension for the returned data set. Defaults to "station".
 
+    Returns:
+        xr.Dataset: xarray dataset containing the l-adcp data.
     """
 
-    adcp = myloadmat(filename)
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"Expected filepath as a string, but got {type(filepath).__name__}."
+        )
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}")
+    if not filepath.endswith(".mat"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .mat file.")
 
-    variables_to_read = ["U", "V", "U_detide", "V_detide"]
+    if not isinstance(station_dict, dict):
+        raise TypeError(
+            f"'station_dict' should be a dictionary, not a {type(station_dict).__name__}."
+        )
+    construct_station_dict: dict = {}
+    for i in station_dict.keys():
+        if not isinstance(station_dict[i], dict):
+            break
+        else:
+            construct_station_dict[station_dict[i]["st"]] = (
+                i  # ships_station_num -> unis_station_number
+            )
+    if len(construct_station_dict) == len(station_dict):
+        station_dict = construct_station_dict
+
+    adcp: dict = myloadmat(filepath)
+
+    variables_to_read: list[str] = ["U", "V", "U_detide", "V_detide"]
     if "E" in adcp.keys():
         variables_to_read += ["E"]
 
-    list_of_das = []
+    list_of_das: list[xr.DataArray] = []
     for vari in variables_to_read:
-        list_of_dfs = []
+        list_of_dfs: list[pd.DataFrame] = []
         for st in range(len(adcp["stnr"])):
-            max_depth = np.floor((np.nanmax(adcp["Z"][:, st])))
-            grid = np.arange(max_depth)
-            df = pd.DataFrame(
+            max_depth: float = np.floor((np.nanmax(adcp["Z"][:, st])))
+            grid: np.ndarray = np.arange(max_depth)
+            df: pd.DataFrame = pd.DataFrame(
                 adcp[vari][:, st],
                 index=adcp["Z"][:, st],
-                columns=[station_dict[adcp["stnr"][st]]],
+                columns=[station_dict[adcp["stnr"][st]]],  # setting unis_staiton_number
             )
             df = df.drop_duplicates().dropna()
-            df_resampled = (
+            df_resampled: pd.DataFrame = (
                 df.reindex(df.index.union(grid)).interpolate("values").loc[grid]
             )
             list_of_dfs.append(df_resampled)
 
-        df_total = pd.concat(list_of_dfs, axis=1)
+        df_total: pd.DataFrame = pd.concat(list_of_dfs, axis=1)
 
         list_of_das.append(
             xr.DataArray(
@@ -1156,12 +1708,12 @@ def read_LADCP(filename, station_dict, switch_xdim="station"):
             )
         )
 
-    ds = xr.merge(list_of_das)
+    ds: xr.Dataset = xr.merge(list_of_das)
     ds["ship_station"] = xr.DataArray(
         adcp["stnr"], dims=["station"], coords={"station": ds.station}
     )
 
-    aux_variables = {"LAT": "lat", "LON": "lon", "ED": "Echodepth"}
+    aux_variables: dict[str, str] = {"LAT": "lat", "LON": "lon", "ED": "Echodepth"}
 
     for vari_old, vari_new in aux_variables.items():
         ds[vari_new] = xr.DataArray(
@@ -1206,63 +1758,146 @@ def read_LADCP(filename, station_dict, switch_xdim="station"):
 
 
 def read_CTD(
-    inpath,
-    cruise_name="cruise",
-    outpath=None,
-    stations=None,
-    salt_corr=(1.0, 0.0),
-    oxy_corr=(1.0, 0.0),
-    use_system_time=False,
-):
-    """
-    This function reads in the CTD data from cnv files in `inpath`
+    inpath: str,
+    cruise_name: str = "cruise",
+    outpath: str = None,
+    stations: npt.ArrayLike = None,
+    salt_corr: tuple[num.Number, num.Number] = (1.0, 0.0),
+    oxy_corr: tuple[num.Number, num.Number] = (1.0, 0.0),
+    use_system_time: bool = False,
+) -> dict:
+    """This function reads in the CTD data from cnv files in `inpath`
     for the stations `stations` and returns a list of dicts containing
     the data. Conductivity correction (if any) can be specified in `corr`
-    Parameters
-    ----------
-    inpath : str
-        Either the path to a folder where the cnv files are stored, or the path
-        to a .npy file with the data. In the latter case, NO correction can be
-        applied.
-    cruise_name : str, optional
-        name of the cruise. The default is 'cruise'
-    outpath : str, optional
-        path where to store the output. The default is None.
-    stations : array_like, optional
-        list of stations to read in (optional). If not given,
-        the function will read all stations in `inpath`. The default is None.
-    salt_corr : tuple, optional
-        tuple with 2 values containing (slope,intersect) of
-                      linear correction model. The default is (1.,0.).
-    oxy_corr : tuple, optional
-        tuple with 2 values containing (slope,intersect) of
-                      linear correction model. The default is (1.,0.).
-    use_system_time : bool, optional
-        Switch to use the system upload time stamp instead of the NMEA one. By default, the NMEA time stamp is used.
 
-    Returns
-    -------
-    CTD_dict : dict
-        a dict of dicts containing the data for
-                    all the relevant station data.
+    Args:
+        inpath (str):
+            - Path to folder where the where the .cnv files are stored.
+            - Path to the .cnv file(s) with UNIX-wildecards ('*' for any character(s), '?' for single character, etc.).
+            - Path to a .npy file with the data.
+        cruise_name (str, optional): Name of the cruise. Defaults to "cruise".
+            - Used to create the name of the output file.
+        outpath (str, optional): Path to a folder to store the output. Defaults to None.
+            - If set to None, the output is not saved.
+            - Saves as 'cruise_name'_CTD.npy.
+        stations (array_like, optional): List of stations to read in. Defaults to None.
+            - If set to None, all stations in 'inpath' are read in.
+        salt_corr (tuple[numeric], optional): Tuple with 2 values containing (slope, intersect) of salinity. Defaults to (1.0, 0.0).
+            - Uses a linear correction model.
+        oxy_corr (tuple[num.Number, num.Number], optional): Tuple with 2 values containing (slope, intersect) of oxygen. Defaults to (1.0, 0.0).
+            - Uses a linear correction model.
+        use_system_time (bool, optional): Switch to use the system upload time stamp insted of the NMEA one. Defaults to False.
+            - False uses NMEA time stamp.
+            - True uses system time stamp.
+
+    Returns:
+        dict: Dict of dicts containing the data for all the relevant station data.
     """
-    # first, check if the infile is a npy file. In that case, just read the
-    # npy file and return the dict. No correction can be applied.
-    if inpath[-4::] == ".npy":
-        CTD_dict = np.load(inpath, allow_pickle=True).item()
-        if stations is not None:
-            try:
-                CTD_dict = {k: CTD_dict[k] for k in stations}
-            except:
-                assert False, (
-                    "Some of the stations you provide don't exist" "in the data!"
-                )
-        return CTD_dict
+
+    if not isinstance(inpath, str):
+        raise TypeError(
+            f"Expected inpath as a string, but got {type(inpath).__name__}."
+        )
+    files: list[str] = sorted(glob.glob(inpath))
+    # checks if the input is a folder or a .npy file
+    if len(files) == 1:
+        # first, check if the infile is a npy file. In that case, just read the
+        # npy file and return the dict. No correction can be applied.
+        if inpath[-4::] == ".npy":
+            CTD_dict: dict = np.load(inpath, allow_pickle=True).item()
+            if stations is not None:
+                # just use existing stations
+                if not pd.api.types.is_list_like(stations):
+                    raise TypeError(
+                        f"'stations' should be a array_like, not a {type(stations).__name__}."
+                    )
+                if type(stations) != list:
+                    stations = [x for x in stations]
+                notfound_stations: list = [
+                    key for key in stations if not key in list(CTD_dict.keys())
+                ]
+                if len(notfound_stations) != 0:
+                    logging.info(
+                        f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+                    )
+                    for i in notfound_stations:
+                        stations.remove(i)
+                    if len(stations) == 0:
+                        raise ValueError(f"There are no CTD stations left.")
+                CTD_dict = {key: CTD_dict[key] for key in stations}
+
+            return CTD_dict
+        elif os.path.isdir(inpath):
+            inpath = os.path.join(inpath, "*.cnv")
+            files = sorted(glob.glob(inpath))
+        elif inpath.endswith(".cnv"):
+            pass
+        else:
+            raise ValueError(
+                f"Invalid input: '{inpath}'. Expected valid file name with .npy extension, file name(s) with .cnv extension or folder name"
+            )
+    if len(files) == 0:
+        raise ValueError(f"No such file(s):'{inpath}'")
+    for i in files:
+        if i.endswith(".npy"):
+            raise ValueError(
+                f"Invalid input: '{inpath}'. It's not possible to read in multiple .npy files."
+            )
+        if not i.endswith(".cnv"):
+            raise ValueError(
+                f"Invalid input: '{inpath}'. All files should end with .cnv"
+            )
+
+    if not isinstance(cruise_name, str):
+        raise TypeError(
+            f"'cruise_name' should be a string, not a {type(cruise_name).__name__}."
+        )
+
+    if not isinstance(outpath, str) and outpath != None:
+        raise TypeError(
+            f"'outpath' should be a string, not a {type(outpath).__name__}."
+        )
+
+    if outpath != None:
+        if not os.path.isdir(outpath):
+            raise ValueError(f"Invalid input: '{outpath}'. Expected valid folder name.")
+
+    if not pd.api.types.is_array_like(stations) and stations != None:
+        raise TypeError(
+            f"'stations' should be a array_like, not a {type(stations).__name__}."
+        )
+
+    if not isinstance(salt_corr, tuple):
+        raise TypeError(
+            f"'salt_corr' should be a tuple, not a {type(salt_corr).__name__}."
+        )
+    if not len(salt_corr) == 2:
+        raise ValueError(
+            f"'salt_corr' should be a tuple with 2 values, not {len(salt_corr)}."
+        )
+    if not all([isinstance(i, num.Number) for i in salt_corr]):
+        raise TypeError(f"'salt_corr' should contain only floats, not {salt_corr}.")
+
+    if not isinstance(oxy_corr, tuple):
+        raise TypeError(
+            f"'oxy_corr' should be a tuple, not a {type(oxy_corr).__name__}."
+        )
+    if not len(oxy_corr) == 2:
+        raise ValueError(
+            f"'oxy_corr' should be a tuple with 2 values, not {len(oxy_corr)}."
+        )
+    if not all([isinstance(i, num.Number) for i in oxy_corr]):
+        raise TypeError(f"'oxy_corr' should contain only floats, not {oxy_corr}.")
+
+    if not isinstance(use_system_time, bool):
+        raise TypeError(
+            f"'use_system_time' should be a boolean, not a {type(use_system_time).__name__}."
+        )
 
     # If a folder is given, read single cnv files.
     # create a dict that converts the variable names in the cnv files to
     # the variable names used by us:
-    var_names = {
+    var_names: dict[str, str] = {
         "DEPTH": "D",
         "PRES": "P",
         "prdM": "P",
@@ -1281,24 +1916,31 @@ def read_CTD(
         "oxsolML/L": "OXsol",
     }
 
-    # get all CTD station files in inpath
-    files = glob.glob(inpath + "*.cnv")
     # If stations are provided, select the ones that exist
     if stations is not None:
-        use_files = [i for i in files for j in stations if str(j) in i]
-        assert len(use_files) > 0, "None of your provided stations exists!"
-        if len(use_files) < len(stations):
-            print("Warning: Some stations you provided do not exist!")
+        use_files: list[str] = [i for i in files for j in stations if str(j) in i]
+        unused_stations: list[str] = [
+            i for i in stations if not any(str(i) in j for j in use_files)
+        ]
+        if len(use_files) == 0:
+            raise ValueError(
+                f"None of the stations you provided exist in the data files: {unused_stations}."
+            )
+        if len(unused_stations) != 0:
+            logging.warning(
+                f"The following stations '{unused_stations}' were not found in the data files."
+            )
         files = use_files
 
     files = sorted(files)
 
     # Read in the data, file by file
     CTD_dict = {}
+    used_unis_stations: dict[str, int] = {}
     for file in files:
         # get all the fields, construct a dict with the fields
         profile = fCNV(file)
-        p = {
+        p: dict[str, Any] = {
             var_names[name]: profile[name]
             for name in profile.keys()
             if name in var_names
@@ -1315,11 +1957,18 @@ def read_CTD(
                 if ("unis station" in line.lower()) or ("unis-station" in line.lower()):
                     found_unis_station = True
                     if ":" in line:
-                        unis_station = ((line.split(":"))[-1]).strip()
+                        unis_station: str = ((line.split(":"))[-1]).strip()
                     else:
                         unis_station = ((line.split(" "))[-1]).strip()
         if not found_unis_station:
             unis_station = "unknown"
+
+        # deal with multiple times the same unis station
+        if unis_station in used_unis_stations.keys():
+            used_unis_stations[unis_station] += 1
+            unis_station = f"{unis_station}_{used_unis_stations[unis_station]}"
+        else:
+            used_unis_stations[unis_station] = 0
 
         # if lat and lon not in profile attributes
         if "LATITUDE" not in p.keys():
@@ -1327,7 +1976,7 @@ def read_CTD(
             p["LONGITUDE"] = -999.0
             with open(file, encoding="ISO-8859-1") as f:
                 while (p["LATITUDE"] < -990.0) and (p["LONGITUDE"] < -990.0):
-                    line = f.readline()
+                    line: str = f.readline()
                     if "lat" in line.lower():
                         if ":" in line:
                             p["LATITUDE"] = float(((line.split(":"))[-1]).strip())
@@ -1384,156 +2033,69 @@ def read_CTD(
             p["OX"] = oxy_corr[0] * p["OX"] + oxy_corr[1]
         CTD_dict[p["unis_st"]] = p
 
-    # if all keys are integers (original UNIS station numbers) --> change str keys to int
-    all_keys_int = True
-    for sta in CTD_dict.keys():
-        try:
-            int(sta)
-        except ValueError:
-            all_keys_int = False
-            break
-
-    if all_keys_int:
-        CTD_dict = dict(
-            (k_int, v)
-            for k_int, v in zip([int(i) for i in CTD_dict.keys()], CTD_dict.values())
+    # check if a station was duplicated
+    dub_stations: list[str] = [
+        i for i in used_unis_stations.keys() if used_unis_stations[i] > 0
+    ]
+    for i in dub_stations:
+        CTD_dict[i + "_0"] = CTD_dict[i]
+        CTD_dict.pop(i)
+    if len(dub_stations) > 0:
+        logging.info(
+            f"The following stations were duplicated (naming convention: first station (timewise): UnisNum_0, second: UnisNum_1,...):"
         )
+        for i in dub_stations:
+            logging.info(f"{i} was found {used_unis_stations[i]+1} times.")
 
     # save data if outpath was given
     if outpath is not None:
-        np.save(outpath + cruise_name + "_CTD", CTD_dict)
+        outpath = os.path.join(outpath, cruise_name + "_CTD")
+        np.save(outpath, CTD_dict)
 
     return CTD_dict
 
 
-def read_CTD_from_mat(matfile):
+def read_CTD_from_mat(matfile: str) -> dict:
+    """Reads CTD data from a matfile.
+
+    Args:
+        matfile (str): Path to the .mat file.
+            - This should contain a struct with the name CTD.
+            - This is the common output style of the cruise matlab scripts.
+
+    Returns:
+        dict: Dictionary with the CTD Data.
     """
-    Reads CTD data from matfile
-    Parameters
-    ----------
-    matfile : str
-        The full path to the .mat file. This should contain a struct with the
-        name CTD. This is the common output style of the cruise matlab scripts.
-    Returns
-    -------
-    CTD : dict
-        The dictionary with the CTD Data.
-    """
+
+    if not isinstance(matfile, str):
+        raise TypeError(
+            f"'matfile' should be a string, not a {type(matfile).__name__}."
+        )
+    if not matfile.endswith(".mat"):
+        raise ValueError(f"Invalid file format: {matfile}. Expected a .mat file.")
+    if not os.path.isfile(matfile):
+        raise FileNotFoundError(f"File not found: {matfile}.")
     # read the raw data using scipy.io.loadmat
     raw_data = loadmat(matfile, squeeze_me=True, struct_as_record=False)["CTD"]
     # convert to dictionary
-    CTD = {}
+    CTD: dict = {}
     for record in raw_data:
         station = record.__dict__["st"]
         CTD[station] = record.__dict__
         CTD[station].pop("_fieldnames", None)
-
         # correct dnum parameter, because MATLAB and PYTHON
         # datenumbers are different
         CTD[station]["dnum"] = datestr2num(CTD[station]["date"])
 
     if "note" in CTD[next(iter(CTD))]:
-        print("Note: This CTD data is already calibrated.")
+        logging.info("Note: This CTD data is already calibrated.")
 
     return CTD
 
 
-def read_mini_CTD(file, corr=(1, 0), lon=0, lat=60.0, station_name="miniCTD"):
-    """
-    Reads files generated by the processing software of the mini CTD instrument.
-    Calculated absolute salinity, conservative temperature, depth
-
-    Parameters
-    ----------
-    file : string
-        File containing the data (.TOB).
-
-    corr : tuple (2), optional
-        Tuple containing correction values (a,b) of linear correction, where
-        a is the slope and b is the intercept. Defaults to (1,0)
-    lon : float, optional
-        Longitude of profile. Defaults to 0.
-    lat : float, optional
-        Latitude of profile. Defaults to 60.
-    station_name : str, optional
-        Name of the mini CTD station. Defaults to 'miniCTD'.
-
-    Returns
-    -------
-    a dictionary containing the data
-    """
-    # map norwegian months to padded numbers
-    d2n = {
-        "januar": "01",
-        "februar": "02",
-        "mars": "03",
-        "april": "04",
-        "mai": "05",
-        "juni": "06",
-        "juli": "07",
-        "august": "08",
-        "september": "09",
-        "oktober": "10",
-        "november": "11",
-        "desember": "12",
-    }
-
-    # open file
-    f = open(file, encoding="ISO-8859-1")
-    lines = f.readlines(10000)  # read first lines of file
-    f.close()
-
-    # read time string, prepare for datetime parsing
-    time_str = lines[2].replace(":", ".").split(" ")[1::]
-    time_str[1] = d2n[time_str[1]]
-    time_str[0] = time_str[0].zfill(3)
-
-    header_line = lines[25].replace(";", "").split(" ")
-    while "" in header_line:
-        header_line.remove("")
-    while "\n" in header_line:
-        header_line.remove("\n")
-
-    if "IntT" in header_line:  # Check if instrument recorded time
-        header_line[header_line.index("IntT")] = "Time"
-        header_line[header_line.index("IntD")] = "Date"
-
-    dd = pd.read_csv(
-        file,
-        encoding="ISO-8859-1",
-        skiprows=28,
-        engine="python",
-        delim_whitespace=True,
-        skip_blank_lines=False,
-        names=list(header_line),
-        na_values="########",
-    )
-
-    p = {key: dd[key].to_numpy()[1::] for key in dd.columns}
-    p["z"] = gsw.z_from_p(p["Press"], lat)
-    p["Cond"][p["Cond"] < 0] = np.nan
-    p["Cond"] = corr[0] * p["Cond"] + corr[1]  # apply correction
-    p["Temp"][p["Temp"] < -2.5] = np.nan
-    p["Prac_Sal"] = gsw.SP_from_C(p["Cond"], p["Temp"], p["Press"])
-    p["Prac_Sal"][p["Prac_Sal"] < 0] = np.nan
-    p["Cond"][p["Prac_Sal"] < 0] = np.nan
-    p["SA"] = gsw.SA_from_SP(p["Prac_Sal"], p["Press"], lon, lat)
-    p["CT"] = gsw.CT_from_t(p["SA"], p["Temp"], p["Press"])
-    p["SIGTH"] = gsw.sigma0(p["SA"], p["CT"])
-    p["st"] = station_name
-    p["file_time"] = pd.to_datetime("".join(time_str)[0:-1], format="%d.%m%Y%H.%M.%S")
-    if "Date" in p:
-        p["datetime"] = [
-            pd.to_datetime(a + " " + b, format="%d.%m.%Y %H:%M:%S")
-            for (a, b) in zip(p["Date"], p["Time"])
-        ]
-        del p["Date"], p["Time"]
-
-    return p
-
-
 def read_MSS(files, excel_file=None):
     """
+
     Parameters
     ----------
     file : str
@@ -1599,31 +2161,7 @@ def read_MSS(files, excel_file=None):
     return out_data["CTD"], out_data["MIX"], out_data["DATA"]
 
 
-def read_mooring_from_mat(matfile):
-    """
-    Read mooring data prepared in a .mat file.
-    Parameters
-    ----------
-    matfile : str
-        Full path to the .mat file.
-    Returns
-    -------
-    raw_data : dict
-        Dictionary with the mooring data.
-    """
-    # read raw data using scipy.io.loadmat, plus more complicated changes
-    raw_data = myloadmat(matfile)
-    variable_name = list(raw_data.keys())[-1]
-    raw_data = raw_data[variable_name]
-
-    for key in raw_data.keys():
-        if key[:4] == "date":
-            raw_data[key] = mat2py_time(np.asarray(raw_data[key]))
-
-    return raw_data
-
-
-def read_mooring(file):
+def read_mooring(filepath: str) -> dict:
     """
     Read mooring data prepared in a either a .npy or .mat file.
     Parameters
@@ -1635,45 +2173,79 @@ def read_mooring(file):
     raw_data : dict
         Dictionary with the mooring data.
     """
-    ext = file.split(".")[-1]
-    if ext == "mat":
-        raw_data = read_mooring_from_mat(file)
-    elif ext == "npy":
-        raw_data = np.load(file, allow_pickle=True).item()
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
+
+    if filepath.endswith(".mat"):
+        raw_data: dict = myloadmat(filepath)
+        variable_name = list(raw_data.keys())[-1]
+        raw_data = raw_data[variable_name]
+
+        for key in raw_data.keys():
+            if key[:4] == "date":
+                raw_data[key] = mat2py_time(np.asarray(raw_data[key]))
+    elif filepath.endswith(".npy"):
+        raw_data = np.load(filepath, allow_pickle=True).item()
+    else:
+        raise ValueError(
+            f"Invalid file format: '{filepath}'. Expected a .mat or .npy file."
+        )
 
     return raw_data
 
 
-def read_Seaguard(filename, header_len=4):
-    """
-    Reads data from one data file from a Seaguard.
+def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
+    """Reads data from one data file from a Seaguard.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    header_len: int
-        Number of header lines that have to be skipped.
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
+    Args:
+        filepath (str): Path to the .txt file.
+        header_len (int, optional): Number of header lines tat have to be skipped. Defaults to 4.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
     """
-    df = pd.read_csv(
-        filename,
-        sep="\t",
-        header=header_len,
-        parse_dates=["Time tag (Gmt)"],
-        dayfirst=True,
-    )
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not filepath.endswith(".txt"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .txt file.")
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
+
+    if not isinstance(header_len, int):
+        raise TypeError(
+            f"'header_len' should be a int, not a {type(header_len).__name__}."
+        )
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.",
+            category=UserWarning,
+        )
+
+        df: pd.DataFrame = pd.read_csv(
+            filepath,
+            sep="\t",
+            header=header_len,
+            parse_dates=["Time tag (Gmt)"],
+            dayfirst=True,
+        )
     df.rename(
         {
             "Time tag (Gmt)": "TIMESTAMP",
-            "East(cm/s)": "U",
-            "North(cm/s)": "V",
-            "Temperature(DegC)": "T",
-            "Pressure(kPa)": "P",
-            "O2Concentration(uM)": "OX",
+            "East(cm/s)": "u [cm/s]",
+            "North(cm/s)": "v [cm/s]",
+            "Temperature(DegC)": "T [degC]",
+            "Pressure(kPa)": "P [kPa]",
+            "O2Concentration(uM)": "OX [uM]",
         },
         axis=1,
         inplace=True,
@@ -1684,69 +2256,83 @@ def read_Seaguard(filename, header_len=4):
     return df
 
 
-def read_Minilog(filename):
-    """
-    Reads data from one data file from a Minilog temperature sensor.
+def read_Minilog(filepath: str) -> pd.DataFrame:
+    """Reads data from one data file from a Minilog temperature sensor.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and temperature as column.
+    Args:
+        filepath (str): Path to the .csv file.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and temperature as column.
     """
+
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not filepath.endswith(".csv"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .csv file.")
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
 
     with open(
-        filename,
+        filepath,
         "r",
         encoding="ISO-8859-1",
     ) as f:
         for i in range(7):
             f.readline()
-        col_names = f.readline().strip().split(",")
+        col_names: list[str] = f.readline().strip().split(",")
 
     if ("date" in col_names[0].lower()) and ("time" in col_names[0].lower()):
-        df = pd.read_csv(
-            filename,
+        df: pd.DataFrame = pd.read_csv(
+            filepath,
             sep=",",
             skiprows=7,
             parse_dates=[col_names[0]],
             encoding="ISO-8859-1",
         )
         df.rename({f"{col_names[0]}": "TIMESTAMP"}, axis=1, inplace=True)
+        df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     else:
         df = pd.read_csv(
-            filename,
+            filepath,
             sep=",",
             skiprows=7,
-            parse_dates=[[col_names[0], col_names[1]]],
             encoding="ISO-8859-1",
         )
-        df.rename({f"{col_names[0]}_{col_names[1]}": "TIMESTAMP"}, axis=1, inplace=True)
+        df["TIMESTAMP"] = pd.to_datetime(
+            df[col_names[0]].astype(str) + " " + df[col_names[1]].astype(str)
+        )
+        df.drop([col_names[0], col_names[1]], axis=1, inplace=True)
+
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
-    df.replace({"Temperature (°C)": "T"}, axis=1, inplace=True)
+    df.rename({"Temperature (°C)": "T [degC]"}, axis=1, inplace=True)
 
     return df
 
 
-def read_SBE37(filename):
-    """
-    Reads data from one data file from a SBE37 Microcat sensor.
+def read_SBE37(filepath: str) -> pd.DataFrame:
+    """Reads data from one data file from a SBE37 Microcat sensor.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
+    Args:
+        filepath (str): Path to the .cnv file.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
     """
 
-    var_names = {
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not filepath.endswith(".cnv"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .cnv file.")
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
+
+    var_names: dict[str, str] = {
         "cond0S/m": "C",
         "sigma-�00": "SIGTH",
         "prdM": "P",
@@ -1756,9 +2342,11 @@ def read_SBE37(filename):
         "PSAL": "S",
     }
 
-    data = fCNV(filename)
+    data = fCNV(filepath)
 
-    d = {var_names[name]: data[name] for name in data.keys() if name in var_names}
+    d: dict[str, Any] = {
+        var_names[name]: data[name] for name in data.keys() if name in var_names
+    }
 
     d.update(data.attrs)
 
@@ -1788,22 +2376,27 @@ def read_SBE37(filename):
     return df
 
 
-def read_SBE26(filename):
-    """
-    Reads data from one data file from a SBE26 sensor.
+def read_SBE26(filepath: str) -> pd.DataFrame:
+    """Reads data from one data file from a SBE26 sensor.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
+    Args:
+        filepath (str): Path to the .tid file.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
     """
 
-    df = pd.read_csv(
-        filename, sep="\s+", header=None, names=["RECORD", "date", "time", "P", "T"]
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not filepath.endswith(".tid"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .tid file.")
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
+
+    df: pd.DataFrame = pd.read_csv(
+        filepath, sep="\s+", header=None, names=["RECORD", "date", "time", "P", "T"]
     )
     df["TIMESTAMP"] = pd.to_datetime(
         df["date"] + " " + df["time"], format="%m/%d/%Y %H:%M:%S"
@@ -1814,25 +2407,30 @@ def read_SBE26(filename):
     return df
 
 
-def read_RBR(filename):
-    """
-    Reads data from a .rsk data file from a RBR logger (concerto, solo, ...).
+def read_RBR(filepath: str) -> pd.DataFrame:
+    """Reads data from a .rsk data file from a RBR logger (concerto, solo, ...).
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
+    Args:
+        filepath (str): Path to the .rsk file.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
     """
 
-    with RSK(filename) as rsk:
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not filepath.endswith(".rsk"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .rsk file.")
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
+
+    with RSK(filepath) as rsk:
         rsk.readdata()
         rsk.deriveseapressure()
         variables = list(rsk.channelNames)
-        time = pd.to_datetime(rsk.data["timestamp"])
+        time: pd.DatetimeIndex = pd.to_datetime(rsk.data["timestamp"])
 
         if "conductivity" in variables:
             rsk.derivesalinity()
@@ -1841,7 +2439,7 @@ def read_RBR(filename):
             # variables.append("density")
         variables = list(rsk.channelNames)
 
-        data = rsk.data[variables]
+        data: np.NDArray = rsk.data[variables]
 
         df = pd.DataFrame(data, index=time, columns=variables)
 
@@ -1862,24 +2460,40 @@ def read_RBR(filename):
     return df
 
 
-def read_Thermosalinograph(filename, use_system_time):
-    """
-    Reads data from one data file from the Helmer Hanssen thermosalinograph.
+def read_Thermosalinograph(
+    filepath: str, use_system_time: bool = False
+) -> pd.DataFrame:
+    """Reads data from one data file from the Helmer Hanssen thermosalinograph.
 
-    Parameters:
-    -------
-    filename: str
-        String with path to file(s)
-        If several files shall be read, specify a string including UNIX-style wildcards
-    use_system_time : bool, optional
-        Switch to use the system upload time stamp instead of the NMEA one. By default, the NMEA time stamp is used.
-    Returns
-    -------
-    df : pandas dataframe
-        a pandas dataframe with time as index and the individual variables as columns.
+    Args:
+        filepath (str): Path to one or more .cnv file(s).
+            - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.)
+        use_system_time (bool, optional): Switch to use the system upload time stamp insted of the NMEA one. Defaults to False.
+            - False uses NMEA time stamp.
+            - True uses system time stamp.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
     """
 
-    var_names = {
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    list_of_files: list[str] = sorted(glob.glob(filepath))
+    for i in list_of_files:
+        if not i.endswith(".cnv"):
+            raise ValueError(
+                f"Invalid file format: '{filepath}'. Expected a .cnv file."
+            )
+        if not os.path.isfile(i):
+            raise FileNotFoundError(f"File not found: {filepath}.")
+
+    if not isinstance(use_system_time, bool):
+        raise TypeError(
+            f"'use_system_time' should be a boolean, not a {type(use_system_time).__name__}."
+        )
+    var_names: dict[str, str] = {
         "CNDC": "C",
         "sigma-�00": "SIGTH",
         "prM": "P",
@@ -1891,17 +2505,14 @@ def read_Thermosalinograph(filename, use_system_time):
         "LONGITUDE": "LON",
     }
 
-    if os.path.isfile(filename):
-        list_of_files = [filename]
-    else:
-        list_of_files = sorted(glob.glob(filename))
-
-    list_of_df = []
+    list_of_df: list = []
 
     for file in list_of_files:
         data = fCNV(file)
 
-        d = {var_names[name]: data[name] for name in data.keys() if name in var_names}
+        d: dict[str, Any] = {
+            var_names[name]: data[name] for name in data.keys() if name in var_names
+        }
 
         d.update(data.attrs)
 
@@ -1909,7 +2520,7 @@ def read_Thermosalinograph(filename, use_system_time):
             found_system_time = False
             with open(file, encoding="ISO-8859-1") as f:
                 while not found_system_time:
-                    line = f.readline()
+                    line: str = f.readline()
                     if "system upload time" in line.lower():
                         found_system_time = True
                         d["start_time"] = line.split("=")[-1].strip()
@@ -1942,7 +2553,7 @@ def read_Thermosalinograph(filename, use_system_time):
 
         list_of_df.append(df)
 
-    df_total = pd.concat(list_of_df)
+    df_total: pd.DataFrame = pd.concat(list_of_df)
     df_total.sort_index(axis=0, inplace=True)
 
     return df_total
