@@ -15,7 +15,7 @@ optimized for the file formats typically used in the UNIS courses.
 """
 # %%
 
-import unisacsi
+import universal_func as uf
 import pandas as pd
 import dask.dataframe as ddf
 import xarray as xr
@@ -38,58 +38,12 @@ import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 from cartopy.mpl.geoaxes import GeoAxes
 import os
-import copy
-import sys
 import datetime
 from collections import defaultdict
-from typing import Literal, Any, Union, Self
+from typing import Literal, Any, Self
 import warnings
 import logging
 import re
-
-
-############################################################################
-# VARIBLES
-############################################################################
-
-
-rename_dict: dict[str, str] = {
-    "temperature": "T",
-    "temp": "T",
-    "Temp": "T",
-    "relative_humidity": "RH",
-    "rel_humidity": "RH",
-    "Relative humidity (%)": "RH [%RH]",
-    "speed": "Speed",
-    "direction": "Dir",
-    "Direction": "Dir",
-    "dir": "Dir",
-    "pressure": "p",
-    "Shortwave": "SW",
-    "Longwave": "LW",
-    "Latitude": "lat",
-    "Longitude": "lon",
-}
-
-generall_variables: list[str] = [
-    "T",
-    "RH",
-    "Humidity",
-    "Speed",
-    "Dir",
-    "p",
-    "LW",
-    "SW",
-    "precip",
-]
-
-var_attr: list[str] = [
-    "max",
-    "min",
-    "std",
-    "var",
-    "mean",
-]
 
 ############################################################################
 # READING FUNCTIONS
@@ -224,29 +178,7 @@ def read_Campbell_TOA5(filepath: str) -> pd.DataFrame:
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
-
-    col_names: list[str] = []
-    for col_name in df.columns:
-        if "RH" in col_name:
-            col_name: str = col_name.replace("%", "%RH")
-        split_name: list[str] = col_name.split(" ")
-        if "SW" == split_name[0][0:2]:
-            split_name[0] = f"SW_" + split_name[0][2:]
-        elif "LW" == split_name[0][0:2]:
-            split_name[0] = f"LW_" + split_name[0][2:]
-        if len(split_name) == 2:
-            name: list[str] = split_name[0].split("_")
-            existing_variable: list[str] = [x for x in generall_variables if x in name]
-            if len(existing_variable) == 1:
-                filterd_name: list[str] = [
-                    x for x in name if x not in existing_variable and x not in var_attr
-                ]
-                var_attr_name: list[str] = [x for x in name if x in var_attr]
-                name = existing_variable + filterd_name + var_attr_name
-            split_name[0] = "_".join(name)
-        col_names.append(" ".join(split_name))
-    df.columns = col_names
+    df = uf.std_names(df)
 
     return df
 
@@ -328,156 +260,7 @@ def read_EddyPro_full_output(filepath: str) -> pd.DataFrame:
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
-
-    col_names: list[str] = []
-    for col_name in df.columns:
-        if "RH" in col_name:
-            col_name: str = col_name.replace("%", "%RH")
-        split_name: list[str] = col_name.split(" ")
-        if "SW" == split_name[0][0:2]:
-            split_name[0] = f"SW_" + split_name[0][2:]
-        elif "LW" == split_name[0][0:2]:
-            split_name[0] = f"LW_" + split_name[0][2:]
-        if len(split_name) == 2:
-            name: list[str] = split_name[0].split("_")
-            existing_variable: list[str] = [x for x in generall_variables if x in name]
-            if len(existing_variable) == 1:
-                filterd_name: list[str] = [
-                    x for x in name if x not in existing_variable and x not in var_attr
-                ]
-                var_attr_name: list[str] = [x for x in name if x in var_attr]
-                name = existing_variable + filterd_name + var_attr_name
-            split_name[0] = "_".join(name)
-            # working on UNITS
-            if "[" in split_name[1] and "]" in split_name[1]:
-                if re.search(r"\d", split_name[1]):
-                    old_unit: str = split_name[1].strip("[]")
-                    plus_minus_index: list[int] = [
-                        i for i, x in enumerate(old_unit) if x in "+-"
-                    ]
-                    edit_unit: str = ""
-                    below: bool = False  # to check if we're already in the denominator
-                    last_pos_old_str: int = 0
-                    for position in plus_minus_index:
-                        digit_count: int = 0
-                        # count how many digits follow
-                        for i in range(position + 1, len(old_unit)):
-                            if old_unit[i].isdigit():
-                                digit_count += 1
-                            else:
-                                break
-                        if digit_count > 0:
-                            if old_unit[position] == "+":
-                                if (
-                                    old_unit[position + 1 : position + digit_count + 1]
-                                    == "1"
-                                ):
-                                    if last_pos_old_str != 0:
-                                        if not edit_unit[-1].isdigit():
-                                            edit_unit += (
-                                                "^1"
-                                                + old_unit[last_pos_old_str:position]
-                                            )
-                                        else:
-                                            edit_unit += old_unit[
-                                                last_pos_old_str:position
-                                            ]
-                                    else:
-                                        edit_unit += old_unit[last_pos_old_str:position]
-                                else:
-                                    edit_unit += (
-                                        old_unit[last_pos_old_str:position]
-                                        + "^"
-                                        + old_unit[
-                                            position + 1 : position + digit_count + 1
-                                        ]
-                                    )
-                            elif old_unit[position] == "-":
-                                if (
-                                    old_unit[position + 1 : position + digit_count + 1]
-                                    == "1"
-                                ):
-                                    if below:
-                                        if not edit_unit[-1].isdigit():
-                                            edit_unit += (
-                                                "^1"
-                                                + old_unit[last_pos_old_str:position]
-                                            )
-                                        else:
-                                            edit_unit += old_unit[
-                                                last_pos_old_str:position
-                                            ]
-                                    else:
-                                        if last_pos_old_str == 0:
-                                            edit_unit += (
-                                                "1/"
-                                                + old_unit[last_pos_old_str:position]
-                                            )
-                                        else:
-                                            edit_unit += (
-                                                "/"
-                                                + old_unit[last_pos_old_str:position]
-                                            )
-                                        below = True
-                                else:
-                                    if below:
-                                        if not edit_unit[-1].isdigit():
-                                            edit_unit += (
-                                                "^1"
-                                                + old_unit[last_pos_old_str:position]
-                                                + "^"
-                                                + old_unit[
-                                                    position
-                                                    + 1 : position
-                                                    + digit_count
-                                                    + 1
-                                                ]
-                                            )
-                                        else:
-                                            edit_unit += (
-                                                old_unit[last_pos_old_str:position]
-                                                + "^"
-                                                + old_unit[
-                                                    position
-                                                    + 1 : position
-                                                    + digit_count
-                                                    + 1
-                                                ]
-                                            )
-                                    else:
-                                        if last_pos_old_str == 0:
-                                            edit_unit += (
-                                                "1/"
-                                                + old_unit[last_pos_old_str:position]
-                                                + "^"
-                                                + old_unit[
-                                                    position
-                                                    + 1 : position
-                                                    + digit_count
-                                                    + 1
-                                                ]
-                                            )
-                                        else:
-                                            edit_unit += (
-                                                "/"
-                                                + old_unit[last_pos_old_str:position]
-                                                + "^"
-                                                + old_unit[
-                                                    position
-                                                    + 1 : position
-                                                    + digit_count
-                                                    + 1
-                                                ]
-                                            )
-                                        below = True
-                        last_pos_old_str = position + digit_count + 1
-                    if edit_unit == "":
-                        split_name[1] = old_unit
-                    else:
-                        split_name[1] = "[" + edit_unit + "]"
-        col_names.append(" ".join(split_name))
-    df.columns = col_names
+    df = uf.std_names(df)
 
     return df
 
@@ -580,21 +363,12 @@ def read_Tinytag(
     df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
 
-    for key in list(df.columns):
-        if key == "RECORD":
-            pass
-        else:
+    df = uf.std_names(df, add_units=True)
+
+    for key in df.columns:
+        if not key == "RECORD":
             data: list[float] = [float(i.split(" ")[0]) for i in df[key]]
-            unit: str = df[key].iloc[0].split(" ")[1]
-            if unit == "°C":
-                unit = "degC"
-            new_key: str = " ".join((key, "[" + unit + "]"))
-
-            df[new_key] = data
-
-            df.drop(key, axis=1, inplace=True)
-
-    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
+            df[key] = data
 
     return df
 
@@ -656,59 +430,18 @@ def read_HOBO(filepath: str, get_sn: bool = False) -> pd.DataFrame:
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    new_names: list[str] = []
-    for i in list(df.columns):
-        old_split: list[str] = i.split(",")
-        if len(old_split) == 1:
-            if old_split[0] == "#":
-                old_split = ["RECORD"]
-            new_names.append(old_split[0])
-        else:
-            name: str = f"{old_split[0].replace(' ', '_')}"
-            unit: str = (
-                f" [{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}]"
-            )
-            if get_sn:
-                sn: str = f"_sn{old_split[2].split(' ')[3]}"
-            else:
-                sn: str = f""
-            if sn.endswith(")"):
-                sn = sn[:-1]
-            if "RH" in name:
-                unit = unit.replace("%", "%RH")
-            new_names.append(name + sn + unit)
-    df.rename(
-        {old: new for old, new in zip(list(df.columns), new_names)},
-        axis=1,
-        inplace=True,
-    )
-    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
-
-    col_names: list[str] = []
-    for col_name in df.columns:
-        split_name: list[str] = col_name.split(" ")
-        if len(split_name) == 2:
-            name = split_name[0].split("_")
-            existing_variable: list[str] = [x for x in generall_variables if x in name]
-            if len(existing_variable) == 1:
-                filterd_name: list[str] = [
-                    x for x in name if x not in existing_variable and x not in var_attr
-                ]
-                var_attr_name: list[str] = [x for x in name if x in var_attr]
-                name = existing_variable + filterd_name + var_attr_name
-            split_name[0] = "_".join(name)
-        col_names.append(" ".join(split_name))
-    df.columns = col_names
+    df = uf.std_names(df, bonus=get_sn)
 
     return df
 
 
-def read_Raingauge(filepath: str) -> pd.DataFrame:
+def read_Raingauge(filepath: str, get_sn: bool = False) -> pd.DataFrame:
     """Reads data from one or several data files from the raingauge output files.
 
     Args:
         filepath (str): Path to one or more '.txt' file(s).
             - For multiple files, use UNIX-style wildcards ('*' for any character(s), '?' for single character, etc.).
+        get_sn (bool): Whether the serial number should be included in the column name. Defaults to False.
 
     Returns:
         pandas.DataFrame: Dataframe with time as index and the individual variables as columns.
@@ -758,24 +491,7 @@ def read_Raingauge(filepath: str) -> pd.DataFrame:
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    new_names: list[str] = []
-    for i in list(df.columns):
-        old_split: list[str] = i.split(",")
-        if len(old_split) == 1:
-            if old_split[0] == "#":
-                old_split = ["RECORD"]
-            new_names.append(old_split[0])
-        else:
-            name = f"{old_split[0].replace(' ', '_')}"
-            unit = f" [{old_split[1].split(' ')[1].replace('°', 'deg').replace('²', '2').replace('ø', 'deg')}]"
-            new_names.append(name + unit)
-    df.rename(
-        {old: new for old, new in zip(list(df.columns), new_names)},
-        axis=1,
-        inplace=True,
-    )
-    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
-    df.ffill(inplace=True)
+    df = uf.std_names(df, bonus=get_sn)
 
     return df
 
@@ -812,31 +528,7 @@ def read_IWIN(filepath: str) -> xr.Dataset:
         with xr.open_mfdataset(files) as f:
             ds: xr.Dataset = f.load()
 
-    imet_rename_dict: dict[str, str] = (
-        pd.Series(list(ds.data_vars), list(ds.data_vars))
-        .replace(rename_dict, regex=True)
-        .to_dict()
-    )
-    for old_name in imet_rename_dict.items():
-        if "_" in old_name[1]:
-            old_name_split: list[str] = old_name[1].split("_")
-        else:
-            old_name_split = []
-        existing_variable: list[str] = [
-            x for x in generall_variables if x in old_name_split
-        ]
-        if len(existing_variable) == 1:
-            filterd_name: list[str] = [
-                x[0].lower() + x[1:]
-                for x in old_name_split
-                if x not in existing_variable and x not in var_attr
-            ]
-            var_attr_name: list[str] = [x for x in old_name_split if x in var_attr]
-            name: list[str] = existing_variable + filterd_name + var_attr_name
-            imet_rename_dict[old_name[0]] = "_".join(name)
-        else:
-            imet_rename_dict[old_name[0]] = old_name[1]
-    ds = ds.rename(imet_rename_dict)
+    ds = uf.std_names(ds)
 
     return ds
 
@@ -873,31 +565,7 @@ def read_AROME(filepath: str) -> xr.Dataset:
         with xr.open_mfdataset(filepath) as f:
             ds: xr.Dataset = f.load()
 
-    AROME_rename_dict: dict[str, str] = (
-        pd.Series(list(ds.data_vars), list(ds.data_vars))
-        .replace(rename_dict, regex=True)
-        .to_dict()
-    )
-    for old_name in AROME_rename_dict.items():
-        if "_" in old_name[1]:
-            old_name_split: list[str] = old_name[1].split("_")
-        else:
-            old_name_split = []
-        existing_variable: list[str] = [
-            x for x in generall_variables if x in old_name_split
-        ]
-        if len(existing_variable) == 1:
-            filterd_name: list[str] = [
-                x
-                for x in old_name_split
-                if x not in existing_variable and x not in var_attr
-            ]
-            var_attr_name: list[str] = [x for x in old_name_split if x in var_attr]
-            name: list[str] = existing_variable + filterd_name + var_attr_name
-            AROME_rename_dict[old_name[0]] = "_".join(name)
-        else:
-            AROME_rename_dict[old_name[0]] = old_name[1]
-    ds = ds.rename(AROME_rename_dict)
+    ds = uf.std_names(ds)
 
     return ds
 
@@ -964,32 +632,17 @@ def read_radiosonde(
         dt.replace(year=int(date[:4]), month=int(date[4:6]), day=int(date[6:]))
         for dt in df["UTC time"]
     ]
-    df.rename(
-        dict(zip(list(df.keys()), [k.strip() for k in list(df.keys())])),
-        axis=1,
-        inplace=True,
-    )
+
     df.rename({"UTC time": "TIMESTAMP"}, axis=1, inplace=True)
     df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
-    df.rename(
-        {
-            "Temperature (C)": "T [degC]",
-            "Internal temperature (C)": "T_internal [degC]",
-            "Rise speed (m/s)": "V_rise [m/s]",
-            "Relative humidity (%)": "RH [%RH]",
-            "Pressure (Pascal)": "p [hPa]",
-        },
-        axis=1,
-        inplace=True,
-    )
-    df["p [hPa]"] = df["p [hPa]"] * 0.01
-    df.columns = df.columns.to_series().replace(rename_dict, regex=True)
-    df.columns = df.columns.to_series().replace(
-        {"degrees": "deg", r"\(": "[", r"\)": "]"}, regex=True
-    )
+    df = uf.std_names(df)
+
+    if "p [Pa]" in df.columns:
+        df["p [hPa]"] = df["p [Pa]"] * 0.01
+        df.drop("p [Pa]", inplace=True, axis=1)
 
     return df
 
@@ -1068,20 +721,7 @@ def read_iMet(filepath: str) -> pd.DataFrame:
             if df["Latitude"].equals(df["Lat"]):
                 df.drop("Lat", axis=1, inplace=True)
 
-    df.rename(
-        {
-            "Pressure": "p [hPa]",
-            "Air Temperature": "T_air [degC]",
-            "Humidity Temp": "T_humidity [degC]",
-            "Longitude": "lon []",
-            "Latitude": "lat []",
-            "Sat Count": "Sat Count []",
-            "Altitude": "Altitude [m]",
-            "Humidity": "RH [%RH]",
-        },
-        inplace=True,
-        axis=1,
-    )
+    df = uf.std_names(df, add_units=True)
 
     return df
 
@@ -1322,7 +962,7 @@ class MapGenerator:
                 1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute.
                 2 : High resolution (100 m) based on data from the Norwegian Polar Institute.
                 3 : Uses 'custom_path' for map data.
-                    - Needs a .shp file with the coastline data. (Projection should be WGS84)
+                    - Needs a .shp file with the coastline data.
             color (str or RGB or RGBA, optional): Color for the coastline. Defaults to "black".
             ax (int, optional): Gives the position for which map the coastline is added. Defaults to 0.
                 - Starts to count from 0 and continues like the normal reading flow.
@@ -1361,7 +1001,7 @@ class MapGenerator:
                 path_mapdata = self.path_mapdata
             else:
                 raise ValueError(
-                    f"'path_mapdata' needs to be set, if option 1 or 2 is selected."
+                    f"'path_mapdata' needs to be set, if option 1, 2 or 3 is selected."
                 )
         if not (isinstance(path_mapdata, str) or option == 0):
             raise TypeError(
@@ -1381,7 +1021,9 @@ class MapGenerator:
         if plot_parameters == None:
             plot_parameters = {}
         if not isinstance(plot_parameters, dict):
-            raise TypeError(f"'plot_parameters' should be a dictionary.")
+            raise TypeError(
+                f"'plot_parameters' should be a dictionary, not a {type(plot_parameters).__name__}."
+            )
 
         title: str = self.ax.flat[ax].get_title()
         xlabel: str = self.ax.flat[ax].get_xlabel()
@@ -1467,7 +1109,7 @@ class MapGenerator:
                 1 : Medium resolution (250 m) based on data from the Norwegian Polar Institute
                 2 : High resolution (100 m) based on data from the Norwegian Polar Institute
                 3 : Uses 'custom_path' for map data.
-                    - Needs a .shp file with the land data. (Projection should be WGS84)
+                    - Needs a .shp file with the land data.
             color (str or RGB or RGBA): Color for the land patches.
             ax (int, optional): Gives the position for which map the land fill is added. Defaults to 0.
                 - Starts to count from 0 and continues like the normal reading flow.
@@ -1593,6 +1235,7 @@ class MapGenerator:
         plot_parameters: dict[str, Any] = None,
         label_parameters: dict[str, Any] = None,
         more_custom: bool = False,
+        used_EPSG: int = 3996,
     ) -> Self | tuple[Self, QuadContourSet, Colorbar | None]:
         """Function to plot either contour lines of the bathymetry of an ocean area
         with the specified color or colored contours of bathymetry.
@@ -1634,6 +1277,8 @@ class MapGenerator:
                             - 'tick_params = {}' (default: axis = "y", labelsize = 10).
                             - 'set_ylabel = {}' (default: ylabel = "Height [m]", fontsize = 10).
             more_custom (bool, optional): If True, returns additional objects ('QuadContourSet' and 'Colorbar'). Defaults to False.
+            used_EPSG (int, optional): EPSG code of the map data. Defaults to 3996.
+                - Don't change unless you are providing your own map data.
 
         Returns:
             MapGenerator or tuple[MapGenerator, QuadContourSet, Colorbar or None]:
@@ -1700,6 +1345,11 @@ class MapGenerator:
                 f"'more_custom' should be a bool, not a {type(more_custom).__name__}."
             )
 
+        if not isinstance(used_EPSG, int):
+            raise TypeError(
+                f"'used_EPSG' should be a int, not a {type(used_EPSG).__name__}."
+            )
+
         title: str = self.ax.flat[ax].get_title()
         xlabel: str = self.ax.flat[ax].get_xlabel()
         ylabel: str = self.ax.flat[ax].get_ylabel()
@@ -1714,10 +1364,15 @@ class MapGenerator:
             path_ibcao: str = path_mapdata
             option = option - 30
         else:
-            path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
+            if not used_EPSG == 3996:
+                logging.warning(
+                    f"Do not change the used_EPSG, if you are not unsing the costum path option. used_ESPG is set back to 3996."
+                )
+                used_EPSG = 3996
+            path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_100m_v5_Svalbard.tif"
 
         bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
-        bathy.rio.write_crs(3996, inplace=True)
+        bathy.rio.write_crs(used_EPSG, inplace=True)
         bathy = bathy.rio.reproject("EPSG:4326")
         bathy = bathy.rio.clip_box(
             minx=self.lon_limits[0],
@@ -1837,6 +1492,7 @@ class MapGenerator:
         plot_parameters: dict[str, Any] = None,
         label_parameters: dict[str, Any] = None,
         more_custom: bool = False,
+        used_EPSG: int = 3996,
     ) -> Self | tuple[Self, QuadContourSet, Colorbar | None]:
         """Function to plot either contour lines of the total topography (above and below sea level)
         with the specified color or colored contours of the total topography.
@@ -1878,6 +1534,8 @@ class MapGenerator:
                             - 'tick_params = {}' (default: axis = "y", labelsize = 10).
                             - 'set_ylabel = {}' (default: ylabel = "Height [m]", fontsize = 10).
             more_custom (bool, optional): If True, returns additional objects ('QuadContourSet' and 'Colorbar'). Defaults to False.
+            used_EPSG (int, optional): EPSG code of the map data. Defaults to 3996.
+                - Don't change unless you are providing your own map data.
 
         Returns:
             MapGenerator or tuple[MapGenerator, QuadContourSet, Colorbar or None]:
@@ -1944,6 +1602,11 @@ class MapGenerator:
                 f"'more_custom' should be a bool, not a {type(more_custom).__name__}."
             )
 
+        if not isinstance(used_EPSG, int):
+            raise TypeError(
+                f"'used_EPSG' should be a int, not a {type(used_EPSG).__name__}."
+            )
+
         title: str = self.ax.flat[ax].get_title()
         xlabel: str = self.ax.flat[ax].get_xlabel()
         ylabel: str = self.ax.flat[ax].get_ylabel()
@@ -1958,10 +1621,15 @@ class MapGenerator:
             path_ibcao: str = path_mapdata
             option = option - 30
         else:
-            path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_v4_1_200m_t4x1y0.tif"
+            if not used_EPSG == 3996:
+                logging.warning(
+                    f"Do not change the used_EPSG, if you are not unsing the costum path option. used_ESPG is set back to 3996."
+                )
+                used_EPSG = 3996
+            path_ibcao: str = f"{self.path_mapdata}IBCAO/IBCAO_100m_v5_Svalbard.tif"
 
         bathy = rxr.open_rasterio(path_ibcao, masked=True).squeeze()
-        bathy.rio.write_crs(3996, inplace=True)
+        bathy.rio.write_crs(used_EPSG, inplace=True)
         bathy = bathy.rio.reproject("EPSG:4326")
         bathy = bathy.rio.clip_box(
             minx=self.lon_limits[0],

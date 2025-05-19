@@ -1,5 +1,9 @@
-__version__ = "0.3.32"
-__authors__ = ["Lukas Frank <lukasf@unis.no", "Jakob Dörr <jakob.dorr@uib.no"]
+__version__ = "0.4.00"
+__authors__: list[str] = [
+    "Lukas Frank <lukasf@unis.no",
+    "Jakob Dörr <jakob.dorr@uib.no",
+    "Patrick Selle <108687@student.unis.no",
+]
 
 from .Meteo import (
     read_MET_AWS,
@@ -36,9 +40,7 @@ from .Ocean import (
     read_LADCP,
     read_CTD,
     read_CTD_from_mat,
-    read_mini_CTD,
     read_MSS,
-    read_mooring_from_mat,
     read_mooring,
     read_Seaguard,
     read_Minilog,
@@ -68,3 +70,5 @@ from .MET_model_download import (
     download_MET_model_static_fields,
     MET_model_download_class,
 )
+
+from .universal_func import std_names, progress_bar

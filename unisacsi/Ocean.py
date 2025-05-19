@@ -14,7 +14,7 @@ in student cruises at UNIS.
 from __future__ import print_function, annotations
 
 from numpy._typing._array_like import NDArray
-import unisacsi
+import universal_func as uf
 from seabird.cnv import fCNV
 import gsw
 import numpy as np
@@ -54,9 +54,11 @@ import pyTMD.utilities
 import pyTMD.compute
 
 import numbers as num
+import time
 from typing import Literal, Any, get_args
 import logging
 import warnings
+import sounddevice as sd
 
 
 ############################################################################
@@ -906,6 +908,8 @@ def create_water_mass_DataFrame(
         List_str += "]"
         return List_str
 
+    if output == None:
+        output = "None"
     if output not in get_args(__output__) and not os.path.isdir(output):
         raise ValueError(
             f"'switch_xdim' should be 'pd.DataFrame', 'csv', 'df_func', 'None' or a path, not {output}."
@@ -914,13 +918,12 @@ def create_water_mass_DataFrame(
     userinput: str = ""
     if os.path.isdir(output) or output == "csv":
         userinput = input("Please enter a filename (without .csv).")
-        if not output.endswith("/"):
-            output += "/" + userinput + ".csv"
+        if os.path.isdir(output):
+            output = os.path.join(output, userinput + ".csv")
+        elif "csv" == output:
+            output = os.getcwd() + "/" + userinput + ".csv"
         else:
-            if output == "csv":
-                output = os.getcwd() + "/" + userinput + ".csv"
-            else:
-                output += userinput + ".csv"
+            raise ValueError(f"Something went wrong. This shouldn't happen.")
         userinput: str = ""
 
     if (
@@ -992,12 +995,14 @@ def create_water_mass_DataFrame(
                 userinput = input(
                     f"Please enter the minimum temperature for '{Abbr[-1]}'."
                 )
-                repeat = 0
             elif repeat == 2:
                 userinput = input(
                     f"WARNING: The last input couldn't be converted into a float.\n Please enter the minimum temperature for '{Abbr[-1]}' again."
                 )
-                repeat = 0
+            elif repeat == 3:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the minimum temperature for '{Abbr[-1]}' again. If you want to exit type: 'quit'."
+                )
             if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
                 go = False
                 T_min.append(np.nan)
@@ -1009,8 +1014,12 @@ def create_water_mass_DataFrame(
                     T_min.append(
                         conv.get(userinput, float(userinput.replace(",", ".")))
                     )
+                    repeat = 0
                 except ValueError:
-                    repeat = 2
+                    if repeat == 2:
+                        repeat = 3
+                    else:
+                        repeat = 2
                     logging.warning(
                         f"The input '{userinput}' for for T_min for '{Abbr[-1]}' was not valid!"
                     )
@@ -1021,12 +1030,14 @@ def create_water_mass_DataFrame(
                 userinput = input(
                     f"Please enter the maximum temperature for '{Abbr[-1]}'."
                 )
-                repeat = 0
             elif repeat == 2:
                 userinput = input(
                     f"WARNING: The last input couldn't be converted into a float.\n Please enter the maximum temperature for '{Abbr[-1]}'."
                 )
-                repeat = 0
+            elif repeat == 3:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the maximum temperature for '{Abbr[-1]}'. If you want to exit type: 'quit'."
+                )
             if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
                 go = False
                 T_max.append(np.nan)
@@ -1037,8 +1048,12 @@ def create_water_mass_DataFrame(
                     T_max.append(
                         conv.get(userinput, float(userinput.replace(",", ".")))
                     )
+                    repeat = 0
                 except ValueError:
-                    repeat = 2
+                    if repeat == 2:
+                        repeat = 3
+                    else:
+                        repeat = 2
                     logging.warning(
                         f"The input '{userinput}' for T_max for '{Abbr[-1]}' was not valid!"
                     )
@@ -1049,12 +1064,14 @@ def create_water_mass_DataFrame(
                 userinput = input(
                     f"Please enter the minumum salinity for '{Abbr[-1]}'."
                 )
-                repeat = 0
             elif repeat == 2:
                 userinput = input(
                     f"WARNING: The last input couldn't be converted into a float.\n Please enter the minumum salinity for '{Abbr[-1]}'."
                 )
-                repeat = 0
+            elif repeat == 3:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the minumum salinity for '{Abbr[-1]}'. If you want to exit type: 'quit'."
+                )
             if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
                 go = False
                 S_psu_min.append(np.nan)
@@ -1064,8 +1081,12 @@ def create_water_mass_DataFrame(
                     S_psu_min.append(
                         conv.get(userinput, float(userinput.replace(",", ".")))
                     )
+                    repeat = 0
                 except ValueError:
-                    repeat = 2
+                    if repeat == 2:
+                        repeat = 3
+                    else:
+                        repeat = 2
                     logging.warning(
                         f"The input '{userinput}' for S_psu_min for '{Abbr[-1]}' was not valid!"
                     )
@@ -1076,12 +1097,14 @@ def create_water_mass_DataFrame(
                 userinput = input(
                     f"Please enter the maximum salinity for '{Abbr[-1]}'."
                 )
-                repeat = 0
             elif repeat == 2:
                 userinput = input(
                     f"WARNING: The last input couldn't be converted into a float.\n Please enter the maximum salinity for '{Abbr[-1]}'."
                 )
-                repeat = 0
+            elif repeat == 3:
+                userinput = input(
+                    f"WARNING: The last input couldn't be converted into a float.\n Please enter the maximum salinity for '{Abbr[-1]}'. If you want to exit type: 'quit'."
+                )
             if userinput.lower().replace(" ", "") in exitstrs or userinput == "":
                 go = False
                 S_psu_max.append(np.nan)
@@ -1090,8 +1113,12 @@ def create_water_mass_DataFrame(
                     S_psu_max.append(
                         conv.get(userinput, float(userinput.replace(",", ".")))
                     )
+                    repeat = 0
                 except ValueError:
-                    repeat = 2
+                    if repeat == 2:
+                        repeat = 3
+                    else:
+                        repeat = 2
                     logging.warning(
                         f"The input '{userinput}' for S_psu_max for '{Abbr[-1]}' was not valid!"
                     )
@@ -1328,7 +1355,12 @@ def read_ADCP_CODAS(
     ds["speed_ship"].attrs["long_name"] = "Ship speed"
 
     ds = ds.rename(
-        {"heading": "heading_ship", "uship": "u_ship", "vship": "v_ship"}
+        {
+            "heading": "Heading_ship",
+            "uship": "u_ship",
+            "vship": "v_ship",
+            "speed_ship": "Speed_ship",
+        }
     )  # renaming so it has the same naming convention
 
     return ds
@@ -1338,10 +1370,10 @@ def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
     """Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
 
     Args:
-        ds (xr.Dataset): Dataset containing the full (CODAS-processed) ADCP timeseries (the return from the function read_ADCP_CODAS)
+        ds (xr.Dataset): Dataset containing the full (CODAS-processed) ADCP timeseries (the return from the function read_ADCP_CODAS).
 
     Returns:
-        list[xr.Dataset]: List of xarray datasets with different depth resolutions
+        list[xr.Dataset]: List of xarray datasets with different depth resolutions.
     """
 
     if not isinstance(ds, xr.Dataset):
@@ -1356,7 +1388,7 @@ def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
 
     depth_resolutions: list = sorted(list(ds.groupby("depth_binsize").groups.keys()))
 
-    one_d_varis: list[str] = ["heading", "uship", "vship", "speed_ship"]
+    one_d_varis: list[str] = ["Heading_ship", "u_ship", "v_ship", "Speed_ship"]
 
     list_of_ds: list = []
     for d in depth_resolutions:
@@ -1582,10 +1614,10 @@ def read_WinADCP(filepath: str) -> xr.Dataset:
         lambda u, v: (((np.rad2deg(np.arctan2(-u, -v)) + 360.0) % 360.0) + 180.0)
         % 360.0
     )
-    ds["heading_ship"] = xr.apply_ufunc(calc_heading, ds["u_ship"], ds["v_ship"])
-    ds["heading_ship"].attrs["name"] = "heading_ship"
-    ds["heading_ship"].attrs["units"] = "deg"
-    ds["heading_ship"].attrs["long_name"] = "Ship heading"
+    ds["Heading_ship"] = xr.apply_ufunc(calc_heading, ds["u_ship"], ds["v_ship"])
+    ds["Heading_ship"].attrs["name"] = "Heading_ship"
+    ds["Heading_ship"].attrs["units"] = "deg"
+    ds["Heading_ship"].attrs["long_name"] = "Ship heading"
 
     ds["Speed_ship"] = xr.apply_ufunc(
         np.sqrt, ds["u_ship"] ** 2.0 + ds["v_ship"] ** 2.0
@@ -1624,7 +1656,7 @@ def VMADCP_calculate_crossvel(ds: xr.Dataset) -> xr.Dataset:
         np.deg2rad(angle_deg)
     ) - u * np.cos(np.deg2rad(angle_deg))
     ds["crossvel"] = xr.apply_ufunc(
-        calc_crossvel, ds["u_detide"], ds["v_detide"], ds["heading_ship"]
+        calc_crossvel, ds["u_detide"], ds["v_detide"], ds["Heading_ship"]
     )
     ds["crossvel"].attrs["name"] = "crossvel"
     ds["crossvel"].attrs["units"] = "m/s"
@@ -1898,22 +1930,23 @@ def read_CTD(
     # create a dict that converts the variable names in the cnv files to
     # the variable names used by us:
     var_names: dict[str, str] = {
-        "DEPTH": "D",
-        "PRES": "P",
-        "prdM": "P",
-        "TEMP": "T",
-        "tv290C": "T",
-        "CNDC": "C",
-        "c0mS/cm": "C",
-        "PSAL": "S",
-        "sigma_t": "SIGTH",
-        "soundspeed": "Cs",
-        "sbeox0PS": "OXsat",
-        "seaTurbMtr": "TURB",
-        "par/sat/log": "PAR",
-        "oxygen_ml_L": "OX",
-        "potemperature": "Tpot",
-        "oxsolML/L": "OXsol",
+        "DEPTH": "D [m]",
+        "PRES": "P [dbar]",
+        "prdM": "P [dbar]",
+        "TEMP": "T [degC]",
+        "tv290C": "T [degC]",
+        "CNDC": "C [S/m]",
+        "c0mS/m": "C [S/m]",
+        "c0mS/cm": "C [S/cm]",
+        "PSAL": "S []",
+        "sigma_t": "SIGTH [kg/m^3]",
+        "avgsvCM": "Speed_sound_avg [m/s]",
+        "sbeox0PS": "OX_sat [%]",
+        "seaTurbMtr": "TURB [FTU]",
+        "par/sat/log": "PAR [mumol photons/m^2s]",
+        "oxygen_ml_L": "OX [ml/l]",
+        "potemperature": "T_pot [degC]",
+        "oxsolML/L": "OX_sol [ml/l]",
     }
 
     # If stations are provided, select the ones that exist
@@ -1937,7 +1970,11 @@ def read_CTD(
     # Read in the data, file by file
     CTD_dict = {}
     used_unis_stations: dict[str, int] = {}
-    for file in files:
+    num_files: int = len(files)
+    for i, file in enumerate(files):
+        # to not have a progress bar, when there are just a few files
+        if num_files > 60:
+            uf.progress_bar(i, num_files - 1)
         # get all the fields, construct a dict with the fields
         profile = fCNV(file)
         p: dict[str, Any] = {
@@ -2012,25 +2049,23 @@ def read_CTD(
 
         p["LAT"] = p.pop("LATITUDE")
         p["LON"] = p.pop("LONGITUDE")
-        p["z"] = gsw.z_from_p(p["P"], p["LAT"])
-        p["BottomDepth"] = np.round(np.nanmax(np.abs(p["z"])) + 8)
-        if np.nanmin(p["C"]) > 10.0:
-            p["C"] /= 10.0
-        p["C"][p["C"] < 1] = np.nan
-        p["T"][p["T"] < -2] = np.nan
-        p["S"] = salt_corr[0] * p["S"] + salt_corr[1]  # apply correction
-        p["S"][p["S"] < 20] = np.nan
-        p["C"][p["S"] < 20] = np.nan
-        p["SA"] = gsw.SA_from_SP(p["S"], p["P"], p["LON"], p["LAT"])
-        p["CT"] = gsw.CT_from_t(p["SA"], p["T"], p["P"])
-        p["SIGTH"] = gsw.sigma0(p["SA"], p["CT"])
-        try:
+        p["z [m]"] = gsw.z_from_p(p["P [dbar]"], p["LAT"])
+        p["BottomDepth [m]"] = np.round(np.nanmax(np.abs(p["z [m]"])) + 8)
+        if np.nanmin(p["C [S/m]"]) > 10.0:
+            p["C [S/m]"] /= 10.0
+        p["C [S/m]"][p["C [S/m]"] < 1] = np.nan
+        p["T [degC]"][p["T [degC]"] < -2] = np.nan
+        p["S []"] = salt_corr[0] * p["S []"] + salt_corr[1]  # apply correction
+        p["S []"][p["S []"] < 20] = np.nan
+        p["C [S/m]"][p["S []"] < 20] = np.nan
+        p["SA [g/kg]"] = gsw.SA_from_SP(p["S []"], p["P [dbar]"], p["LON"], p["LAT"])
+        p["CT [degC]"] = gsw.CT_from_t(p["SA [g/kg]"], p["T [degC]"], p["P [dbar]"])
+        p["SIGTH [kg/m^3]"] = gsw.sigma0(p["SA [g/kg]"], p["CT [degC]"])
+        if p["filename"].split(".")[0].split("_")[0][-4::].isdigit():
             p["st"] = int(p["filename"].split(".")[0].split("_")[0][-4::])
-        except ValueError:
-            pass
         p["unis_st"] = unis_station
-        if "OX" in p:
-            p["OX"] = oxy_corr[0] * p["OX"] + oxy_corr[1]
+        if "OX [ml/l]" in p:
+            p["OX [ml/l]"] = oxy_corr[0] * p["OX [ml/l]"] + oxy_corr[1]
         CTD_dict[p["unis_st"]] = p
 
     # check if a station was duplicated
@@ -2075,6 +2110,7 @@ def read_CTD_from_mat(matfile: str) -> dict:
         raise ValueError(f"Invalid file format: {matfile}. Expected a .mat file.")
     if not os.path.isfile(matfile):
         raise FileNotFoundError(f"File not found: {matfile}.")
+
     # read the raw data using scipy.io.loadmat
     raw_data = loadmat(matfile, squeeze_me=True, struct_as_record=False)["CTD"]
     # convert to dictionary
@@ -2093,56 +2129,143 @@ def read_CTD_from_mat(matfile: str) -> dict:
     return CTD
 
 
-def read_MSS(files, excel_file=None):
+def read_MSS(files: str, excel_file: str = None) -> tuple[dict, dict, dict]:
+    """Function to read MSS data from .mat-files can also read the excel_file to add latitude and longditue.
+    Calculates z from p and adds it to the data (if no latitude is given, uses 60N).
+
+    Args:
+        files (str):
+            - Path to the folder where the .mat file(s) are stored.
+            - Path to .mat file(s) with UNIX-wildcards ('*' for any character(s), '?' for single character, etc.).
+        excel_file (str, optional): Path to the .xlsx file. Defaults to None.
+            - This should contain a table with the following columns:
+                - Station name
+                - Latitude/ N
+                - Longitude/ E
+                - File name CASTXXX.MRD
+            - The file name CASTXXX.MRD should be the same as the file name of the .mat file.
+            - The latitude and longitude are used to add the coordinates to the data.
+
+    Returns:
+        tuple[dict,dict,dict]:
+            - Dictionary with the CTD data.
+            - Dictionary with the MIX data.
+            - Dictionary with the DATA data.
     """
 
-    Parameters
-    ----------
-    file : str
-        Full path to the .mat file.
-    Returns
-    -------
-    None.
-    """
-    # first, handle the excel file
-    if excel_file is not None:
-        exc = pd.read_excel(excel_file)
-        exc.columns = np.arange(len(exc.columns))
-        st = exc[[a for a in exc.columns if "Station name" in exc[a].to_numpy()][0]]
-        lat_deg = exc[[a for a in exc.columns if "Latitude/ N" in exc[a].to_numpy()][0]]
-        lat_min = exc[
-            [a for a in exc.columns if "Latitude/ N" in exc[a].to_numpy()][0] + 1
-        ]
-        lon_deg = exc[
-            [a for a in exc.columns if "Longitude/ E" in exc[a].to_numpy()][0]
-        ]
-        lon_min = exc[
-            [a for a in exc.columns if "Longitude/ E" in exc[a].to_numpy()][0] + 1
-        ]
+    if excel_file == None:
+        pass
+    elif not isinstance(excel_file, str):
+        raise TypeError(
+            f"'excel_file' should be a string, not a {type(excel_file).__name__}."
+        )
+    elif not excel_file.endswith(".xlsx"):
+        raise ValueError(f"Invalid file format: {excel_file}. Expected a .xlsx file.")
+    elif not os.path.isfile(excel_file) and excel_file != None:
+        raise FileNotFoundError(f"File not found: {excel_file}.")
 
-    # Determine if folder or file is given
-    if ".mat" in files:
-        files = [files]
+    if not isinstance(files, str):
+        raise TypeError(f"'files' should be a string, not a {type(files).__name__}.")
+    if os.path.isdir(files):
+        files = glob.glob(os.path.join(files, "*.mat"))
     else:
-        files = glob.glob(files + "*.mat")
+        files = glob.glob(files)
 
-    out_data = {"CTD": {}, "MIX": {}, "DATA": {}}
+    if len(files) == 0:
+        raise FileNotFoundError(f"No files where found.")
+
     for file in files:
+        if not file.endswith(".mat"):
+            raise ValueError(f"Invalid file format: {file}. Expected a .mat file.")
+
+    # first, handle the excel file
+    if excel_file:
+        try:
+            exc: pd.DataFrame = pd.read_excel(excel_file)
+            exc.columns = np.arange(len(exc.columns))
+            st: pd.Series | pd.DataFrame = exc[
+                [a for a in exc.columns if "Station name" in exc[a].to_numpy()][0]
+            ]
+            st_ind: int = st[st == "Station name"].index[0]
+            lat_deg: pd.Series | pd.DataFrame = exc[
+                [a for a in exc.columns if "Latitude/ N" in exc[a].to_numpy()][0]
+            ]
+            lat_deg_ind: int = lat_deg[lat_deg == "Latitude/ N"].index[0]
+            lat_min: pd.Series | pd.DataFrame = exc[
+                [a for a in exc.columns if "Latitude/ N" in exc[a].to_numpy()][0] + 1
+            ]
+            lat_min_ind: int = lat_min[lat_min == "min"].index[0]
+            lon_deg: pd.Series | pd.DataFrame = exc[
+                [a for a in exc.columns if "Longitude/ E" in exc[a].to_numpy()][0]
+            ]
+            lon_deg_ind: int = lon_deg[lon_deg == "Longitude/ E"].index[0]
+            lon_min: pd.Series | pd.DataFrame = exc[
+                [a for a in exc.columns if "Longitude/ E" in exc[a].to_numpy()][0] + 1
+            ]
+            lon_min_ind: int = lon_min[lon_min == "min"].index[0]
+            file_nr: pd.Series | pd.DataFrame = exc[
+                [
+                    a
+                    for a in exc.columns
+                    if "File name CASTXXX.MRD" in exc[a].to_numpy()
+                ][0]
+            ]
+            file_nr_ind: int = file_nr[file_nr == "File name CASTXXX.MRD"].index[0]
+
+            st = st[st_ind + 2 :].reset_index(drop=True)
+            file_nr = file_nr[file_nr_ind + 2 :].reset_index(drop=True)
+            lat_deg = lat_deg[lat_deg_ind + 2 :].reset_index(drop=True)
+            lat_min = lat_min[lat_min_ind + 1 :].reset_index(drop=True)
+            lon_deg = lon_deg[lon_deg_ind + 2 :].reset_index(drop=True)
+            lon_min = lon_min[lon_min_ind + 1 :].reset_index(drop=True)
+
+            if (
+                len(
+                    {
+                        len(st),
+                        len(file_nr),
+                        len(lat_deg),
+                        len(lat_min),
+                        len(lon_deg),
+                        len(lon_min),
+                    }
+                )
+                != 1
+            ):
+                raise IndexError
+        except IndexError:
+            logging.error(
+                f"Error: Couldn't use the excel file. Failed to read the tabel format."
+            )
+            excel_file = None
+
+    out_data: dict[str, dict] = {"CTD": {}, "MIX": {}, "DATA": {}}
+    len_files: int = len(files)
+    for num, file in enumerate(files):
+        # to not have a progress bar, when there are just a few files
+        if len_files > 20:
+            uf.progress_bar(num + 1, len_files)
+
         st_name = int(file.split(".mat")[0][-4:])
-        raw_data = myloadmat(file)
-        data = {k: raw_data[k] for k in ["CTD", "MIX", "DATA"]}
+        raw_data: dict = myloadmat(file)
+        data: dict[str, dict] = {k: raw_data[k] for k in ["CTD", "MIX", "DATA"]}
 
         for name in ["CTD", "MIX"]:
             for var in ["LON", "LAT", "fname", "date"]:
                 data[name][var] = raw_data["STA"][var]
 
-            if excel_file is not None:
-                try:
-                    index = np.where(st == st_name)[0][0]
+            if excel_file:
+                matches: np.array = np.where(file_nr == st_name)[0]
+                if len(matches) != 0:
+                    index: int = matches[0]
                     data[name]["LON"] = lon_deg[index] + float(lon_min[index]) / 60
                     data[name]["LAT"] = lat_deg[index] + float(lat_min[index]) / 60
-                except:
-                    pass
+                    data[name]["Station name"] = st[index]
+                else:
+                    logging.warning(
+                        f"Warning: No match for {st_name} in the excel file."
+                    )
+
             try:
                 data[name]["z"] = gsw.z_from_p(data[name]["P"], data[name]["LAT"])
             except:  # just use 60N as lat if lat is not provided
@@ -2161,17 +2284,18 @@ def read_MSS(files, excel_file=None):
     return out_data["CTD"], out_data["MIX"], out_data["DATA"]
 
 
-def read_mooring(filepath: str) -> dict:
-    """
-    Read mooring data prepared in a either a .npy or .mat file.
-    Parameters
-    ----------
-    file : str
-        Full path to the .mat or .npy file.
-    Returns
-    -------
-    raw_data : dict
-        Dictionary with the mooring data.
+def read_mooring(filepath: str, normal_dict: bool = True) -> dict:
+    """Read mooring data prepared in a either a .npy or .mat file.
+    The data is converted into a dictionary with the depth as key and the
+    data as value. The data is a pandas dataframe with the time as index
+    and the variables as columns.
+
+    Args:
+        filepath (str): Path to the .npy or .mat file.
+        normal_dict (bool, optional): If the data should be sorted by depths (sensor) or a raw output. Defaults to True.
+            - If True, the data is sorted by depth (sensor).
+    Returns:
+        dict: Dictionary with mooring data, format depends on normal_dict.
     """
 
     if not isinstance(filepath, str):
@@ -2195,8 +2319,170 @@ def read_mooring(filepath: str) -> dict:
         raise ValueError(
             f"Invalid file format: '{filepath}'. Expected a .mat or .npy file."
         )
+    if not normal_dict:
+        return raw_data
 
-    return raw_data
+    else:
+        # get it into a dict[str,pd.DataFrame] form
+        sensors: list[str] = [
+            i.split("=")[0].strip(" ") for i in raw_data["sensor"]
+        ]  # saves the sensor serialnumber
+        vars: list[str] = [i.split("=")[0].strip(" ") for i in raw_data["name"]]
+        vars_unit: list[str] = [i for i in raw_data["unit"]]
+        if not "date" in vars:
+            logging.warning(
+                f"Warning: Did not find 'date' in the data. Giving back the data without changing the format."
+            )
+            return raw_data
+        else:
+            vars_unit.pop(vars.index("date")), vars.remove("date")  # gets rid of time
+        found_md: bool = True
+
+        if not "md" in vars:
+            logging.warning(
+                f"Warning: Did not find 'md' in the data. Trying to use the mean depth."
+            )
+            found_md = False
+        else:
+            vars_unit.pop(vars.index("md")), vars.remove("md")
+
+        # starting constructing the dict
+        norm_dict: dict = {}
+        sort: bool = True
+        # sensors with multiple depths
+        # {depthname,snum: [depthvar0, depthvar1, ...]}
+        multidepth: dict[str, list[str]] = {}
+        for snum in sensors:
+            # checking for sensors with multiple depths
+            for var_0 in vars:
+                if var_0 + snum in raw_data.keys() and len(
+                    raw_data[var_0 + snum]
+                ) != len(raw_data["date" + snum]):
+                    multidepth[var_0 + "," + snum] = [
+                        var_1
+                        for var_1 in vars
+                        if var_0 != var_1
+                        and var_1 + snum in raw_data.keys()
+                        and (len(raw_data["date" + snum]), len(raw_data[var_0 + snum]))
+                        == raw_data[var_1 + snum].shape
+                    ]
+
+            df: pd.DataFrame = pd.DataFrame(
+                {
+                    f"{var} [{var_unit}]": raw_data[var + snum]
+                    for var, var_unit in zip(vars, vars_unit)
+                    if var + snum in raw_data.keys()
+                    if len(raw_data[var + snum]) == len(raw_data["date" + snum])
+                    if np.ndim(raw_data[var + snum]) == 1
+                },
+                index=raw_data["date" + snum],
+            )
+
+            df = uf.std_names(df)
+
+            df.columns = df.columns.to_series().replace(
+                {
+                    "P ": "p ",
+                    "O ": "OX ",
+                    "Osat": "OX_sat",
+                    "U ": "u ",
+                    "V ": "v ",
+                    "W ": "w ",
+                },
+                regex=True,
+            )
+            if found_md and "md" + snum in raw_data.keys():
+                norm_dict[np.round(raw_data["md" + snum])] = df
+                if df.empty:
+                    logging.warning(
+                        f"Warning: No data at depth {np.round(raw_data['md' + snum])}."
+                    )
+            elif "p" in df.columns:
+                norm_dict[np.round(df.p)] = df
+                if df.empty:
+                    logging.warning(f"Warning: No data at depth {np.round(df.p)}.")
+            else:
+                norm_dict[sensors.index(snum)] = df
+                if df.empty:
+                    logging.warning(f"Warning: No data at {sensors.index(snum)}.")
+                sort = False
+
+        for depths_snum, sensors in multidepth.items():
+            snum: str = depths_snum.split(",")[1]
+            depthname: str = depths_snum.split(",")[0] + snum
+            for i, depth in enumerate(raw_data[depthname]):
+                df = pd.DataFrame(
+                    {
+                        f"{var_name} [{vars_unit[vars.index(var_name)]}]": raw_data[
+                            var_name + snum
+                        ][:, i]
+                        for var_name in sensors
+                    },
+                    index=raw_data["date" + snum],
+                )
+                df = uf.std_names(df)
+                df.columns = df.columns.to_series().replace(
+                    {
+                        "P ": "p ",
+                        "O ": "OX ",
+                        "Osat": "OX_sat",
+                        "U ": "u ",
+                        "V ": "v ",
+                        "W ": "w ",
+                    },
+                    regex=True,
+                )
+                # if data already exists at that depth
+                if np.round(float(depth)) in norm_dict.keys():
+                    # if variables already exist, rename them (_x)
+                    existing_df: pd.DataFrame = norm_dict[np.round(float(depth))]
+                    existing_vars: list[str] = [
+                        i
+                        for i in df.columns
+                        if i in existing_df.columns
+                        or i.split(" ")[0] + "_0 " + i.split(" ")[1]
+                        in existing_df.columns
+                    ]
+                    new_vars: list[str] = []
+                    for i in existing_vars:
+                        n = 1
+                        new_name: str = (
+                            i.split(" ")[0] + "_" + str(n) + " " + i.split(" ")[1]
+                        )
+                        while new_name in existing_df.columns:
+                            n += 1
+                            new_name = (
+                                i.split(" ")[0] + "_" + str(n) + " " + i.split(" ")[1]
+                            )
+                        logging.info(
+                            "The variable {0} at a depth of {1} is from the sensor number {2}.".format(
+                                new_name.split(" ")[0], np.round(float(depth)), snum
+                            )
+                        )
+                        new_vars.append(new_name)
+
+                    for i in existing_vars:
+                        if i in existing_df.columns:
+                            existing_df.rename(
+                                {i: i.split(" ")[0] + "_0 " + i.split(" ")[1]},
+                                axis=1,
+                                inplace=True,
+                            )
+                    df.rename(
+                        {old: new for old, new in zip(existing_vars, new_vars)},
+                        axis=1,
+                        inplace=True,
+                    )
+                    norm_dict[np.round(float(depth))] = pd.merge(
+                        existing_df, df, left_index=True, right_index=True, how="outer"
+                    )
+                else:
+                    norm_dict[np.round(float(depth))] = df
+
+        if sort:
+            norm_dict = dict(sorted(norm_dict.items()))
+
+        return norm_dict
 
 
 def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
@@ -2238,26 +2524,21 @@ def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
             parse_dates=["Time tag (Gmt)"],
             dayfirst=True,
         )
-    df.rename(
-        {
-            "Time tag (Gmt)": "TIMESTAMP",
-            "East(cm/s)": "u [cm/s]",
-            "North(cm/s)": "v [cm/s]",
-            "Temperature(DegC)": "T [degC]",
-            "Pressure(kPa)": "P [kPa]",
-            "O2Concentration(uM)": "OX [uM]",
-        },
-        axis=1,
-        inplace=True,
-    )
+
+    df.rename({"Time tag (Gmt)": "TIMESTAMP"}, axis=1, inplace=True)
     df = df.set_index("TIMESTAMP")
     df.sort_index(axis=0, inplace=True)
+
+    df = uf.std_names(df)
+
+    if "p [kPa]" in df.columns:
+        df["p [dbar]"] = df["p [kPa]"] / 10.0
 
     return df
 
 
 def read_Minilog(filepath: str) -> pd.DataFrame:
-    """Reads data from one data file from a Minilog temperature sensor.
+    """Reads data from one data file from a VEMCO Minilog temperature sensor.
 
     Args:
         filepath (str): Path to the .csv file.
@@ -2335,8 +2616,8 @@ def read_SBE37(filepath: str) -> pd.DataFrame:
     var_names: dict[str, str] = {
         "cond0S/m": "C",
         "sigma-�00": "SIGTH",
-        "prdM": "P",
-        "potemperature": "Tpot",
+        "prdM": "p",
+        "potemperature": "T_pot",
         "tv290C": "T",
         "timeS": "Time",
         "PSAL": "S",
@@ -2354,7 +2635,7 @@ def read_SBE37(filepath: str) -> pd.DataFrame:
         d["Time"], unit="s", origin=pd.Timestamp(d["start_time"].split("[")[0].strip())
     )
 
-    df = pd.DataFrame(
+    df: pd.DataFrame = pd.DataFrame(
         0.0,
         index=d["TIMESTAMP"],
         columns=list(
@@ -2372,6 +2653,8 @@ def read_SBE37(filepath: str) -> pd.DataFrame:
     for k in df.columns:
         df[k] = d[k]
     df.sort_index(axis=0, inplace=True)
+
+    df = uf.std_names(df, add_units=True, module="o")
 
     return df
 
@@ -2403,6 +2686,10 @@ def read_SBE26(filepath: str) -> pd.DataFrame:
     )
     df.set_index("TIMESTAMP", inplace=True)
     df.drop(["date", "time"], axis=1, inplace=True)
+    if "P" in df.columns:
+        df.rename({"P": "p"}, axis=1, inplace=True)
+
+    df = uf.std_names(df, add_units=True, module="o")
 
     return df
 
@@ -2441,21 +2728,16 @@ def read_RBR(filepath: str) -> pd.DataFrame:
 
         data: np.NDArray = rsk.data[variables]
 
-        df = pd.DataFrame(data, index=time, columns=variables)
+        df: pd.DataFrame = pd.DataFrame(data, index=time, columns=variables)
 
-        df.rename(
-            {
-                "condictivity": "C",
-                "temperature": "T",
-                "salinity": "S",
-                "pressure": "P",
-                "sea_pressure": "Ps",
-                "density_anomaly": "SIGTH",
-            },
-            axis=1,
-            inplace=True,
-        )
+        df = uf.std_names(df, add_units=True)
+
         df.sort_index(axis=0, inplace=True)
+
+        # convert units, because RBR uses
+        # mS/cm
+        if "C [S/m]" in df.columns and np.mean(df["C [S/m]"]) >= 4:
+            df["C [S/m]"] = df["C [S/m]"] * 0.1
 
     return df
 
@@ -2497,19 +2779,20 @@ def read_Thermosalinograph(
         "CNDC": "C",
         "sigma-�00": "SIGTH",
         "prM": "P",
-        "potemperature": "Tpot",
+        "potemperature": "T_pot",
         "TEMP": "T",
         "timeS": "Time",
         "PSAL": "S",
-        "LATITUDE": "LAT",
-        "LONGITUDE": "LON",
+        "LATITUDE": "lat",
+        "LONGITUDE": "lon",
     }
 
     list_of_df: list = []
-
-    for file in list_of_files:
+    num_files: int = len(list_of_files)
+    for i, file in enumerate(list_of_files):
         data = fCNV(file)
-
+        if num_files > 2:
+            uf.progress_bar(i, num_files - 1)
         d: dict[str, Any] = {
             var_names[name]: data[name] for name in data.keys() if name in var_names
         }
@@ -2556,6 +2839,8 @@ def read_Thermosalinograph(
     df_total: pd.DataFrame = pd.concat(list_of_df)
     df_total.sort_index(axis=0, inplace=True)
 
+    df_total = uf.std_names(df_total, add_units=True, module="o")
+
     return df_total
 
 
@@ -2564,7 +2849,7 @@ def read_Thermosalinograph(
 ############################################################################
 
 
-def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
+def download_tidal_model(model: str = "Arc2kmTM", outpath: str = pathlib.Path.cwd()):
     """
     Function to download a tidal model later used to calculate e.g. tidal currents at a certain location with the pyTMD package. This only needs to be done once.
 
@@ -2581,18 +2866,21 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
 
     """
 
+    if not isinstance(model, str):
+        raise ValueError(f"'model' should be a string, not a {type(model).__name__}.")
+
     if pyTMD.utilities.check_connection("https://arcticdata.io"):
-        print("starting download...")
+        logging.info("starting download...")
 
         # digital object identifier (doi) for each Arctic tide model
-        DOI = {}
+        DOI: dict = {}
         DOI["AODTM-5"] = "10.18739/A2901ZG3N"
         DOI["AOTIM-5"] = "10.18739/A2S17SS80"
         DOI["AOTIM-5-2018"] = "10.18739/A21R6N14K"
         DOI["Arc2kmTM"] = "10.18739/A2D21RK6K"
         DOI["Gr1kmTM"] = "10.18739/A2B853K18"
         # local subdirectory for each Arctic tide model
-        LOCAL = {}
+        LOCAL: dict = {}
         LOCAL["AODTM-5"] = "aodtm5_tmd"
         LOCAL["AOTIM-5"] = "aotim5_tmd"
         LOCAL["AOTIM-5-2018"] = "Arc5km2018"
@@ -2600,13 +2888,13 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
         LOCAL["Gr1kmTM"] = "Gr1kmTM"
 
         # recursively create directories if non-existent
-        DIRECTORY = pathlib.Path(outpath).expanduser().absolute()
-        local_dir = DIRECTORY.joinpath(LOCAL[model])
+        DIRECTORY: matplotlib.Path = pathlib.Path(outpath).expanduser().absolute()
+        local_dir: matplotlib.Path = DIRECTORY.joinpath(LOCAL[model])
         local_dir.mkdir(0o775, parents=True, exist_ok=True)
 
         # build host url for model
-        resource_map_doi = f"resource_map_doi:{DOI[model]}"
-        HOST = [
+        resource_map_doi: str = f"resource_map_doi:{DOI[model]}"
+        HOST: list[str] = [
             "https://arcticdata.io",
             "metacat",
             "d1",
@@ -2619,8 +2907,10 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
         # download zipfile from host
         zfile = zipfile.ZipFile(pyTMD.utilities.from_http(HOST, timeout=360))
         # find model files within zip file
-        rx = re.compile(r"(grid|h[0]?|UV[0]?|Model|xy)_(.*?)", re.VERBOSE)
-        members = [m for m in zfile.filelist if rx.search(m.filename)]
+        rx: re.Pattern[str] = re.compile(
+            r"(grid|h[0]?|UV[0]?|Model|xy)_(.*?)", re.VERBOSE
+        )
+        members: list = [m for m in zfile.filelist if rx.search(m.filename)]
         # extract each member
         for m in members:
             # strip directories from member filename
@@ -2633,9 +2923,9 @@ def download_tidal_model(model="Arc2kmTM", outpath=pathlib.Path.cwd()):
         # close the zipfile object
         zfile.close()
 
-        print("Done downloading!")
+        logging.info("Done downloading!")
 
-    return
+    return None
 
 
 def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM", method="spline"):
@@ -4118,3 +4408,81 @@ def plot_map_tidal_ellipses(
         )
 
     return fig, ax_map, ellipse_inset
+
+
+############################################################################
+# PORTASAL
+############################################################################
+
+
+def play_tone(frequency, duration=0.5, samplerate=44100):
+    t = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
+    waveform = np.sin(2 * np.pi * frequency * t)  # 0.5 to reduce volume
+    sd.play(waveform, samplerate)
+    sd.wait()
+
+
+def portasal(
+    number: int,
+    n_flushing: int = 3,
+    t_flushing: float = 23,
+    n_measure: int = 3,
+    t_measure: float = 24,
+) -> None:
+    """Function to run in the backrground to get audio feedback for the different
+    steps of the protocol. The function will play a sound at the beginning of each
+    flushing and measurement. The sound will be played at different frequencies.
+
+    Args:
+        number (_type_): Number of bottles to be sampled.
+        n_flushing (int, optional): Number of flushing before the sampling starts. Defaults to 3.
+        t_flushing (int, optional): The time it takes from flushing to fill up the tubes. Defaults to 23.
+            - In seconds.
+        n_measure (int, optional): Number of measurements done per bootle. Defaults to 3.
+        t_measure (int, optional): The time it takes to do one measurment. Defaults to 24.
+            - In seconds.
+
+    Returns:
+        None
+    """
+    run: int = 0
+    f_flushing: float = 200
+    f_measure: float = 400
+    f_stdby: float = 600
+    f_final: float = 800
+    while number > run:
+        if input("Press Enter if you start the sampling process.").lower() == "ende":
+            break
+        for i in range(n_flushing):
+            if i == 0:
+                time.sleep(t_flushing * 1.3)
+            else:
+                time.sleep(t_flushing)
+            play_tone(f_flushing)
+            print(datetime.now().strftime("%H:%M:%S"), f"{i+1}. flush", sep="\t")
+        for i in range(n_measure):
+            time.sleep(t_flushing)
+            play_tone(f_measure)
+            print(
+                datetime.now().strftime("%H:%M:%S"), f"Start measurment {i}.", sep="\t"
+            )
+            if i == 0:
+                if input("Press Enter if you start the measurments.") == "ende":
+                    break
+            time.sleep(t_measure)
+            if i != n_measure - 1:
+                play_tone(f_stdby)
+                print(
+                    datetime.now().strftime("%H:%M:%S"),
+                    f"End of measurment {i}",
+                    sep="\t",
+                )
+            else:
+                play_tone(f_final)
+        print(
+            datetime.now().strftime("%H:%M:%S"),
+            f"Finished the {run}. bottle.",
+            sep="\t",
+        )
+        run += 1
+    return None
