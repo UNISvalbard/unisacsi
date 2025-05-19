@@ -27,3 +27,4 @@ dask-labextension
 windrose
 seaborn
 glob2
+sounddevice
