@@ -652,11 +652,48 @@ def mooring_into_xarray(
                 f"'{i}' in transfer_vars should be a str, not a {type(i).__name__}."
             )
 
+    # working on which variables to keep
+    dict_vars: dict[str, list[str]] = {}
     for d in dict_of_instr.keys():
         varis_instr: list[str] = [
-            v for v in transfer_vars if v in list(dict_of_instr[d].columns)
+            v
+            for v in dict_of_instr[d].columns
+            if (var := re.match(r"^(.*?)\s*(?:\[[^\]]*\])?$", v))
+            and var.group(1) in transfer_vars
         ]
-        dict_of_instr[d] = dict_of_instr[d][varis_instr]
+        dict_vars[d] = varis_instr
+
+    # check for vars with diff units
+    set_vars: set[str] = set(
+        [
+            item
+            for sublist in [name[1] for name in dict_vars.items()]
+            for item in sublist
+        ]
+    )
+    dict_find_double_var: dict[str, list[str]] = {}
+    for obj in set_vars:
+        if var := re.match(r"^(.*?)\s*(?:\[[^\]]*\])?$", obj):
+            var: str = var.group(1)
+            if not var in dict_find_double_var.keys():
+                dict_find_double_var[var] = [obj]
+            else:
+                dict_find_double_var[var].append(obj)
+
+    # find the most use unit and use that one
+    for item in dict_find_double_var.items():
+        if len(item[1]) > 1:
+            num_it: list[int] = []
+            for i in item[1]:
+                num: int = 0
+                for d in dict_vars.values():
+                    if i in d:
+                        num += 1
+                num_it.append(num)
+            keep: str = item[1][num_it.index(max(num_it))]
+            dict_find_double_var[item[0]] = [keep]
+
+    return dict_find_double_var
 
     list_da: list[xr.DataArray] = []
     for vari in transfer_vars:
@@ -2849,38 +2886,41 @@ def read_Thermosalinograph(
 ############################################################################
 
 
-def download_tidal_model(model: str = "Arc2kmTM", outpath: str = pathlib.Path.cwd()):
-    """
-    Function to download a tidal model later used to calculate e.g. tidal currents at a certain location with the pyTMD package. This only needs to be done once.
+def download_tidal_model(
+    model: str = "Arc2kmTM", outpath: str | pathlib.Path = pathlib.Path.cwd()
+) -> None:
+    """Function to download a tidal model later used to calculate
+    e.g. tidal currents at a certain location with the pyTMD
+    package. This only needs to be done once.
 
-    Parameters
-    ----------
-    model : str, optional
-        String specifying the tidal model to download. Valid options are 'AODTM-5', 'AOTIM-5', 'AOTIM-5-2018', 'Arc2kmTM' and 'Gr1kmTM'. The default is "Arc2kmTM".
-    outpath : TYPE, optional
-        Path where a new folder with the tidal data will be created. The default is the current directory.
+    Args:
+        model (str, optional): String specifying the tidal model to download. Defaults to "Arc2kmTM".
+            - Options are: "AODTM-5", "AOTIM-5", "AOTIM-5-2018", "Arc2kmTM", "Gr1kmTM".
+        outpath (str or pathlib.Path, optional): Path where a new folder with the tidal data will be created. Defaults to current directory.
 
-    Returns
-    -------
-    None.
-
+    Returns:
+        None
     """
 
     if not isinstance(model, str):
         raise ValueError(f"'model' should be a string, not a {type(model).__name__}.")
+    if not isinstance(outpath, (str, pathlib.Path)):
+        raise ValueError(
+            f"'outpath' should be a string, not a {type(outpath).__name__}."
+        )
 
     if pyTMD.utilities.check_connection("https://arcticdata.io"):
         logging.info("starting download...")
 
         # digital object identifier (doi) for each Arctic tide model
-        DOI: dict = {}
+        DOI: dict[str, str] = {}
         DOI["AODTM-5"] = "10.18739/A2901ZG3N"
         DOI["AOTIM-5"] = "10.18739/A2S17SS80"
         DOI["AOTIM-5-2018"] = "10.18739/A21R6N14K"
         DOI["Arc2kmTM"] = "10.18739/A2D21RK6K"
         DOI["Gr1kmTM"] = "10.18739/A2B853K18"
         # local subdirectory for each Arctic tide model
-        LOCAL: dict = {}
+        LOCAL: dict[str, str] = {}
         LOCAL["AODTM-5"] = "aodtm5_tmd"
         LOCAL["AOTIM-5"] = "aotim5_tmd"
         LOCAL["AOTIM-5-2018"] = "Arc5km2018"
@@ -2920,8 +2960,8 @@ def download_tidal_model(model: str = "Arc2kmTM", outpath: str = pathlib.Path.cw
             zfile.extract(m, path=local_dir)
             # change permissions mode
             local_file.chmod(mode=0o775)
-        # close the zipfile object
-        zfile.close()
+            # close the zipfile object
+            zfile.close()
 
         logging.info("Done downloading!")
 
@@ -4415,9 +4455,21 @@ def plot_map_tidal_ellipses(
 ############################################################################
 
 
-def play_tone(frequency, duration=0.5, samplerate=44100):
-    t = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
-    waveform = np.sin(2 * np.pi * frequency * t)  # 0.5 to reduce volume
+def play_tone(
+    frequency: float, duration: float = 0.5, samplerate: float = 44100
+) -> None:
+    """Play a tone at a given frequency and duration using sounddevice.
+
+    Args:
+        frequency (float): Frequency of the tone in Hz.
+        duration (float, optional): Duration of the tone in seconds. Defaults to 0.5.
+        samplerate (float, optional): Sampling rate in Hz. Defaults to 44100.
+
+    Returns:
+        None
+    """
+    t: NDArray = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
+    waveform: NDArray = np.sin(2 * np.pi * frequency * t)
     sd.play(waveform, samplerate)
     sd.wait()
 
@@ -4432,6 +4484,7 @@ def portasal(
     """Function to run in the backrground to get audio feedback for the different
     steps of the protocol. The function will play a sound at the beginning of each
     flushing and measurement. The sound will be played at different frequencies.
+    You can stop by write "ende" in the console.
 
     Args:
         number (_type_): Number of bottles to be sampled.
@@ -4486,3 +4539,35 @@ def portasal(
         )
         run += 1
     return None
+
+
+# to be removed:
+if None:
+    data_path = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/Groupwork/AGF-214/Mooring/DATA"
+    dict_mooring_0 = {
+        33: read_Seaguard(f"{data_path}/SeaGuard/RCM_2375_20231002_1800/2375.txt"),
+        34: read_SBE37(f"{data_path}/SBE37/37-SM_03723000_2024_09_25.cnv"),
+        42: read_Minilog(
+            f"{data_path}/Minilog_II_T/Minilog-II-T_358949_20240925_1.csv"
+        ),
+        52: read_RBR(f"{data_path}/RBRconcerto/206125_20240925_2028.rsk"),
+        67: read_RBR(f"{data_path}/RBRsolo/205993_20240925_2018.rsk"),
+        77: read_RBR(f"{data_path}/RBRconcerto/206124_20240925_2031.rsk"),
+        87: read_Minilog(
+            f"{data_path}/Minilog_II_T/Minilog-II-T_358953_20240925_1.csv"
+        ),
+        97: read_Seaguard(f"{data_path}/SeaGuard/RCM_2370_20231002_1800/2370.txt"),
+        98: read_SBE37(f"{data_path}/SBE37/37-SM_03722999_2024_09_25.cnv"),
+        107: read_Minilog(
+            f"{data_path}/Minilog_II_T/Minilog-II-T_358948_20240925_1.csv"
+        ),
+        127: read_RBR(f"{data_path}/RBRconcerto/206127_20240925_2023.rsk"),
+        156: read_Minilog(
+            f"{data_path}/Minilog_II_T/Minilog-II-T_358945_20240925_1.csv"
+        ),
+        160: read_SBE37(f"{data_path}/SBE37/37-SM_03723003_2024_09_25.cnv"),
+        161: read_Seaguard(f"{data_path}/SeaGuard/RCM_2282_20231002_1800/2282.txt"),
+        # Depth on paper : read pd.Dataframe from Data,
+    }
+
+    ds_mooring_0 = mooring_into_xarray(dict_mooring_0)

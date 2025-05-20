@@ -27,11 +27,12 @@ rename_dict: dict[str, list[str]] = {
     "S": ["Salinity", "salinity"],
     "SIGTH": ["density_anomaly"],
     "C": ["conductivity"],
+    # "U": ["eastward", "Eastwards", "East"],
 }
 
 unit_rename_dict: dict[str, list[str]] = {
     "Pa": ["Pascal"],
-    "deg": ["°", "ø", "degrees"],
+    "deg": ["°", "ø", "degrees", "Deg"],
     "C": [" Celsius"],
     "V": ["Volts"],
     "%": ["percent"],
