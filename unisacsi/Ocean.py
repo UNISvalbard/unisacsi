@@ -14,7 +14,8 @@ in student cruises at UNIS.
 from __future__ import print_function, annotations
 
 from numpy._typing._array_like import NDArray
-import universal_func as uf
+
+from . import universal_func as uf
 from seabird.cnv import fCNV
 import gsw
 import numpy as np
@@ -42,7 +43,8 @@ from plotly.offline import plot as pplot
 
 # from mpl_toolkits.axes_grid1.inset_locator import InsetPosition will look into that later
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-import uptide
+
+# import uptide
 import spectrum
 from scipy import signal
 
@@ -59,6 +61,8 @@ from typing import Literal, Any, get_args
 import logging
 import warnings
 import sounddevice as sd
+from collections import Counter
+from itertools import chain
 
 
 ############################################################################
@@ -328,8 +332,8 @@ def CTD_to_grid(
         raise TypeError(f"'z_fine' should be a bool, not a {type(z_fine).__name__}.")
 
     # construct the Z-vector from the max and min depth of the given stations
-    maxdepth: float = np.nanmax([np.nanmax(-CTD[i]["z"]) for i in stations])
-    mindepth: float = np.nanmin([np.nanmin(-CTD[i]["z"]) for i in stations])
+    maxdepth: float = np.nanmax([np.nanmax(-CTD[i]["z [m]"]) for i in stations])
+    mindepth: float = np.nanmin([np.nanmin(-CTD[i]["z [m]"]) for i in stations])
     if z_fine:
         Z: np.ndarray = np.linspace(
             mindepth, maxdepth, int((maxdepth - mindepth) * 10) + 1
@@ -339,8 +343,8 @@ def CTD_to_grid(
 
     # construct the X-vector, either distance or time
     if x_type == "distance":
-        LAT: np.ndarray = np.asarray([d["LAT"] for d in CTD.values()])
-        LON: np.ndarray = np.asarray([d["LON"] for d in CTD.values()])
+        LAT: np.ndarray = np.asarray([d["lat"] for d in CTD.values()])
+        LON: np.ndarray = np.asarray([d["lon"] for d in CTD.values()])
         X: np.ndarray = np.insert(np.cumsum(gsw.distance(LON, LAT) / 1000), 0, 0)
     elif x_type == "time":
         X = np.array([date2num(d["datetime"]) for d in CTD.values()])
@@ -378,7 +382,7 @@ def CTD_to_grid(
             for value in CTD.values():
                 if field in value:
                     temp_array.append(
-                        interp1d(-value["z"], value[field], bounds_error=False)(Z)
+                        interp1d(-value["z [m]"], value[field], bounds_error=False)(Z)
                     )
                 else:
                     temp_array.append(interp1d(Z, Z * np.nan, bounds_error=False)(Z))
@@ -429,6 +433,15 @@ def CTD_to_xarray(
     Returns:
         xr.Dataset: Dataset with two dimensions depth and distance along the section and all measured variables.
     """
+
+    def _all_convertible_to_float(arr) -> bool:
+        try:
+            data = arr.compressed()
+            np.array(data, dtype=float)
+            return True
+        except (ValueError, TypeError):
+            return False
+
     if not isinstance(CTD, dict):
         raise TypeError(f"'CTD' should be a dict, not a {type(CTD).__name__}")
 
@@ -443,17 +456,17 @@ def CTD_to_xarray(
         raise ValueError(f"The CTD is empty.")
 
     # construct the Z-vector from the max and min depth of the given stations
-    maxdepth: np.ndarray = np.nanmax([np.nanmax(-CTD[i]["z"]) for i in stations])
-    mindepth: np.ndarray = np.nanmin([np.nanmin(-CTD[i]["z"]) for i in stations])
+    maxdepth: np.ndarray = np.nanmax([np.nanmax(-CTD[i]["z [m]"]) for i in stations])
+    mindepth: np.ndarray = np.nanmin([np.nanmin(-CTD[i]["z [m]"]) for i in stations])
 
     Z: np.ndarray = np.linspace(mindepth, maxdepth, int(maxdepth - mindepth) + 1)
 
     # collect station numbers and other metadata
     ship_station: np.ndarray = np.array([d["st"] for d in CTD.values()])
     station: np.ndarray = np.array([d["unis_st"] for d in CTD.values()])
-    lat: np.ndarray = np.array([d["LAT"] for d in CTD.values()])
-    lon: np.ndarray = np.array([d["LON"] for d in CTD.values()])
-    bdepth: np.ndarray = np.array([d["BottomDepth"] for d in CTD.values()])
+    lat: np.ndarray = np.array([d["lat"] for d in CTD.values()])
+    lon: np.ndarray = np.array([d["lon"] for d in CTD.values()])
+    bdepth: np.ndarray = np.array([d["BottomDepth [m]"] for d in CTD.values()])
 
     # construct the X-vector
     X: np.ndarray = np.array([d["datetime"] for d in CTD.values()])
@@ -469,32 +482,44 @@ def CTD_to_xarray(
     )
 
     fCTD: dict = {}
+    interset: set[str] = (
+        set()
+    )  # every var, where values where assignet to the nearest grid point
     for field in fields:
-        try:
-            # grid over Z
-            temp_array: list = []
-            for value in CTD.values():
-                if field in value:
+        # grid over Z
+        temp_array: list = []
+        for value in CTD.values():
+            if field in value:
+                if _all_convertible_to_float(value[field]):
                     temp_array.append(
-                        interp1d(-value["z"], value[field], bounds_error=False)(Z)
+                        interp1d(-value["z [m]"], value[field], bounds_error=False)(Z)
                     )
                 else:
-                    temp_array.append(interp1d(Z, Z * np.nan, bounds_error=False)(Z))
-            temp_array = np.array(temp_array).transpose()
+                    nearest_indices = np.abs(Z[:, None] + value["z [m]"]).argmin(axis=0)
+                    Z_labels: NDArray = np.full_like(Z, fill_value=np.nan, dtype=object)
+                    for label, idx in zip(value[field], nearest_indices):
+                        Z_labels[idx] = label  # can override!!
+                    temp_array.append(Z_labels)
+                    interset.add(field)
+            else:
+                temp_array.append(interp1d(Z, Z * np.nan, bounds_error=False)(Z))
+        temp_array = np.array(temp_array).transpose()
 
-            fCTD[field] = temp_array
+        fCTD[field] = temp_array
 
-            if field == "water_mass":
-                fCTD["water_mass"] = np.round(fCTD["water_mass"])
-        except:
-            logging.warning(
-                f"Warning: No gridding possible for '{field}'. Maybe no valid data? Setting to nan..."
-            )
+        if field == "water_mass":
+            fCTD["water_mass"] = np.round(fCTD["water_mass"])
 
-            fCTD[field] = np.ones([len(X), len(Z)]) * np.nan
+    if len(interset):
+        logging.info(
+            f"The following variables were assigned to the nearest grid point: {[name for name in interset]}\nIf two values are close to a grid point, the lower one is selected."
+        )
 
     list_da: list = []
     for vari in fCTD.keys():
+        unit_match: uf.Match[str] | None = re.match(r"^(.*?)\s*\[(.*?)\]$", vari)
+        vari_name: str = unit_match.group(1) if unit_match else vari
+        unit: str = unit_match.group(2) if unit_match else ""
         list_da.append(
             xr.DataArray(
                 data=fCTD[vari],
@@ -508,7 +533,8 @@ def CTD_to_xarray(
                     "lon": ("time", lon),
                     "bottom_depth": ("time", bdepth),
                 },
-                name=vari,
+                name=vari_name,
+                attrs={"units": unit, "orignal_name": vari},
             )
         )
 
@@ -520,14 +546,16 @@ def CTD_to_xarray(
     if switch_xdim == "station":
         ds = ds.swap_dims({"time": "station"})
 
-    ds["SA"].attrs["long_name"] = "Absolute Salinity [g/kg]"
-    ds["S"].attrs["long_name"] = "Salinity [PSU]"
-    ds["CT"].attrs["long_name"] = "Conservative Temperature [°C]"
-    ds["T"].attrs["long_name"] = "Temperature [°C]"
-    ds["C"].attrs["long_name"] = "Conductivity [S/cm]"
-    ds["P"].attrs["long_name"] = "Pressure [dbar]"
-    ds["SIGTH"].attrs["long_name"] = "Density (sigma-theta) [kg/m3]"
-    ds["OX"].attrs["long_name"] = "Oxygen [ml/l]"
+    ds["SA"].attrs["long_name"] = "Absolute Salinity"
+    ds["S"].attrs["long_name"] = "Salinity"
+    ds["CT"].attrs["long_name"] = "Conservative Temperature"
+    ds["T"].attrs["long_name"] = "Temperature"
+    ds["C"].attrs["long_name"] = "Conductivity"
+    ds["P"].attrs["long_name"] = "Pressure"
+    ds["SIGTH"].attrs["long_name"] = "Density (sigma-theta)"
+    ds["OX"].attrs["long_name"] = "Oxygen"
+
+    ds.attrs = {"source": "mooring_into_xarry"}
 
     return ds
 
@@ -627,6 +655,7 @@ def mooring_into_xarray(
     Args:
         dict_of_instr (dict[pd.DataFrame]): Dictionary with the dataframes returned from the respective read functions for the different instruments, keys: depth levels.
         transfer_vars (list[str], optional): Variables to read into the dataset. Defaults to ["T", "S", "SIGTH", "U", "V", "OX", "P"].
+            - If there are different units for one Variable, uses most offen used unit.
 
     Returns:
         xr.Dataset: Dataset with two dimensions depth and time, and the variables from transfer_vars (Units are striped).
@@ -636,11 +665,9 @@ def mooring_into_xarray(
         raise TypeError(
             f"'dict_of_instr' should be a dict, not a {type(dict_of_instr).__name__}."
         )
-    for i in dict_of_instr.keys():
-        if not isinstance(dict_of_instr[i], pd.DataFrame):
-            raise TypeError(
-                f"'{i}' in dict_of_instr should be a pd.DataFrame, not a {type(dict_of_instr[i]).__name__}."
-            )
+    for k, v in dict_of_instr.items():
+        if not isinstance(v, pd.DataFrame):
+            raise TypeError(f"'{k}' in dict_of_instr should be a pd.DataFrame.")
 
     if not isinstance(transfer_vars, list):
         raise TypeError(
@@ -654,59 +681,47 @@ def mooring_into_xarray(
 
     # working on which variables to keep
     dict_vars: dict[str, list[str]] = {}
-    for d in dict_of_instr.keys():
+    for d, df in dict_of_instr.items():
         varis_instr: list[str] = [
             v
-            for v in dict_of_instr[d].columns
-            if (var := re.match(r"^(.*?)\s*(?:\[[^\]]*\])?$", v))
-            and var.group(1) in transfer_vars
+            for v in df.columns
+            if (m := re.match(r"^(.*?)\s*(?:\[[^\]]*\])?$", v))
+            and m.group(1) in transfer_vars
         ]
         dict_vars[d] = varis_instr
 
     # check for vars with diff units
-    set_vars: set[str] = set(
-        [
-            item
-            for sublist in [name[1] for name in dict_vars.items()]
-            for item in sublist
-        ]
-    )
-    dict_find_double_var: dict[str, list[str]] = {}
-    for obj in set_vars:
-        if var := re.match(r"^(.*?)\s*(?:\[[^\]]*\])?$", obj):
-            var: str = var.group(1)
-            if not var in dict_find_double_var.keys():
-                dict_find_double_var[var] = [obj]
-            else:
-                dict_find_double_var[var].append(obj)
+    all_vars: list[str] = list(chain.from_iterable(dict_vars.values()))
+    var_to_full: dict[str, list[str]] = {}
+    for v in all_vars:
+        if short := re.match(r"^(.*?)\s*(?:\[[^\]]*\])?$", v):
+            var_to_full.setdefault(short.group(1), []).append(v)
+        else:
+            logging.warning(f"Warning: Couldn't make sense of '{v}'. Skipping it.")
 
-    # find the most use unit and use that one
-    for item in dict_find_double_var.items():
-        if len(item[1]) > 1:
-            num_it: list[int] = []
-            for i in item[1]:
-                num: int = 0
-                for d in dict_vars.values():
-                    if i in d:
-                        num += 1
-                num_it.append(num)
-            keep: str = item[1][num_it.index(max(num_it))]
-            dict_find_double_var[item[0]] = [keep]
-
-    return dict_find_double_var
+    final_vars: dict[str, str] = {}
+    for var, reps in var_to_full.items():
+        if len(reps) > 1:
+            counts = Counter([v for d in dict_vars.values() for v in d if v in reps])
+            final_vars[var] = counts.most_common(1)[0][0]
+        else:
+            final_vars[var] = reps[0]
 
     list_da: list[xr.DataArray] = []
-    for vari in transfer_vars:
+    for short_var, full_var in final_vars.items():
         list_df: list[pd.DataFrame] = []
         for d, df_instr in dict_of_instr.items():
-            if vari in list(df_instr.keys()):
-                list_df.append(df_instr[vari].rename(d))
+            if full_var in list(df_instr.keys()):
+                list_df.append(df_instr[full_var].rename(d))
         if len(list_df) == 0:  # to continue if no data is available
-            logging.warning(f"No data for '{vari}' in the mooring data.")
+            logging.warning(f"No data for '{short_var}' in the mooring data.")
             df_vari: pd.DataFrame = pd.DataFrame(index=pd.DatetimeIndex([]))
         else:
             df_vari = pd.concat(list_df, axis=1)
         df_vari = df_vari.resample("20min").mean()
+
+        unit_match = re.match(r"^(.*?)\s*\[([^\]]+)\]$", full_var)
+        unit: str = unit_match.group(2) if unit_match else ""
 
         list_da.append(
             xr.DataArray(
@@ -716,19 +731,13 @@ def mooring_into_xarray(
                     "depth": np.array(list(df_vari.columns), dtype=float),
                     "time": df_vari.index.values,
                 },
-                name=vari,
+                name=short_var,
+                attrs={"units": unit, "orignal_name": full_var},
             )
         )
 
     ds: xr.Dataset = xr.merge(list_da)
-
-    var_name: list[str] = []
-    for name in transfer_vars:
-        split_name: list[str] = name.split(" ")
-        if len(split_name) == 2:
-            ds[name].attrs["unit"] = split_name[1].strip("[]")
-            split_name[0] = " ".join(split_name[0].split("_"))
-        var_name.append(split_name[0])
+    ds.attrs = {"source": "mooring_into_xarry"}
 
     return ds
 
@@ -839,49 +848,6 @@ def mat2py_time(matlab_dnum: np.array) -> pd.DatetimeIndex:
     #                         timedelta(days = 366) for t in matlab_dnum]
 
 
-def present_dict(d: dict, offset="") -> None:
-    """Iterative function to present the contents of a dictionary. Prints in
-    the terminal.
-
-    Args:
-        d (dict): The dictionary.
-        offset (str, optional): Offset used for iterative calls. Defaults to "".
-
-    Returns:
-        None
-    """
-    if not isinstance(d, dict):
-        raise TypeError(f"'d' should be a dict, not a {type(d).__name__}.")
-    if not isinstance(offset, str):
-        raise TypeError(f"'offset' should be a dict, not a {type(offset).__name__}.")
-
-    if len(d.keys()) > 50:
-        print(offset, "keys:", list(d.keys()))
-        print(offset, "first one containing:")
-        f: Any = d[list(d.keys())[0]]
-        if type(f) == dict:
-            present_dict(f, offset=" |" + offset + "       ")
-        else:
-            print(" |" + offset + "       ", type(f), ", size:", np.size(f))
-    else:
-        for i, k in d.items():
-            if type(k) == dict:
-                print(offset, i, ": dict, containing:")
-                present_dict(k, offset=" |" + offset + "       ")
-                print()
-            elif (1 < np.size(k) < 5) and (type(k[0]) != dict):
-                print(offset, i, ":", k)
-            elif np.size(k) == 1:
-                print(offset, i, ":", k)
-            elif np.size(k) > 1 and type(k[0]) == dict:
-                print(offset, i, ": array of dicts, first one containing:")
-                present_dict(k[0], offset=" |" + offset + "       ")
-            else:
-                print(offset, i, ":", type(k), ", size:", np.size(k))
-
-    return None
-
-
 __output__ = Literal["pd.DataFrame", "csv", "df_func", "None"]
 
 
@@ -949,7 +915,7 @@ def create_water_mass_DataFrame(
         output = "None"
     if output not in get_args(__output__) and not os.path.isdir(output):
         raise ValueError(
-            f"'switch_xdim' should be 'pd.DataFrame', 'csv', 'df_func', 'None' or a path, not {output}."
+            f"'output' should be 'pd.DataFrame', 'csv', 'df_func', 'None' or a path, not {output}."
         )
 
     userinput: str = ""
@@ -1277,17 +1243,17 @@ def ctd_identify_water_masses(
         raise ValueError(f"'S_psu_max' should be a column in 'water_mass_def.columns'.")
 
     for s in stations:
-        CTD[s]["water_mass"] = np.ones_like(CTD[s]["T"]) * np.nan
-        CTD[s]["water_mass_Abbr"] = np.empty_like(CTD[s]["T"], dtype="object")
+        CTD[s]["water_mass"] = np.ones_like(CTD[s]["T [degC]"]) * np.nan
+        CTD[s]["water_mass_Abbr"] = np.empty_like(CTD[s]["T [degC]"], dtype="object")
         for index, row in water_mass_def.iterrows():
             if row["Abbr"] != "ArW":
                 ind = np.all(
                     np.array(
                         [
-                            CTD[s]["T"] > row["T_min"],
-                            CTD[s]["T"] <= row["T_max"],
-                            CTD[s]["S"] > row["S_psu_min"],
-                            CTD[s]["S"] <= row["S_psu_max"],
+                            CTD[s]["T [degC]"] > row["T_min"],
+                            CTD[s]["T [degC]"] <= row["T_max"],
+                            CTD[s]["S []"] > row["S_psu_min"],
+                            CTD[s]["S []"] <= row["S_psu_max"],
                         ]
                     ),
                     axis=0,
@@ -2084,9 +2050,9 @@ def read_CTD(
         # rename the most important ones to the same convention used in MATLAB,
         # add other important ones
 
-        p["LAT"] = p.pop("LATITUDE")
-        p["LON"] = p.pop("LONGITUDE")
-        p["z [m]"] = gsw.z_from_p(p["P [dbar]"], p["LAT"])
+        p["lat"] = p.pop("LATITUDE")
+        p["lon"] = p.pop("LONGITUDE")
+        p["z [m]"] = gsw.z_from_p(p["P [dbar]"], p["lat"])
         p["BottomDepth [m]"] = np.round(np.nanmax(np.abs(p["z [m]"])) + 8)
         if np.nanmin(p["C [S/m]"]) > 10.0:
             p["C [S/m]"] /= 10.0
@@ -2095,7 +2061,7 @@ def read_CTD(
         p["S []"] = salt_corr[0] * p["S []"] + salt_corr[1]  # apply correction
         p["S []"][p["S []"] < 20] = np.nan
         p["C [S/m]"][p["S []"] < 20] = np.nan
-        p["SA [g/kg]"] = gsw.SA_from_SP(p["S []"], p["P [dbar]"], p["LON"], p["LAT"])
+        p["SA [g/kg]"] = gsw.SA_from_SP(p["S []"], p["P [dbar]"], p["lon"], p["lat"])
         p["CT [degC]"] = gsw.CT_from_t(p["SA [g/kg]"], p["T [degC]"], p["P [dbar]"])
         p["SIGTH [kg/m^3]"] = gsw.sigma0(p["SA [g/kg]"], p["CT [degC]"])
         if p["filename"].split(".")[0].split("_")[0][-4::].isdigit():
@@ -2569,7 +2535,7 @@ def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
     df = uf.std_names(df)
 
     if "p [kPa]" in df.columns:
-        df["p [dbar]"] = df["p [kPa]"] / 10.0
+        df["p [dbar]"] = (df["p [kPa]"] / 10.0) - 10.0
 
     return df
 
@@ -2886,8 +2852,14 @@ def read_Thermosalinograph(
 ############################################################################
 
 
+__tidal_models__ = Literal[
+    "Arc2kmTM", "AODTM-5", "AOTIM-5", "AOTIM-5-2018", "Arc2kmTM", "Gr1kmTM"
+]
+
+
 def download_tidal_model(
-    model: str = "Arc2kmTM", outpath: str | pathlib.Path = pathlib.Path.cwd()
+    model: str | __tidal_models__ = "Arc2kmTM",
+    outpath: str | pathlib.Path = pathlib.Path.cwd(),
 ) -> None:
     """Function to download a tidal model later used to calculate
     e.g. tidal currents at a certain location with the pyTMD
@@ -2904,6 +2876,10 @@ def download_tidal_model(
 
     if not isinstance(model, str):
         raise ValueError(f"'model' should be a string, not a {type(model).__name__}.")
+    if model not in get_args(__tidal_models__):
+        raise ValueError(
+            f"'model' should be 'Arc2kmTM', 'AODTM-5', 'AOTIM-5', 'AOTIM-5-2018', 'Arc2kmTM' or 'Gr1kmTM', not {model}."
+        )
     if not isinstance(outpath, (str, pathlib.Path)):
         raise ValueError(
             f"'outpath' should be a string, not a {type(outpath).__name__}."
@@ -2968,32 +2944,60 @@ def download_tidal_model(
     return None
 
 
-def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM", method="spline"):
+__inter_methods__ = Literal["bilinear", "spline", "linear", "nearest"]
+
+
+def detide_VMADCP(
+    ds: xr.Dataset,
+    path_tidal_models: str,
+    tidal_model: str | __tidal_models__ = "Arc2kmTM",
+    method: str | __inter_methods__ = "spline",
+) -> xr.Dataset:
+    """Function to correct the VM-ADCP data for the tides
+    (substract the tidal currents from the measurements).
+
+    Args:
+        ds (xr.Dataset): Data from VM-ADCP.
+            - Read and transformed with the respective functions (see example notebook).
+        path_tidal_models (str): Path to folder with tidal model data.
+            - Don't include the name of the actual tidal model!
+        tidal_model (str, optional): Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored). Defaults to "Arc2kmTM".
+            - Options are: "AODTM-5", "AOTIM-5", "AOTIM-5-2018", "Arc2kmTM", "Gr1kmTM".
+        method (str, optional): Spatial interpolation method. Defaults to "spline".
+            - From tidal model grid to actual locations of the ship.
+            - Options: 'bilinear', 'spline', 'linear' and 'nearest'.
+
+    Returns:
+        xr.Dataset: same xarray dataset as the input, but with additional variables for the tidal currents and the de-tided measurements
     """
-    Function to correct the VM-ADCP data for the tides (substract the tidal currents from the measurements).
+    if not isinstance(ds, xr.Dataset):
+        raise TypeError(f"'ds' should be an xarray dataset, not a {type(ds).__name__}.")
+    if not isinstance(path_tidal_models, str):
+        raise TypeError(
+            f"'path_tidal_models' should be a string, not a {type(path_tidal_models).__name__}."
+        )
+    if not os.path.isdir(path_tidal_models):
+        raise FileNotFoundError(f"Path to tidal models not found: {path_tidal_models}.")
+    if not isinstance(tidal_model, str):
+        raise TypeError(
+            f"'tidal_model' should be a string, not a {type(tidal_model).__name__}."
+        )
+    if tidal_model not in get_args(__tidal_models__):
+        raise ValueError(
+            f"'tidal_model' should be 'Arc2kmTM', 'AODTM-5', 'AOTIM-5', 'AOTIM-5-2018', 'Arc2kmTM' or 'Gr1kmTM', not {tidal_model}."
+        )
+    if not isinstance(method, str):
+        raise TypeError(f"'method' should be a string, not a {type(method).__name__}.")
+    if method not in get_args(__inter_methods__):
+        raise ValueError(
+            f"'method' should be 'bilinear', 'spline', 'linear' or 'nearest', not {method}."
+        )
 
-    Parameters
-    ----------
-    ds : xarray dataset
-        Data from VM-ADCP, read and transformed with the respective functions (see example notebook).
-    path_tidal_models : str
-            Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
-    tidal_model : str
-        Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
-    method : str
-        Spatial interpolation method (from tidal model grid to actual locations of the ship). One of 'bilinear', 'spline', 'linear' and 'nearest'
-
-    Returns
-    -------
-    ds : same xarray dataset as the input, but with additional variables for the tidal currents and the de-tided measurements
-
-    """
-
-    time = (
+    time: NDArray = (
         (ds.time.to_pandas() - pd.Timestamp(1970, 1, 1, 0, 0, 0)).dt.total_seconds()
     ).values
 
-    tide_uv = pyTMD.compute.tide_currents(
+    tide_uv: dict = pyTMD.compute.tide_currents(
         ds.lon.values,
         ds.lat.values,
         time,
@@ -3036,39 +3040,72 @@ def detide_VMADCP(ds, path_tidal_models, tidal_model="Arc2kmTM", method="spline"
 
 
 def get_tidal_uvh(
-    latitude,
-    longitude,
-    time,
-    path_tidal_models,
-    tidal_model="Arc2kmTM",
-    method="spline",
-):
+    latitude: float,
+    longitude: float,
+    time: pd.DatetimeIndex,
+    path_tidal_models: str,
+    tidal_model: str | __tidal_models__ = "Arc2kmTM",
+    method: str | __inter_methods__ = "spline",
+) -> pd.DataFrame:
+    """Function to calculate time series of tidal currents u and v
+    as well as the surface elevation change h for a given pair of lat and lon
+    (only one position at a time!), based on the specified tidal model.
+
+    Args:
+        latitude (float): Latitude of e.g. the mooring.
+        longitude (float): Longitude of e.g. the mooring.
+        time (pd.DatetimeIndex): Timestamps of the time series.
+            - Needs to be a pd.DatetimeIndex.
+            - Use df.index of e.g. the raw SeaGuard data, if you have read the data with the read_Seaguard-function.
+        path_tidal_models (str): Path to folder with tidal model data.
+            - Don't include the name of the actual tidal model!
+        tidal_model (str, optional): Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored). Defaults to "Arc2kmTM".
+            - Options are: "AODTM-5", "AOTIM-5", "AOTIM-5-2018", "Arc2kmTM", "Gr1kmTM".
+        method (str, optional): Spatial interpolation method. Defaults to "spline".
+            - From tidal model grid to actual locations of the ship.
+            - Options: 'bilinear', 'spline', 'linear' and 'nearest'.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as the index and three columns u, v and h with the tidal current velocities and the surface height anomalies.
     """
-    Function to calculate time series of tidal currents u and v as well as the surface elevation change h for a given pair of lat and lon (only one position at a time!), based on the specified tidal model.
+    if not isinstance(latitude, (float, int)):
+        raise TypeError(
+            f"'latitude' should be a float, not a {type(latitude).__name__}."
+        )
+    if not isinstance(longitude, (float, int)):
+        raise TypeError(
+            f"'longitude' should be a float, not a {type(longitude).__name__}."
+        )
+    if not isinstance(time, pd.DatetimeIndex):
+        raise TypeError(
+            f"'time' should be a pandas DatetimeIndex, not a {type(time).__name__}."
+        )
+    if not isinstance(path_tidal_models, str):
+        raise TypeError(
+            f"'path_tidal_models' should be a string, not a {type(path_tidal_models).__name__}."
+        )
+    if not os.path.isdir(path_tidal_models):
+        raise FileNotFoundError(f"Path to tidal models not found: {path_tidal_models}.")
+    if not isinstance(tidal_model, str):
+        raise TypeError(
+            f"'tidal_model' should be a string, not a {type(tidal_model).__name__}."
+        )
+    if tidal_model not in get_args(__tidal_models__):
+        raise ValueError(
+            f"'tidal_model' should be 'Arc2kmTM', 'AODTM-5', 'AOTIM-5', 'AOTIM-5-2018', 'Arc2kmTM' or 'Gr1kmTM', not {tidal_model}."
+        )
+    if not isinstance(method, str):
+        raise TypeError(f"'method' should be a string, not a {type(method).__name__}.")
+    if method not in get_args(__inter_methods__):
+        raise ValueError(
+            f"'method' should be 'bilinear', 'spline', 'linear' or 'nearest', not {method}."
+        )
 
-    Parameters
-    ----------
-    latitude : float
-        Latitude of e.g. the mooring
-    longitude : float
-        Longitude of e.g. the mooring
-    time : pandas DatetimeIndex
-        Timestamps of the time series. Needs to be a pandas DatetimeIndex. Use df.index of e.g. the raw SeaGuard data, if you have read the data with the read_Seaguard-function.
-    path_tidal_models : str
-            Path to the folder with all the tidal model data (don't include the name of the actual tidal model here!)
-    tidal_model : str
-        Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored)
-    method : str
-        Spatial interpolation method (from tidal model grid to actual locations of the ship). One of 'bilinear', 'spline', 'linear' and 'nearest'
+    time_model: NDArray = (
+        (time - pd.Timestamp(1970, 1, 1, 0, 0, 0)).total_seconds()
+    ).values
 
-    Returns
-    -------
-    df : pandas Dataframe with time as the index, and three columns u, v, and h with the tidal current velocities and the surface height anomalies.
-    """
-
-    time_model = ((time - pd.Timestamp(1970, 1, 1, 0, 0, 0)).total_seconds()).values
-
-    tide_uv = pyTMD.compute.tide_currents(
+    tide_uv: dict = pyTMD.compute.tide_currents(
         longitude,
         latitude,
         time_model,
@@ -3082,7 +3119,7 @@ def get_tidal_uvh(
         EXTRAPOLATE=True,
         FILL_VALUE=np.nan,
     )
-    tide_h = pyTMD.compute.tide_elevations(
+    tide_h: NDArray = pyTMD.compute.tide_elevations(
         longitude,
         latitude,
         time_model,
@@ -3109,28 +3146,33 @@ def get_tidal_uvh(
     return df
 
 
-def calculate_tidal_spectrum(data, bandwidth=8):
+def calculate_tidal_spectrum(data: pd.Series, bandwidth: int = 8) -> pd.Series:
+    """Function to calculate a spectrum for a given time series
+    (e.g. pressure measurements from a SeaGuard).
+    The raw periodogram is filtered using a multitapering approach.
+
+    Args:
+        data (pd.Series): Time series of data.
+        bandwidth (int, optional): Bandwith fo the multitaper smoothing. Defaults to 8.
+            - Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing).
+
+    Returns:
+        pd.Series: Series with the spectral data, the index is specifying the frequency.
     """
-    Function to calculate a spectrum for a given time series (e.g. pressure measurements from a SeaGuard). The raw periodogram is filtered using a multitapering approach.
+    if not isinstance(data, pd.Series):
+        raise TypeError(
+            f"'data' should be a pandas Series, not a {type(data).__name__}."
+        )
+    if not isinstance(bandwidth, int):
+        raise TypeError(
+            f"'bandwidth' should be a int, not a {type(bandwidth).__name__}."
+        )
 
-    Parameters
-    ----------
-    data : pd.Series
-        time Series of data
-    bandwidth : int, optional
-        bandwidth for the multitaper smoothing. Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing) Default is 8.
+    timeseries: NDArray = data.interpolate(method="linear").values
+    resolution: float = (data.index[1] - data.index[0]).seconds / 3600.0
+    delta: float = resolution * (1.0 / 24.0)  # in days
 
-    Returns
-    -------
-    s_multitap : pd.Series
-        Series with the spectral data, the index is specifying the frequency.
-    """
-
-    timeseries = data.interpolate(method="linear").values
-    resolution = (data.index[1] - data.index[0]).seconds / 3600.0
-    delta = resolution * (1.0 / 24.0)  # in days
-
-    N = len(timeseries)
+    N: int = len(timeseries)
 
     # Periodogram
     freq, _ = signal.periodogram(timeseries, fs=1.0 / delta, return_onesided=False)
@@ -3151,7 +3193,7 @@ def calculate_tidal_spectrum(data, bandwidth=8):
     return pd.Series(multitap[freq >= 0.0], index=freq[freq >= 0.0])
 
 
-def tidal_harmonic_analysis(data, constituents=["M2"], remove_mean=False):
+def tidal_harmonic_analysis(data: pd.Series, constituents=["M2"], remove_mean=False):
     """
     Function to perform a tidal harmonic analysis on a given time series, e.g. pressure or u/v current measurements from a SeaGuard.
 
@@ -4539,35 +4581,3 @@ def portasal(
         )
         run += 1
     return None
-
-
-# to be removed:
-if None:
-    data_path = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/Groupwork/AGF-214/Mooring/DATA"
-    dict_mooring_0 = {
-        33: read_Seaguard(f"{data_path}/SeaGuard/RCM_2375_20231002_1800/2375.txt"),
-        34: read_SBE37(f"{data_path}/SBE37/37-SM_03723000_2024_09_25.cnv"),
-        42: read_Minilog(
-            f"{data_path}/Minilog_II_T/Minilog-II-T_358949_20240925_1.csv"
-        ),
-        52: read_RBR(f"{data_path}/RBRconcerto/206125_20240925_2028.rsk"),
-        67: read_RBR(f"{data_path}/RBRsolo/205993_20240925_2018.rsk"),
-        77: read_RBR(f"{data_path}/RBRconcerto/206124_20240925_2031.rsk"),
-        87: read_Minilog(
-            f"{data_path}/Minilog_II_T/Minilog-II-T_358953_20240925_1.csv"
-        ),
-        97: read_Seaguard(f"{data_path}/SeaGuard/RCM_2370_20231002_1800/2370.txt"),
-        98: read_SBE37(f"{data_path}/SBE37/37-SM_03722999_2024_09_25.cnv"),
-        107: read_Minilog(
-            f"{data_path}/Minilog_II_T/Minilog-II-T_358948_20240925_1.csv"
-        ),
-        127: read_RBR(f"{data_path}/RBRconcerto/206127_20240925_2023.rsk"),
-        156: read_Minilog(
-            f"{data_path}/Minilog_II_T/Minilog-II-T_358945_20240925_1.csv"
-        ),
-        160: read_SBE37(f"{data_path}/SBE37/37-SM_03723003_2024_09_25.cnv"),
-        161: read_Seaguard(f"{data_path}/SeaGuard/RCM_2282_20231002_1800/2282.txt"),
-        # Depth on paper : read pd.Dataframe from Data,
-    }
-
-    ds_mooring_0 = mooring_into_xarray(dict_mooring_0)

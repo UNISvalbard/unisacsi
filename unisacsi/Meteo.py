@@ -15,7 +15,7 @@ optimized for the file formats typically used in the UNIS courses.
 """
 # %%
 
-import universal_func as uf
+from . import universal_func as uf
 import pandas as pd
 import dask.dataframe as ddf
 import xarray as xr

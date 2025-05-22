@@ -4,6 +4,7 @@ import pandas as pd
 import xarray as xr
 import re
 import sys
+import numpy as np
 
 ############################################################################
 # NAMING
@@ -20,14 +21,15 @@ rename_dict: dict[str, list[str]] = {
     "p": ["pressure", "Pressure"],
     "SW": ["Shortwave"],
     "LW": ["Longwave"],
-    "lat": ["Latitude"],
-    "lon": ["Longitude"],
+    "lat": ["Latitude", "LAT"],
+    "lon": ["Longitude", "LON"],
     "z": ["Altitude"],
     "OX": ["O2Concentration"],
     "S": ["Salinity", "salinity"],
     "SIGTH": ["density_anomaly"],
     "C": ["conductivity"],
-    # "U": ["eastward", "Eastwards", "East"],
+    "U": ["eastward", "East"],
+    "V": ["northward"],
 }
 
 unit_rename_dict: dict[str, list[str]] = {
@@ -316,10 +318,11 @@ def std_names(
                     if var in split_var_name:
                         splitname.append(f"[{unit}]")
                         break
-                if (
-                    not re.search(r"\[.*?\]", splitname[-1])
-                    and not splitname[0] == "RECORD"
-                ):
+                if not re.search(r"\[.*?\]", splitname[-1]) and not splitname[0] in [
+                    "RECORD",
+                    "lat",
+                    "lon",
+                ]:
                     splitname.append(f"[]")
 
             name_list.append(" ".join(splitname))
@@ -344,6 +347,11 @@ def std_names(
         raise TypeError(f"This functioin is not applicable to {type(data).__name__}.")
 
     return data
+
+
+############################################################################
+# generell
+############################################################################
 
 
 def progress_bar(iteration: float, total: float, length: float = 40) -> None:
@@ -377,4 +385,47 @@ def progress_bar(iteration: float, total: float, length: float = 40) -> None:
     print(f"\r|{bar}| {percent}% Complete", end="\r", flush=True)
     if iteration == total:
         print("Done", " " * (length + 13), flush=True)
+    return None
+
+
+def present_dict(d: dict, offset="") -> None:
+    """Iterative function to present the contents of a dictionary. Prints in
+    the terminal.
+
+    Args:
+        d (dict): The dictionary.
+        offset (str, optional): Offset used for iterative calls. Defaults to "".
+
+    Returns:
+        None
+    """
+    if not isinstance(d, dict):
+        raise TypeError(f"'d' should be a dict, not a {type(d).__name__}.")
+    if not isinstance(offset, str):
+        raise TypeError(f"'offset' should be a dict, not a {type(offset).__name__}.")
+
+    if len(d.keys()) > 50:
+        print(offset, "keys:", list(d.keys()))
+        print(offset, "first one containing:")
+        f: Any = d[list(d.keys())[0]]
+        if type(f) == dict:
+            present_dict(f, offset=" |" + offset + "       ")
+        else:
+            print(" |" + offset + "       ", type(f), ", size:", np.size(f))
+    else:
+        for i, k in d.items():
+            if type(k) == dict:
+                print(offset, i, ": dict, containing:")
+                present_dict(k, offset=" |" + offset + "       ")
+                print()
+            elif (1 < np.size(k) < 5) and (type(k[0]) != dict):
+                print(offset, i, ":", k)
+            elif np.size(k) == 1:
+                print(offset, i, ":", k)
+            elif np.size(k) > 1 and type(k[0]) == dict:
+                print(offset, i, ": array of dicts, first one containing:")
+                present_dict(k[0], offset=" |" + offset + "       ")
+            else:
+                print(offset, i, ":", type(k), ", size:", np.size(k))
+
     return None
