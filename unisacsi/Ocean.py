@@ -12,10 +12,12 @@ in student cruises at UNIS.
 """
 
 from __future__ import print_function, annotations
+from _collections_abc import dict_keys
 
 from numpy._typing._array_like import NDArray
 
-from . import universal_func as uf
+# from .
+import universal_func as uf
 from seabird.cnv import fCNV
 import gsw
 import numpy as np
@@ -45,6 +47,7 @@ from plotly.offline import plot as pplot
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # import uptide
+import utide
 import spectrum
 from scipy import signal
 
@@ -57,12 +60,13 @@ import pyTMD.compute
 
 import numbers as num
 import time
-from typing import Literal, Any, get_args
+from typing import Literal, Any, get_args, overload
 import logging
 import warnings
 import sounddevice as sd
 from collections import Counter
 from itertools import chain
+import copy
 
 
 ############################################################################
@@ -3146,6 +3150,429 @@ def get_tidal_uvh(
     return df
 
 
+class tide:
+    @overload
+    def __init__(
+        t: Any,
+        u: Any,
+        v: Any,
+        lat: float,
+        constituents: str | list[str] = "auto",
+        add_vari: list[str] = None,
+        **args,
+    ): ...
+
+    @overload
+    def __init__(
+        t: Any,
+        p: Any,
+        lat: float,
+        constituents: str | list[str] = "auto",
+        add_vari: list[str] = None,
+        **args,
+    ): ...
+
+    @overload
+    def __init__(df_const: pd.DataFrame, single_val: dict, orignal: dict): ...
+
+    def __init__(
+        self,
+        t=None,
+        p=None,
+        u=None,
+        v=None,
+        lat=None,
+        constituents="auto",
+        add_vari=None,
+        df_const=None,
+        single_val=None,
+        orignal=None,
+        **args,
+    ) -> None:
+        """Class to simplefy the work with tides.
+
+        Can be called in 3 different ways:
+
+        1. **using current (u/v) data**
+            Analyzes horizontal current velocity components (u and v).
+
+            Args:
+                t (array_like): Time index of the data.
+                u (array_like): Eastward (u) current data.
+                v (array_like): Northward (v) current data.
+                lat (float): Latitude in degrees.
+                constituents (str | list[str], optional): Tidal constituents to analyze. Defaults to "auto".
+                add_vari (list[str], optional): Additional single variables to include. Defaults to None.
+                **args: Additional keyword arguments passed to `utide.solve
+
+        2. **Using pressure (p) data**:
+            Analyzes pressure time series data.
+
+            Args:
+                t (array_like): Time index of the data.
+                p (array_like): Pressure data.
+                lat (float): Latitude in degrees.
+                constituents (str | list[str], optional): Tidal constituents to analyze. Defaults to "auto".
+                add_vari (list[str], optional): Additional single variables to include. Defaults to None.
+                **args: Additional keyword arguments passed to `utide.solve`.
+
+        3. **From precomputed data**:
+            Initialize the object directly from precomputed results.
+
+            Args:
+                df_const (pd.DataFrame): DataFrame containing tidal constituent information.
+                single_val (dict): Dictionary of single-value metrics (e.g., total variability, mean values).
+                orignal (dict): Original output dictionary from `utide.solve`.
+        """
+        t_ex: bool = False
+        p_ex: bool = False
+        uv_ex: bool = False
+        lat_ex: bool = False
+        df_const_ex: bool = False
+        single_val_ex: bool = False
+        orignal_ex: bool = False
+        if t is not None:
+            t_ex: bool = True
+            if not pd.api.types.is_array_like(t):
+                raise TypeError(f"'t' should be array_like, not a {type(t).__name__}.")
+        if p is not None:
+            p_ex: bool = True
+            if not pd.api.types.is_array_like(p):
+                raise TypeError(f"'p' should be array_like, not a {type(p).__name__}")
+            if len(p) != len(t):
+                raise ValueError(
+                    f"'p' should have the same length as 't', not ({len(p)},{len(t)})."
+                )
+        if u is not None and v is not None:
+            uv_ex: bool = True
+            if not pd.api.types.is_array_like(u):
+                raise TypeError(f"'u' should be array_like, not a {type(u).__name__}")
+            if len(u) != len(t):
+                raise ValueError(
+                    f"'u' should have the same length as 't', not ({len(u)},{len(t)})."
+                )
+            if not pd.api.types.is_array_like(u):
+                raise TypeError(f"'u' should be array_like, not a {type(u).__name__}")
+            if len(v) != len(t):
+                raise ValueError(
+                    f"'v' should have the same length as 't', not ({len(v)},{len(t)})."
+                )
+        if lat is not None:
+            lat_ex: bool = True
+            if not isinstance(lat, (float, int)):
+                raise TypeError(
+                    f"'lat' should be a float or int, not a {type(lat).__name__}."
+                )
+        if constituents != "auto" and not isinstance(constituents, list):
+            raise TypeError(
+                f"'constituents' should be a list of strings or 'auto', not a {type(constituents).__name__}."
+            )
+        if isinstance(constituents, list):
+            for i in constituents:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Each element in 'constituents' should be a string, not a {type(i).__name__}."
+                    )
+        if df_const is not None:
+            df_const_ex: bool = True
+            if not isinstance(df_const, pd.DataFrame):
+                raise TypeError(
+                    f"'df_const' should be a pandas DataFrame, not a {type(df_const).__name__}."
+                )
+        if single_val is not None:
+            single_val_ex: bool = True
+            if not isinstance(single_val, dict):
+                raise TypeError(
+                    f"'single_val' should be a dictionary, not a {type(single_val).__name__}."
+                )
+        if orignal is not None:
+            orignal_ex: bool = True
+            if not isinstance(orignal, dict):
+                raise TypeError(
+                    f"'orignal' should be a dictionary, not a {type(orignal).__name__}."
+                )
+
+        found: bool = False
+        if t_ex and p_ex and lat_ex:
+            found = True
+            args["manual"] = (t, p)
+            self.p: Any = p
+            tha: dict = tidal_harmonic_analysis(
+                df=None, lat=lat, constituents=constituents, add_vari=add_vari, **args
+            )
+        elif t_ex and uv_ex and lat_ex:
+            if found:
+                logging.warning(
+                    f"Warning: There was p and u/v data detected. Continuing with u/v data."
+                )
+            found = True
+            args["manual"] = (t, u, v)
+            self.u: Any = u
+            self.v: Any = v
+            tha = tidal_harmonic_analysis(
+                df=None, lat=lat, constituents=constituents, add_vari=add_vari, **args
+            )
+        if t_ex and lat_ex and found:
+            self.constituents: pd.DataFrame = tha.constituents
+            self.single_values: dict = tha.single_values
+            self.utide: dict = tha.utide
+            self.t: pd.DatetimeIndex = t
+        if df_const_ex and single_val_ex and orignal_ex:
+            if found:
+                logging.warning(
+                    f"Warning: Data and results were passed. Results were newly generated and the passed ones ignored."
+                )
+            else:
+                self.constituents: pd.DataFrame = df_const
+                self.single_values: dict = single_val
+                self.utide: dict = orignal
+                found = True
+        if not found:
+            raise ValueError(
+                f"No complete data set (with latitude) or results were passed!"
+            )
+
+        return None
+
+    def __str__(self) -> str:
+        keys: dict_keys[str, Any] = vars(self).keys()
+        has_t: bool = "t" in keys
+        has_u: bool = "u" in keys
+        has_v: bool = "v" in keys
+        has_p: bool = "p" in keys
+        has_ha: bool = (
+            len([i for i in ["constituents", "single_values", "utide"] if i in keys])
+            == 3
+        )
+        has_spec: bool = "spectrum" in keys
+        has_recon: bool = "recon" in keys
+
+        outstr: list[str] = []
+
+        if has_t and has_u and has_v and has_p:
+            outstr.append(
+                f"The object contains velocity and pressure data in the timespan {min(self.t)} to {max(self.t)}."
+            )
+        elif has_t and has_p:
+            outstr.append(
+                f"The object contains pressure data in the timespan {min(self.t)} to {max(self.t)}."
+            )
+        elif has_t and has_u and has_v:
+            outstr.append(
+                f"The object contains velocity data in the timespan {min(self.t)} to {max(self.t)}."
+            )
+        else:
+            outstr.append("The object does not contain complete data.")
+
+        if has_ha and has_spec and has_recon:
+            outstr.append(
+                "A tidal harmonic analysis, spectrum and reconstruction was done."
+            )
+        elif has_ha and has_spec:
+            outstr.append("A tidal harmonic analysis and spectrum was done.")
+        elif has_ha and has_recon:
+            outstr.append("A tidal harmonic analysis and reconstruction was done.")
+        elif has_recon and has_spec:
+            outstr.append("A spectrum and a reconstruction was done.")
+        elif has_ha:
+            outstr.append("A tidal harmonic analysis was done.")
+        elif has_spec:
+            outstr.append("A tidal spectrum was done.")
+        elif has_recon:
+            outstr.append("A tidal reconstruciton was done.")
+
+        return "\n".join(outstr)
+
+    def __repr__(self) -> str:
+        cls_name: str = self.__class__.__name__
+        keys: list = list(vars(self).keys())
+        return f"<{cls_name}(keys={keys})>"
+
+    def __len__(self) -> int:
+        if "t" in vars(self).keys():
+            return len(self.t)
+        else:
+            return 0
+
+    # be careful, but should work
+    def __bool__(self) -> bool:
+        return True
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, tide):
+            return False
+        return self.__dict__.keys() == other.__dict__.keys() and all(
+            (
+                np.array_equal(self.__dict__[k], other.__dict__[k])
+                if isinstance(self.__dict__[k], np.ndarray)
+                else self.__dict__[k] == other.__dict__[k]
+            )
+            for k in self.__dict__
+        )
+
+    def __dir__(self) -> list[str]:
+        return list(super().__dir__()) + list(vars(self).keys())
+
+    def __getitem__(self, key) -> Any:
+        return getattr(self, key)
+
+    def __setitem__(self, key, value) -> None:
+        return setattr(self, key, value)
+
+    def __contains__(self, key) -> bool:
+        return key in vars(self)
+
+    def add_data(
+        self,
+        t: Any = None,
+        p: Any = None,
+        u: Any = None,
+        v: Any = None,
+    ) -> None:
+        """Method to add data to the tide object after initialization.
+        If the object was initialized with data, this will overwrite the existing data.
+        If set to None, the existing data will not be changed.
+
+        Args:
+            t (array_like): Time index of the data. Defaults to None.
+            p (array_like): Pressure data. Defaults to None.
+            u (array_like): Eastward (u) current data. Defaults to None.
+            v (array_like): Northward (v) current data. Defaults to None.
+
+        Returns:
+            None
+
+        """
+        if t is not None:
+            if not pd.api.types.is_list_like(t):
+                raise TypeError(f"'t' should be array_like, not a {type(t).__name__}.")
+            self.t = t
+        if p is not None:
+            if not pd.api.types.is_list_like(p):
+                raise TypeError(f"'p' should be array_like, not a {type(p).__name__}.")
+            self.p = p
+        if u is not None:
+            if not pd.api.types.is_list_like(u):
+                raise TypeError(f"'u' should be array_like, not a {type(u).__name__}.")
+            self.u = u
+        if v is not None:
+            if not pd.api.types.is_list_like(v):
+                raise TypeError(f"'v' should be array_like, not a {type(v).__name__}.")
+            self.v = v
+        return None
+
+    def get_spectrum(self) -> pd.Series:
+        """Returns the spectrum of the tide object.
+
+        Returns:
+            pd.Series: The spectrum of the tide object.
+        """
+        if not hasattr(self, "spectrum"):
+            raise AttributeError(
+                "The tide object does not have a spectrum. Please calculate it first using 'calc_spectrum'."
+            )
+        return self.spectrum
+
+    def get_constituents(self) -> pd.DataFrame:
+        """Returns the tidal constituents DataFrame of the tide object.
+
+        Returns:
+            pd.DataFrame: The tidal constituents DataFrame.
+        """
+        if not hasattr(self, "constituents"):
+            raise AttributeError(
+                "The tide object does not have tidal constituents. Please perform a tidal harmonic analysis first."
+            )
+        return self.constituents
+
+    def get_single_values(self) -> dict:
+        """Returns the single values dictionary of the tide object.
+
+        Returns:
+            dict: The single values dictionary.
+        """
+        if not hasattr(self, "single_values"):
+            raise AttributeError(
+                "The tide object does not have single values. Please perform a tidal harmonic analysis first."
+            )
+        return self.single_values
+
+    def calc_spectrum(self, p: pd.Series = None, bandwidth: int = 8) -> pd.Series:
+        """Function to calculate a spectrum for a the tide time series.
+
+        Args:
+            p (pd.Series, optional): Time series of data. Defaults to None.
+                - Just needed if the object was initialized without.
+                - Will overwrite original.
+            bandwidth (int, optional): Bandwith fo the multitaper smoothing. Defaults to 8.
+                - Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing).
+
+        Returns:
+            pd.Series: Series with the spectral data, the index is specifying the frequency.
+        """
+        if p is None:
+            if "p" in vars(self).keys():
+                p = pd.Series(self.p, index=self.t)
+            else:
+                raise ValueError(
+                    "No pressure data was passed to the object. Please pass 'p' as a parameter or set 'self.p' before calling this method."
+                )
+        else:
+            if not isinstance(p, pd.Series):
+                raise TypeError(
+                    f"'p' should be a pandas Series, not a {type(p).__name__}."
+                )
+        if not isinstance(bandwidth, int):
+            raise TypeError(
+                f"'bandwidth' should be an int, not a {type(bandwidth).__name__}."
+            )
+        self.spectrum: pd.Series = calculate_tidal_spectrum(p)
+
+        return self.spectrum
+
+    def reconstruct(
+        self, t: Any = None, constituents: list[str] = None, **args
+    ) -> pd.DataFrame:
+        """Reconstructs the tidal signal for a given time index using the utide package.
+
+        Args:
+            t (array_like, optional): Time index for reconstruction. Defaults to None.
+                - If None, uses the time index from the object.
+            constituents (list[str], optional): List of standard letter abbreviations of tidal constituents to reconstruct. Defaults to None.
+                - If None, uses all constituents from the utide tidalharmonicanalysis.
+            **args: Additional keyword arguments passed to `utide.reconstruct`.
+
+        Returns:
+            pd.DataFrame: DataFrame with the reconstructed tidal signal.
+        """
+        if t is None:
+            if "t" in vars(self).keys():
+                t = self.t
+            else:
+                raise ValueError(
+                    "No time index was passed to the object. Please pass 't' as a parameter or set 'self.t' before calling this method."
+                )
+        if not pd.api.types.is_array_like(t):
+            raise TypeError(f"'t' should be a array_like, not a {type(t).__name__}.")
+        if constituents is not None:
+            if not isinstance(constituents, list):
+                raise TypeError(
+                    f"'constituents' should be a list of strings, not a {type(constituents).__name__}."
+                )
+            for i in constituents:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Each element in 'constituents' should be a string, not a {type(i).__name__}."
+                    )
+
+        temp_data: tide = utide.reconstruct(t, self.utide, constit=constituents, **args)
+
+        self.recon: pd.DataFrame = temp_data.recon
+        self.recon_utide: dict = temp_data.recon_utide
+
+        return self.recon
+
+
 def calculate_tidal_spectrum(data: pd.Series, bandwidth: int = 8) -> pd.Series:
     """Function to calculate a spectrum for a given time series
     (e.g. pressure measurements from a SeaGuard).
@@ -3193,69 +3620,379 @@ def calculate_tidal_spectrum(data: pd.Series, bandwidth: int = 8) -> pd.Series:
     return pd.Series(multitap[freq >= 0.0], index=freq[freq >= 0.0])
 
 
-def tidal_harmonic_analysis(data: pd.Series, constituents=["M2"], remove_mean=False):
+def tidal_harmonic_analysis(
+    df: pd.DataFrame,
+    lat: float,
+    constituents: str | list[str] = "auto",
+    add_vari: list[str] = None,
+    **args,
+) -> tide | tuple[dict, dict]:
+    """Performs tidal harmonic analysis on a time series, e.g., pressure and/or u/v current measurements from a SeaGuard.
+
+        The function automatically detects u/v components and matches them as pairs. If multiple u/v pairs exist, they are matched by their `u_*` suffix.
+    If the same variable appears with different units more then twice, only the last occurrence will be retained.
+
+
+        Args:
+            df (pd.DataFrame): Dataframe containing the data with a pd.DatetimeIndex.
+            lat (float): Latitude in degrees.
+            constituents (str or list[str], optional): List of tidal constituents by their standard letter abbreviations or 'auto'. Defaults to "auto".
+                - If 'auto', the constituent list is selected based on the data's time span.
+            add_vari (list[str], optional): Additional variables to include in the output dictionary for each constituent. Defaults to None.
+
+        Additional parameters:
+            - Other keyword arguments are passed to `utide.solve`. Use `help(utide.solve)` for more details.
+            - Allows for manual data input:
+                - u/v: manual = (time,u,v)
+                - p: manual = (time,p)
+
+        Returns:
+            tide or tuple[dict, dict]: A class tide if only one variable (u/v or pressure) is analyzed, or a tuple of dictionaries if both are analyzed.
+                - If more than one variable (or pair) is analyzed, the results are nested under their suffixes.
     """
-    Function to perform a tidal harmonic analysis on a given time series, e.g. pressure or u/v current measurements from a SeaGuard.
-
-    Parameters
-    ----------
-    data : pd.Series
-        time Series of time series data.
-    constituents : list, optional
-        List with constituents to include in the analysis. Default is ['M2'].
-    remove_mean : bool, optional
-        Switch to enable substracting the mean of the time series. Default is False.
-
-    Returns
-    -------
-    amp : array
-        Array with the amplitudes of the constituents specified in the function call (in the respective order.)
-    pha : array
-        Array with the phases of the constituents specified in the function call (in the respective order.)
-    detid : pd.Series
-        Pandas Series with the residual (detided) time series.
-    tidal_ts : list
-        List of pd.Series, each of the series is the pure tidal time series of the respective constituent (in the same order as amp, pha and the constituents in the function call).
-    """
-
-    if remove_mean:
-        if "Z0" not in constituents:
-            constituents = ["Z0"] + constituents
+    if "manual" in args.keys():
+        manual = args.pop("manual")
     else:
-        if "Z0" in constituents:
-            constituents.remove("Z0")
+        manual = None
 
-    time_seconds = np.array([(t - data.index[0]).total_seconds() for t in data.index])
+    if not manual and not isinstance(df, pd.DataFrame):
+        raise TypeError(
+            f"'data' should be a pandas DataFrame, not a {type(df).__name__}."
+        )
 
-    tide = uptide.Tides(constituents)
-    tide.set_initial_time(pd.Timestamp(data.index[0]).to_pydatetime())
-    amp, pha = uptide.harmonic_analysis(tide, data.values, time_seconds)
+    if not manual and not isinstance(df.index, pd.DatetimeIndex):
+        raise TypeError(
+            f"The index of 'data' should be a pandas DatetimeIndex, not a {type(df.index).__name__}."
+        )
 
-    detid = data - pd.Series(
-        tide.from_amplitude_phase(amp, pha, time_seconds), index=data.index
-    )
+    if not isinstance(lat, (float, int)):
+        raise TypeError(f"'lat' should be a float, not a {type(lat).__name__}.")
+    args["lat"] = lat
 
-    if "Z0" in constituents:
-        amp = list(amp)
-        pha = list(pha)
-        i = constituents.index("Z0")
-        del amp[i]
-        del pha[i]
-        constituents.remove("Z0")
-        amp = np.asarray(amp)
-        pha = (np.asarray(pha),)
-    tide = uptide.Tides(constituents)
-    tide.set_initial_time(pd.Timestamp(data.index[0]).to_pydatetime())
+    if not isinstance(constituents, (str, list)):
+        raise TypeError(
+            f"'constituents' should be a string or a list, not a {type(constituents).__name__}."
+        )
+    if isinstance(constituents, str):
+        if constituents != "auto":
+            raise ValueError(
+                f"'constituents' should be 'auto' or a list, not {constituents}."
+            )
+    if isinstance(constituents, list):
+        if len(constituents) == 0:
+            raise ValueError(
+                f"'constituents' should be 'auto' or a list with at least one element, not {constituents}."
+            )
+        for i in constituents:
+            if not isinstance(i, str):
+                raise TypeError(
+                    f"Elements of 'constituents' should be strings, not {type(i).__name__}."
+                )
+    args["constit"] = constituents
 
-    tidal_ts = []
-    for a, p in zip(amp, pha):
-        tidal_ts.append(
-            pd.Series(
-                tide.from_amplitude_phase([a], [p], time_seconds), index=data.index
+    if add_vari == None:
+        add_vari = []
+    if not isinstance(add_vari, list):
+        raise TypeError(f"'add_var' should be a list, not a {type(add_vari).__name__}.")
+
+    def _search(name: str, var: str) -> tuple[str, str | Any, str | Any] | None:
+        if rematch := re.match(rf"{var}(?:_(\w+))?(?:\s*\[\s*([^\]]+)\s*\])?", name):
+            return name, rematch.group(1), rematch.group(2)
+        else:
+            return None
+
+    finddict: dict[str, list] = {"u": [], "v": [], "uv": [], "p": []}
+    if not manual:
+        # find if u and v or p is in the data
+        for name in df.columns:
+            if uindata := _search(name, "u"):
+                finddict["u"].append(uindata)
+            elif vindata := _search(name, "v"):
+                finddict["v"].append(vindata)
+            elif pindata := _search(name, "p"):
+                finddict["p"].append((pindata[0], pindata[1]))
+
+        # match u and v, check for same unit
+        for u_item in finddict["u"]:
+            for v_item in finddict["v"]:
+                if u_item[1] == v_item[1]:
+                    if u_item[2] == v_item[2]:
+                        finddict["uv"].append((u_item[0], v_item[0], u_item[1]))
+                        finddict["u"].remove(u_item)
+                        finddict["v"].remove(v_item)
+                        break
+                    else:
+                        logging.warning(
+                            f"Warning: A match of u and v was found for: {u_item[0]} and {v_item[0]}, but they have different units."
+                        )
+
+    if len(finddict["u"]) != 0:
+        logging.warning(
+            "Warning: No matches where found for u: {}".format(
+                [colname[0] for colname in finddict["u"]]
+            )
+        )
+    if len(finddict["v"]) != 0:
+        logging.warning(
+            "Warning: No matches where found for v: {}".format(
+                [colname[0] for colname in finddict["v"]]
+            )
+        )
+    if len(finddict["uv"]):
+        logging.info(
+            "The following u and v where matched: {}".format(
+                [pair[0:2] for pair in finddict["uv"]]
+            )
+        )
+    if len(finddict["p"]):
+        logging.info(
+            "The following p where found: {}".format(
+                [name[0] for name in finddict["p"]]
             )
         )
 
-    return amp, pha, detid, tidal_ts
+    if manual != None and len(manual) == 2:
+        df = pd.DataFrame({"p": manual[1]}, index=pd.DatetimeIndex(manual[0]))
+        finddict["p"] = [("p", None)]
+    elif manual != None and len(manual) == 3:
+        df = pd.DataFrame(
+            {"u": manual[1], "v": manual[2]}, index=pd.DatetimeIndex(manual[0])
+        )
+        finddict["uv"] = [("u", "v", None)]
+    elif manual != None:
+        raise ValueError(
+            "It was not possible to read the manual data. Please follow the format described in the docstring."
+        )
+
+    uvdata: dict | None = None
+    pdata: dict | None = None
+    if len(finddict["uv"]):
+        uvdata = {}
+        for pair in finddict["uv"]:
+            pairdata = utide.solve(t=df.index, u=df[pair[0]], v=df[pair[1]], **args)
+            add_vari_in: list = []
+            add_vari_out: list = []
+            for add_var in add_vari:
+                if add_var in pairdata.keys():
+                    add_vari_in.append(add_var)
+                else:
+                    add_vari_out.append(add_var)
+            if len(add_vari_out):
+                logging.warning(
+                    f"Warning: {add_vari_out} couldn't be found in the data for {pname[2]}."
+                )
+            df_data: pd.DataFrame = pd.DataFrame(
+                {
+                    "major_amp": pairdata["Lsmaj"],
+                    "ci_major_amp": pairdata["Lsmaj_ci"],
+                    "minor_amp": pairdata["Lsmin"],
+                    "ci_minor_amp": pairdata["Lsmin_ci"],
+                    "inclination": pairdata["theta"],
+                    "ci_inclination": pairdata["theta_ci"],
+                    "phase [degree]": pairdata["g"],
+                    "ci_phase [degree]": pairdata["g_ci"],
+                    "snr": pairdata["SNR"],
+                    "rotation": [
+                        "CW" if val > 0 else "CCW" for val in pairdata["Lsmin"]
+                    ],
+                    "PE [%]": pairdata["PE"],
+                }
+            )
+
+            for add_var in add_vari_in:
+                if add_var in pairdata.keys:
+                    df_data[add_var] = pairdata[add_var]
+            df_data = df_data.sort_values(by=["snr", "major_amp"], ascending=False)
+            total_variability: float = np.sum(df_data["major_amp"] ** 2)
+            df_data["percent_variability"] = (
+                df_data["major_amp"] ** 2 / total_variability
+            )
+            dict_data: dict = {
+                "total_variability": total_variability,
+                "umean": pairdata["umean"],
+                "vmean": pairdata["vmean"],
+            }
+
+            if "trend" in args.keys():
+                if args["trend"]:
+                    dict_data["uslope"] = pairdata["uslope"]
+                    dict_data["vslope"] = pairdata["vslope"]
+            else:
+                dict_data["uslope"] = pairdata["uslope"]
+                dict_data["vslope"] = pairdata["vslope"]
+            if not pair[2]:
+                dic_name = "No_suffix"
+            else:
+                dic_name = pair[2]
+            if dic_name in uvdata.keys():
+                uvdata[dic_name + "_1"] = tide(
+                    df_const=df_data,
+                    single_val=dict_data,
+                    orignal=pairdata,
+                )
+                uvdata[dic_name + "_0"] = uvdata.pop(dic_name)
+            else:
+                uvdata[dic_name] = tide(
+                    df_const=df_data,
+                    single_val=dict_data,
+                    orignal=pairdata,
+                )
+        if len(uvdata) == 1:
+            uvdata = uvdata[list(uvdata)[0]]
+    if len(finddict["p"]):
+        pdata: dict = {}
+        for pname in finddict["p"]:
+            namedata = utide.solve(t=df.index, u=df[pname[0]], **args)
+            add_vari_in: list = []
+            add_vari_out: list = []
+            for add_var in add_vari:
+                if add_var in namedata.keys():
+                    add_vari_in.append(add_var)
+                else:
+                    add_vari_out.append(add_var)
+            if len(add_vari_out):
+                logging.warning(
+                    f"Warning: {add_vari_out} couldn't be found in the data for {pname[2]}."
+                )
+            df_data: pd.DataFrame = pd.DataFrame(
+                {
+                    "amplitude": namedata["A"],
+                    "ci_amplitude": namedata["A_ci"],
+                    "phase [degree]": namedata["g"],
+                    "ci_phase [degree]": namedata["g_ci"],
+                    "snr": namedata["SNR"],
+                    "PE [%]": namedata["PE"],
+                },
+                index=namedata["name"],
+            )
+            for add_var in add_vari_in:
+                df_data[add_var] = namedata[add_var]
+
+            df_data = df_data.sort_values(by=["snr", "amplitude"], ascending=False)
+            total_variability: float = np.sum(df_data["amplitude"] ** 2)
+            df_data["percent_variability"] = (
+                df_data["amplitude"] ** 2 / total_variability
+            )
+
+            dict_data: dict = {
+                "total_variability": total_variability,
+                "mean": namedata["mean"],
+            }
+            if "trend" in args.keys():
+                if args["trend"]:
+                    dict_data["slope"] = namedata["slope"]
+            else:
+                dict_data["slope"] = namedata["slope"]
+
+            if not pname[1]:
+                dic_name = "No_suffix"
+            else:
+                dic_name = pname[1]
+            if dic_name in pdata.keys():
+                pdata[dic_name + "_1"] = tide(
+                    df_const=df_data,
+                    single_val=dict_data,
+                    orignal=namedata,
+                )
+                pdata[dic_name + "_0"] = pdata.pop(dic_name)
+            else:
+                pdata[dic_name] = tide(
+                    df_const=df_data,
+                    single_val=dict_data,
+                    orignal=namedata,
+                )
+        if len(pdata) == 1:
+            pdata = pdata[list(pdata)[0]]
+
+    if not (uvdata or pdata):
+        raise ValueError(
+            f"No data found in 'data'. Make sure it contains either 'u' and 'v' or 'p'. It doesn't matter if there is a sufix (_asd) or a unit ([...]) behind."
+        )
+    if uvdata and pdata:
+        return uvdata, pdata
+    if pdata:
+        return pdata
+    if uvdata:
+        return uvdata
+
+
+def tidal_reconstruct(
+    data: tide, t: Any = None, min_SNR: int = 2, min_PE: int = 0, **args
+) -> tide:
+    """Reconstructs the tidal signal from a tide object.
+
+    Args:
+        data (tide): Tide object containing the tidal constituents.
+        t (array_like, optional): Time index for the reconstruction. Defaults to None.
+            - If None, uses the time index from the tide object.
+        min_SNR (int, optional): Minimum signal-to-noise ratio to consider a constituent. Defaults to 2.
+        min_PE (int, optional): Minimum percentage of energy to consider a constituent. Defaults to 0.
+        **args: Additional arguments passed to `utide.reconstruct`.
+
+    Returns:
+        tide: Tide object with the reconstructed tidal signal.
+    """
+
+    if not isinstance(data, tide):
+        raise TypeError(f"'data' should be a tide object, not a {type(data).__name__}.")
+    if not "utide" in vars(data).keys():
+        raise ValueError(
+            f"Run a tidal harmonic analysis on 'data', by eiter running tidal_harmonic_analysis() or create a tide object with the necessary data."
+        )
+    temp_data: tide = copy.deepcopy(data)
+
+    if t is not None:
+        if not isinstance(t, pd.DatetimeIndex):
+            raise TypeError(
+                f"'t' should be a pandas DatetimeIndex, not a {type(t).__name__}."
+            )
+        temp_data.t = t
+
+    if not isinstance(min_SNR, int):
+        raise TypeError(f"'min_SNR' should be an int, not a {type(min_SNR).__name__}.")
+
+    if not isinstance(min_PE, int):
+        raise TypeError(f"'min_PE' should be an int, not a {type(min_PE).__name__}.")
+
+    temp_data.recon_utide = utide.reconstruct(
+        temp_data.t, temp_data.utide, min_SNR=min_SNR, min_PE=min_PE, **args
+    )
+
+    if "h" in temp_data.recon_utide.keys():
+        temp_df = pd.DataFrame(
+            {
+                "p": temp_data.recon_utide.h,
+                "p_atide": temp_data.recon_utide.h - temp_data.single_values["mean"],
+                "p_detide": temp_data.p
+                - temp_data.recon_utide.h
+                + temp_data.single_values["mean"],
+            },
+            index=temp_data.recon.t_in,
+        )
+        temp_data.recon = temp_df
+    elif "u" in temp_data.recon_utide.keys() and "v" in temp_data.recon_utide.keys():
+        temp_df = pd.DataFrame(
+            {
+                "u": temp_data.recon_utide.u,
+                "v": temp_data.recon_utide.v,
+                "u_atide": temp_data.recon_utide.u - temp_data.single_values["umean"],
+                "v_atide": temp_data.recon_utide.v - temp_data.single_values["vmean"],
+                "u_detide": temp_data.u
+                - temp_data.recon_utide.u
+                + temp_data.single_values["umean"],
+                "v_detide": temp_data.v
+                - temp_data.recon_utide.v
+                + temp_data.single_values["vmean"],
+            },
+            index=temp_data.recon_utide.t_in,
+        )
+        temp_data.recon = temp_df
+    else:
+        logging.warning(
+            "Warning: Could not reconstruct the data. Check tide.recon_utide for more information."
+        )
+
+    return temp_data
 
 
 ############################################################################
@@ -4373,14 +5110,15 @@ def plot_tidal_spectrum(data, constituents=["M2"]):
         fig, ax : Handles of the created figure.
     """
 
-    tidal_freqs = np.array([uptide.tidal.omega[c] for c in constituents])
+    omega_dict = dict(zip(utide.ut_constants.const.name, utide.ut_constants.const.freq))
+    tidal_freqs = np.array([omega_dict[c] for c in constituents])
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     data.plot(ax=ax, color="b", zorder=10)
     ax.grid()
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xticks((24.0 * 3600.0) / ((2.0 * np.pi) / tidal_freqs))
+    ax.set_xticks(24 * tidal_freqs)
     ax.set_xticklabels(constituents)
     ax.minorticks_off()
     ax.set_xlim(right=data.index[-1])

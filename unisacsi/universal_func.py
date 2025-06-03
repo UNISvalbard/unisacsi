@@ -28,8 +28,8 @@ rename_dict: dict[str, list[str]] = {
     "S": ["Salinity", "salinity"],
     "SIGTH": ["density_anomaly"],
     "C": ["conductivity"],
-    "U": ["eastward", "East"],
-    "V": ["northward"],
+    "u": ["eastward", "East"],
+    "v": ["northward", "North"],
 }
 
 unit_rename_dict: dict[str, list[str]] = {
