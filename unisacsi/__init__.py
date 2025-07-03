@@ -32,7 +32,6 @@ from .Ocean import (
     calc_freshwater_content,
     myloadmat,
     mat2py_time,
-    present_dict,
     ctd_identify_water_masses,
     read_ADCP_CODAS,
     split_CODAS_resolution,
@@ -49,6 +48,7 @@ from .Ocean import (
     read_Thermosalinograph,
     download_tidal_model,
     detide_VMADCP,
+    tide,
     calculate_tidal_spectrum,
     tidal_harmonic_analysis,
     contour_section,
@@ -63,6 +63,8 @@ from .Ocean import (
     check_VM_ADCP_map,
     plot_tidal_spectrum,
     plot_map_tidal_ellipses,
+    portasal,
+    play_tone,
 )
 
 from .MET_model_download import (
@@ -71,4 +73,4 @@ from .MET_model_download import (
     MET_model_download_class,
 )
 
-from .universal_func import std_names, progress_bar
+from .universal_func import std_names, progress_bar, present_dict

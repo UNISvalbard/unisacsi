@@ -14,6 +14,7 @@ in student cruises at UNIS.
 from __future__ import print_function, annotations
 from _collections_abc import dict_keys
 
+import matplotlib.axes
 from numpy._typing._array_like import NDArray
 
 # from .
@@ -67,6 +68,8 @@ import sounddevice as sd
 from collections import Counter
 from itertools import chain
 import copy
+
+import ephem as eph
 
 
 ############################################################################
@@ -164,11 +167,11 @@ def cart2pol(
             - Speed of polar velocity.
     """
 
-    if not (pd.api.types.is_array_like(u) or isinstance(u, num.Real)):
+    if not (pd.api.types.is_list_like(u) or isinstance(u, num.Real)):
         raise TypeError(
             f"'u' should be numeric or array_like, not a {type(u).__name__}."
         )
-    if not (pd.api.types.is_array_like(v) or isinstance(v, num.Real)):
+    if not (pd.api.types.is_list_like(v) or isinstance(v, num.Real)):
         raise TypeError(
             f"'u' should be numeric or array_like, not a {type(v).__name__}."
         )
@@ -206,11 +209,11 @@ def pol2cart(
             - v-component of velocity.
     """
 
-    if not (pd.api.types.is_array_like(angle) or isinstance(angle, num.Real)):
+    if not (pd.api.types.is_list_like(angle) or isinstance(angle, num.Real)):
         raise TypeError(
             f"'u' should be numeric or array_like, not a {type(angle).__name__}."
         )
-    if not (pd.api.types.is_array_like(speed) or isinstance(speed, num.Real)):
+    if not (pd.api.types.is_list_like(speed) or isinstance(speed, num.Real)):
         raise TypeError(
             f"'u' should be numeric or array_like, not a {type(speed).__name__}."
         )
@@ -559,7 +562,7 @@ def CTD_to_xarray(
     ds["SIGTH"].attrs["long_name"] = "Density (sigma-theta)"
     ds["OX"].attrs["long_name"] = "Oxygen"
 
-    ds.attrs = {"source": "mooring_into_xarry"}
+    ds.attrs = {"source": "CTD_to_xarray"}
 
     return ds
 
@@ -649,7 +652,7 @@ def section_to_xarray(
         )
 
 
-def mooring_into_xarray(
+def mooring_to_xarray(
     dict_of_instr: dict[pd.DataFrame],
     transfer_vars: list[str] = ["T", "S", "SIGTH", "U", "V", "OX", "P"],
 ) -> xr.Dataset:
@@ -741,7 +744,7 @@ def mooring_into_xarray(
         )
 
     ds: xr.Dataset = xr.merge(list_da)
-    ds.attrs = {"source": "mooring_into_xarry"}
+    ds.attrs = {"source": "mooring_to_xarry"}
 
     return ds
 
@@ -1188,7 +1191,7 @@ def create_water_mass_DataFrame(
 
 
 def ctd_identify_water_masses(
-    CTD: dict, water_mass_def: pd.DataFrame, stations: list = None
+    CTD: dict, water_mass_def: pd.DataFrame, stations: npt.ArrayLike = None
 ) -> dict[dict]:
     """Function to assign each ctd measurement tuple of T and S the corresponding water mass (AW, TAW, LW etc.).
 
@@ -1901,7 +1904,7 @@ def read_CTD(
         if not os.path.isdir(outpath):
             raise ValueError(f"Invalid input: '{outpath}'. Expected valid folder name.")
 
-    if not pd.api.types.is_array_like(stations) and stations != None:
+    if not pd.api.types.is_list_like(stations) and stations != None:
         raise TypeError(
             f"'stations' should be a array_like, not a {type(stations).__name__}."
         )
@@ -2296,6 +2299,7 @@ def read_mooring(filepath: str, normal_dict: bool = True) -> dict:
     The data is converted into a dictionary with the depth as key and the
     data as value. The data is a pandas dataframe with the time as index
     and the variables as columns.
+    Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to the .npy or .mat file.
@@ -2494,6 +2498,7 @@ def read_mooring(filepath: str, normal_dict: bool = True) -> dict:
 
 def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
     """Reads data from one data file from a Seaguard.
+    Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to the .txt file.
@@ -2603,6 +2608,7 @@ def read_Minilog(filepath: str) -> pd.DataFrame:
 
 def read_SBE37(filepath: str) -> pd.DataFrame:
     """Reads data from one data file from a SBE37 Microcat sensor.
+    Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to the .cnv file.
@@ -2668,6 +2674,7 @@ def read_SBE37(filepath: str) -> pd.DataFrame:
 
 def read_SBE26(filepath: str) -> pd.DataFrame:
     """Reads data from one data file from a SBE26 sensor.
+    Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to the .tid file.
@@ -2686,7 +2693,7 @@ def read_SBE26(filepath: str) -> pd.DataFrame:
         raise FileNotFoundError(f"File not found: {filepath}.")
 
     df: pd.DataFrame = pd.read_csv(
-        filepath, sep="\s+", header=None, names=["RECORD", "date", "time", "P", "T"]
+        filepath, sep=r"\s+", header=None, names=["RECORD", "date", "time", "P", "T"]
     )
     df["TIMESTAMP"] = pd.to_datetime(
         df["date"] + " " + df["time"], format="%m/%d/%Y %H:%M:%S"
@@ -2703,6 +2710,7 @@ def read_SBE26(filepath: str) -> pd.DataFrame:
 
 def read_RBR(filepath: str) -> pd.DataFrame:
     """Reads data from a .rsk data file from a RBR logger (concerto, solo, ...).
+    Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to the .rsk file.
@@ -2753,6 +2761,7 @@ def read_Thermosalinograph(
     filepath: str, use_system_time: bool = False
 ) -> pd.DataFrame:
     """Reads data from one data file from the Helmer Hanssen thermosalinograph.
+    Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to one or more .cnv file(s).
@@ -2849,6 +2858,51 @@ def read_Thermosalinograph(
     df_total = uf.std_names(df_total, add_units=True, module="o")
 
     return df_total
+
+
+def read_RCM7(filepath: str) -> pd.DataFrame:
+    """Reads data from one data file from a RCM7 current meter.
+    Standard variable names and convention are used (e.g. p [dbar], S []).
+
+    Args:
+        filepath (str): Path to the .lst file.
+
+    Returns:
+        pd.DataFrame: Dataframe with time as index and the individual variables as columns.
+    """
+    if not isinstance(filepath, str):
+        raise TypeError(
+            f"'filepath' should be a string, not a {type(filepath).__name__}."
+        )
+    if not filepath.endswith(".lst"):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .lst file.")
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}.")
+
+    df = pd.read_csv(filepath, header=1, sep=r"\s+", skip_blank_lines=True)
+    if all(col in df.columns for col in ["%Y", "MM", "DD", "hh", "mm"]):
+        df["TIMESTAMP"] = pd.to_datetime(
+            df["%Y"].astype(str)
+            + "-"
+            + df["MM"].astype(str).str.zfill(2)
+            + "-"
+            + df["DD"].astype(str).str.zfill(2)
+            + " "
+            + df["hh"].astype(str).str.zfill(2)
+            + ":"
+            + df["mm"].astype(str).str.zfill(2),
+            format="%y-%m-%d %H:%M",
+        )
+        df.set_index("TIMESTAMP", inplace=True)
+        df.drop(columns=["%Y", "MM", "DD", "hh", "mm"], inplace=True)
+    df.sort_index(inplace=True)
+    df.rename(
+        columns={"U": "u [m/s]", "V": "v [m/s]"}, inplace=True
+    )  # needs to be checked
+
+    df = uf.std_names(df, add_units=True, module="o")
+
+    return df
 
 
 ############################################################################
@@ -3153,9 +3207,9 @@ def get_tidal_uvh(
 class tide:
     @overload
     def __init__(
-        t: Any,
-        u: Any,
-        v: Any,
+        t: npt.ArrayLike,
+        u: npt.ArrayLike,
+        v: npt.ArrayLike,
         lat: float,
         constituents: str | list[str] = "auto",
         add_vari: list[str] = None,
@@ -3164,8 +3218,8 @@ class tide:
 
     @overload
     def __init__(
-        t: Any,
-        p: Any,
+        t: npt.ArrayLike,
+        p: npt.ArrayLike,
         lat: float,
         constituents: str | list[str] = "auto",
         add_vari: list[str] = None,
@@ -3233,11 +3287,11 @@ class tide:
         orignal_ex: bool = False
         if t is not None:
             t_ex: bool = True
-            if not pd.api.types.is_array_like(t):
+            if not pd.api.types.is_list_like(t):
                 raise TypeError(f"'t' should be array_like, not a {type(t).__name__}.")
         if p is not None:
             p_ex: bool = True
-            if not pd.api.types.is_array_like(p):
+            if not pd.api.types.is_list_like(p):
                 raise TypeError(f"'p' should be array_like, not a {type(p).__name__}")
             if len(p) != len(t):
                 raise ValueError(
@@ -3245,13 +3299,13 @@ class tide:
                 )
         if u is not None and v is not None:
             uv_ex: bool = True
-            if not pd.api.types.is_array_like(u):
+            if not pd.api.types.is_list_like(u):
                 raise TypeError(f"'u' should be array_like, not a {type(u).__name__}")
             if len(u) != len(t):
                 raise ValueError(
                     f"'u' should have the same length as 't', not ({len(u)},{len(t)})."
                 )
-            if not pd.api.types.is_array_like(u):
+            if not pd.api.types.is_list_like(u):
                 raise TypeError(f"'u' should be array_like, not a {type(u).__name__}")
             if len(v) != len(t):
                 raise ValueError(
@@ -3296,10 +3350,11 @@ class tide:
         if t_ex and p_ex and lat_ex:
             found = True
             args["manual"] = (t, p)
-            self.p: Any = p
+            self.p: npt.ArrayLike = p
             tha: dict = tidal_harmonic_analysis(
                 df=None, lat=lat, constituents=constituents, add_vari=add_vari, **args
             )
+            self.lat: float = lat
         elif t_ex and uv_ex and lat_ex:
             if found:
                 logging.warning(
@@ -3307,8 +3362,8 @@ class tide:
                 )
             found = True
             args["manual"] = (t, u, v)
-            self.u: Any = u
-            self.v: Any = v
+            self.u: npt.ArrayLike = u
+            self.v: npt.ArrayLike = v
             tha = tidal_harmonic_analysis(
                 df=None, lat=lat, constituents=constituents, add_vari=add_vari, **args
             )
@@ -3424,10 +3479,10 @@ class tide:
 
     def add_data(
         self,
-        t: Any = None,
+        t: npt.ArrayLike = None,
         p: Any = None,
-        u: Any = None,
-        v: Any = None,
+        u: npt.ArrayLike = None,
+        v: npt.ArrayLike = None,
     ) -> None:
         """Method to add data to the tide object after initialization.
         If the object was initialized with data, this will overwrite the existing data.
@@ -3508,7 +3563,7 @@ class tide:
                 - Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing).
 
         Returns:
-            pd.Series: Series with the spectral data, the index is specifying the frequency.
+            pd.Series: Series with the spectral data, the index is specifying the frequency per day.
         """
         if p is None:
             if "p" in vars(self).keys():
@@ -3526,12 +3581,16 @@ class tide:
             raise TypeError(
                 f"'bandwidth' should be an int, not a {type(bandwidth).__name__}."
             )
-        self.spectrum: pd.Series = calculate_tidal_spectrum(p)
+        self.spectrum: pd.Series = calculate_tidal_spectrum(p, bandwidth=bandwidth)
 
         return self.spectrum
 
     def reconstruct(
-        self, t: Any = None, constituents: list[str] = None, **args
+        self,
+        t: npt.ArrayLike = None,
+        constituents: list[str] = None,
+        exclude_constituents: list[str] = None,
+        **args,
     ) -> pd.DataFrame:
         """Reconstructs the tidal signal for a given time index using the utide package.
 
@@ -3540,6 +3599,8 @@ class tide:
                 - If None, uses the time index from the object.
             constituents (list[str], optional): List of standard letter abbreviations of tidal constituents to reconstruct. Defaults to None.
                 - If None, uses all constituents from the utide tidalharmonicanalysis.
+            exclude_constituents (list[str], optional): List of constituents to exclude from the reconstruction. Defaults to None.
+                - If provided, constituents will be excluded from the reconstruction.
             **args: Additional keyword arguments passed to `utide.reconstruct`.
 
         Returns:
@@ -3552,8 +3613,13 @@ class tide:
                 raise ValueError(
                     "No time index was passed to the object. Please pass 't' as a parameter or set 'self.t' before calling this method."
                 )
-        if not pd.api.types.is_array_like(t):
+        if not pd.api.types.is_list_like(t):
             raise TypeError(f"'t' should be a array_like, not a {type(t).__name__}.")
+
+        if not hasattr(self, "constituents"):
+            raise AttributeError(
+                "The tide object does not have tidal constituents. Please perform a tidal harmonic analysis first."
+            )
         if constituents is not None:
             if not isinstance(constituents, list):
                 raise TypeError(
@@ -3564,13 +3630,238 @@ class tide:
                     raise TypeError(
                         f"Each element in 'constituents' should be a string, not a {type(i).__name__}."
                     )
+        if exclude_constituents is not None:
+            if constituents is not None:
+                logging.warning(
+                    "Warning: Both 'constituents' and 'exclude_constituents' were passed. 'exclude_constituents' will be ignored."
+                )
+            else:
+                if not isinstance(exclude_constituents, list):
+                    raise TypeError(
+                        f"'exclude_constituents' should be a list of strings, not a {type(exclude_constituents).__name__}."
+                    )
+                for i in exclude_constituents:
+                    if not isinstance(i, str):
+                        raise TypeError(
+                            f"Each element in 'exclude_constituents' should be a string, not a {type(i).__name__}."
+                        )
+                constituents = [
+                    c for c in self.constituents.index if c not in exclude_constituents
+                ]
+        if constituents is None:
+            constituents = list(self.constituents.index)
 
-        temp_data: tide = utide.reconstruct(t, self.utide, constit=constituents, **args)
+        temp_data: tide = tidal_reconstruct(self, t=t, constit=constituents, **args)
 
         self.recon: pd.DataFrame = temp_data.recon
         self.recon_utide: dict = temp_data.recon_utide
 
         return self.recon
+
+    def plot_spectrum(
+        self, constituents: list[str] = None, exclude_constituents: list[str] = None
+    ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
+        """Plots the tidal spectrum of the tide object.
+
+        Args:
+            constituents (list[str], optional): List of tidal constituents to plot. Defaults to None.
+                - If None, plots all constituents from the spectrum.
+
+        Returns:
+            tuple[plt.Figure, matplotlib.axes.Axes]:
+                - The figure of the plot.
+                - The axes of the plot.
+        """
+        if not hasattr(self, "spectrum"):
+            self.calc_spectrum()
+        if constituents is not None:
+            if not isinstance(constituents, list):
+                raise TypeError(
+                    f"'constituents' should be a list of strings, not a {type(constituents).__name__}."
+                )
+            for i in constituents:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Each element in 'constituents' should be a string, not a {type(i).__name__}."
+                    )
+        if exclude_constituents is not None:
+            if constituents is not None:
+                logging.warning(
+                    "Warning: 'constituents' and 'exclude_constituents' were both passed. 'exclude_constituents' will be ignored."
+                )
+            elif not isinstance(exclude_constituents, list):
+                raise TypeError(
+                    f"'exclude_constituents' should be a list of strings, not a {type(exclude_constituents).__name__}."
+                )
+            else:
+                for i in exclude_constituents:
+                    if not isinstance(i, str):
+                        raise TypeError(
+                            f"Each element in 'exclude_constituents' should be a string, not a {type(i).__name__}."
+                        )
+            constituents = [
+                c for c in self.constituents.index if c not in exclude_constituents
+            ]
+        if constituents is None and exclude_constituents is None:
+            constituents = self.constituents.index
+
+        fig, ax = plot_tidal_spectrum(self.spectrum, constituents=constituents)
+
+        return fig, ax
+
+    def plot_map_tidal_ellipses(
+        self,
+        constituents: list[str] = None,
+        exclude_constituents: list[str] = None,
+        lat_center: num.Number = 78.122,
+        lon_center: num.Number = 14.26,
+        map_extent: list = [11.0, 16.0, 78.0, 78.3],
+        topography: str = None,
+    ) -> tuple[plt.Figure, matplotlib.axes.Axes, Any]:
+        """Plots tidal ellipses for selected constituents on a map.
+
+        Args:
+            constituents (list[str], optional): List of tidal constituents to plot. Defaults to None (all).
+            exclude_constituents (list[str], optional): List of constituents to exclude. Defaults to None.
+            lat_center (float, optional): Center latitude for ellipses. Defaults to 78.122.
+            lon_center (float, optional): Center longitude for ellipses. Defaults to 14.26.
+            map_extent (list, optional): [lon_min, lon_max, lat_min, lat_max]. Defaults to [11.0, 16.0, 78.0, 78.3].
+            topography (str, optional): Path or array for bathymetry. Defaults to None.
+
+        Returns:
+            tuple[plt.Figure, matplotlib.axes.Axes, Any]:
+                - Figure object.
+                - Map axes.
+                - Ellipse inset axes.
+        """
+        if not hasattr(self, "constituents"):
+            raise AttributeError(
+                "The tide object does not have tidal constituents. Please perform a tidal harmonic analysis first."
+            )
+        if constituents is not None:
+            if not isinstance(constituents, list):
+                raise TypeError(
+                    f"'constituents' should be a list of strings, not a {type(constituents).__name__}."
+                )
+            for i in constituents:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Each element in 'constituents' should be a string, not a {type(i).__name__}."
+                    )
+        if exclude_constituents is not None:
+            if constituents is not None:
+                logging.warning(
+                    "Warning: Both 'constituents' and 'exclude_constituents' were passed. 'exclude_constituents' will be ignored."
+                )
+            else:
+                if not isinstance(exclude_constituents, list):
+                    raise TypeError(
+                        f"'exclude_constituents' should be a list of strings, not a {type(exclude_constituents).__name__}."
+                    )
+                for i in exclude_constituents:
+                    if not isinstance(i, str):
+                        raise TypeError(
+                            f"Each element in 'exclude_constituents' should be a string, not a {type(i).__name__}."
+                        )
+                constituents = [
+                    c for c in self.constituents.index if c not in exclude_constituents
+                ]
+        if constituents is None:
+            constituents = list(self.constituents.index)
+
+        amp_major = [self.constituents["amp_major"][c] for c in constituents]
+        amp_minor = [self.constituents["amp_minor"][c] for c in constituents]
+        inclin = [self.constituents["inclination [deg]"][c] for c in constituents]
+
+        if not isinstance(lat_center, num.Number):
+            raise TypeError(
+                f"'lat_center' should be a number, not a {type(lat_center).__name__}."
+            )
+        if not isinstance(lon_center, num.Number):
+            raise TypeError(
+                f"'lon_center' should be a number, not a {type(lon_center).__name__}."
+            )
+
+        fig, ax, ax_ellipse = plot_map_tidal_ellipses(
+            amp_major,
+            amp_minor,
+            inclin,
+            constituents,
+            lat_center,
+            lon_center,
+            map_extent,
+            topography,
+        )
+        return fig, ax, ax_ellipse
+
+    def plot_tidal_ellipses(
+        self,
+        constituents: list[str] = None,
+        exclude_constituents: list[str] = None,
+        multiple_plots: bool = False,
+        n_row_col: tuple[int, int] = None,
+    ) -> tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
+        """
+        Plots tidal ellipses for selected constituents.
+
+        Args:
+            constituents (list[str], optional): List of tidal constituents to plot. Defaults to all.
+            exclude_constituents (list[str], optional): List of constituents to exclude. Defaults to None.
+            multiple_plots (bool, optional): If True, plot each constituent in a separate subplot. Defaults to False.
+            n_row_col (tuple[int, int], optional): Tuple specifying (nrows, ncols) for subplots. If None, tries to guess. Defaults to None.
+
+        Returns:
+            tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
+                - Figure object.
+                - Axes object(s).
+        """
+        if not hasattr(self, "constituents"):
+            raise AttributeError(
+                "The tide object does not have tidal constituents. Please perform a tidal harmonic analysis first."
+            )
+        if constituents is not None:
+            if not isinstance(constituents, list):
+                raise TypeError(
+                    f"'constituents' should be a list of strings, not a {type(constituents).__name__}."
+                )
+            for i in constituents:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Each element in 'constituents' should be a string, not a {type(i).__name__}."
+                    )
+        if exclude_constituents is not None:
+            if constituents is not None:
+                logging.warning(
+                    "Warning: Both 'constituents' and 'exclude_constituents' were passed. 'exclude_constituents' will be ignored."
+                )
+            else:
+                if not isinstance(exclude_constituents, list):
+                    raise TypeError(
+                        f"'exclude_constituents' should be a list of strings, not a {type(exclude_constituents).__name__}."
+                    )
+                for i in exclude_constituents:
+                    if not isinstance(i, str):
+                        raise TypeError(
+                            f"Each element in 'exclude_constituents' should be a string, not a {type(i).__name__}."
+                        )
+                constituents = [
+                    c for c in self.constituents.index if c not in exclude_constituents
+                ]
+        if constituents is None:
+            constituents = list(self.constituents.index)
+
+        amp_major = [self.constituents["amp_major"][c] for c in constituents]
+        amp_minor = [self.constituents["amp_minor"][c] for c in constituents]
+        inclin = [self.constituents["inclination [deg]"][c] for c in constituents]
+
+        return plot_tidal_ellipses(
+            amp_major,
+            amp_minor,
+            inclin,
+            constituents,
+            muliple_plots=multiple_plots,
+            n_row_col=n_row_col,
+        )
 
 
 def calculate_tidal_spectrum(data: pd.Series, bandwidth: int = 8) -> pd.Series:
@@ -3584,7 +3875,7 @@ def calculate_tidal_spectrum(data: pd.Series, bandwidth: int = 8) -> pd.Series:
             - Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing).
 
     Returns:
-        pd.Series: Series with the spectral data, the index is specifying the frequency.
+        pd.Series: Series with the spectral data, the index is specifying the frequency per day.
     """
     if not isinstance(data, pd.Series):
         raise TypeError(
@@ -3783,29 +4074,30 @@ def tidal_harmonic_analysis(
                 )
             df_data: pd.DataFrame = pd.DataFrame(
                 {
-                    "major_amp": pairdata["Lsmaj"],
-                    "ci_major_amp": pairdata["Lsmaj_ci"],
-                    "minor_amp": pairdata["Lsmin"],
-                    "ci_minor_amp": pairdata["Lsmin_ci"],
-                    "inclination": pairdata["theta"],
-                    "ci_inclination": pairdata["theta_ci"],
-                    "phase [degree]": pairdata["g"],
-                    "ci_phase [degree]": pairdata["g_ci"],
+                    "amp_major": pairdata["Lsmaj"],
+                    "amp_major_ci": pairdata["Lsmaj_ci"],
+                    "amp_minor": pairdata["Lsmin"],
+                    "amp_minor_ci": pairdata["Lsmin_ci"],
+                    "inclination [deg]": pairdata["theta"],
+                    "inclination_ci [deg]": pairdata["theta_ci"],
+                    "phase [deg]": pairdata["g"],
+                    "phase_ci [deg]": pairdata["g_ci"],
                     "snr": pairdata["SNR"],
                     "rotation": [
                         "CW" if val > 0 else "CCW" for val in pairdata["Lsmin"]
                     ],
                     "PE [%]": pairdata["PE"],
-                }
+                },
+                index=pairdata["name"],
             )
 
             for add_var in add_vari_in:
                 if add_var in pairdata.keys:
                     df_data[add_var] = pairdata[add_var]
-            df_data = df_data.sort_values(by=["snr", "major_amp"], ascending=False)
-            total_variability: float = np.sum(df_data["major_amp"] ** 2)
+            df_data = df_data.sort_values(by=["snr", "amp_major"], ascending=False)
+            total_variability: float = np.sum(df_data["amp_major"] ** 2)
             df_data["percent_variability"] = (
-                df_data["major_amp"] ** 2 / total_variability
+                df_data["amp_major"] ** 2 / total_variability
             )
             dict_data: dict = {
                 "total_variability": total_variability,
@@ -3857,9 +4149,9 @@ def tidal_harmonic_analysis(
             df_data: pd.DataFrame = pd.DataFrame(
                 {
                     "amplitude": namedata["A"],
-                    "ci_amplitude": namedata["A_ci"],
-                    "phase [degree]": namedata["g"],
-                    "ci_phase [degree]": namedata["g_ci"],
+                    "amplitude_ci": namedata["A_ci"],
+                    "phase [deg]": namedata["g"],
+                    "phase_ci [deg]": namedata["g_ci"],
                     "snr": namedata["SNR"],
                     "PE [%]": namedata["PE"],
                 },
@@ -3917,7 +4209,7 @@ def tidal_harmonic_analysis(
 
 
 def tidal_reconstruct(
-    data: tide, t: Any = None, min_SNR: int = 2, min_PE: int = 0, **args
+    data: tide, t: npt.ArrayLike = None, min_SNR: int = 2, min_PE: int = 0, **args
 ) -> tide:
     """Reconstructs the tidal signal from a tide object.
 
@@ -3967,7 +4259,7 @@ def tidal_reconstruct(
                 - temp_data.recon_utide.h
                 + temp_data.single_values["mean"],
             },
-            index=temp_data.recon.t_in,
+            index=temp_data.recon_utide.t_in,
         )
         temp_data.recon = temp_df
     elif "u" in temp_data.recon_utide.keys() and "v" in temp_data.recon_utide.keys():
@@ -4001,81 +4293,148 @@ def tidal_reconstruct(
 
 
 def contour_section(
-    X,
-    Y,
-    Z,
-    Z2=None,
-    ax=None,
-    station_pos=None,
-    cmap="jet",
-    Z2_contours=None,
-    clabel="",
-    bottom_depth=None,
-    clevels=20,
-    station_text="",
-    interp_opt=1,
-    tlocator=None,
-    cbar=True,
-):
-    """
-    Plots a filled contour plot of *Z*, with contour lines of *Z2* on top to
+    X: npt.ArrayLike,
+    Y: npt.ArrayLike,
+    Z: npt.ArrayLike,
+    Z2: npt.ArrayLike = None,
+    ax: Any = None,
+    station_pos: npt.ArrayLike = None,
+    station_text: str | npt.ArrayLike = None,
+    cmap: str | npt.ArrayLike = "jet",
+    Z2_contours: int | npt.ArrayLike = None,
+    clabel: str = "",
+    bottom_depth: npt.ArrayLike = None,
+    clevels: int | npt.ArrayLike = 20,
+    interp_opt: int = 1,
+    tlocator: Any = None,
+    cbar: bool = True,
+) -> tuple[matplotlib.axes.Axes, Any, Any | None]:
+    """Plots a filled contour plot of *Z*, with contour lines of *Z2* on top to
     the axes *ax*. It also displays the position of stations, if given in
     *station_pos*, adds labels to the contours of Z2, given in
     *Z2_contours*. If no labels are given, it assumes Z2 is density (sigma0)
     and adds its own labels. It adds bottom topography if given in *bottom_depth*.
 
-    Parameters
-    ----------
-    X : (N,K) array_like
-        X-values.
-    Y : (N,K) array_like
-        Y-values.
-    Z : (N,K) array_like
-        the filled contour field.
-    Z2 : (N,K) array_like, optional
-        the contour field on top. The default is None.
-    ax : plot axes, optional
-        axes object to plot on. The default is the current axes.
-    station_pos : (S,) array_like, optional
-        the station positions. The default is None (all stations are plotted).
-    cmap : str or array_like, optional
-        the colormap for the filled contours. The default is 'jet'.
-    Z2_contours : array_like, optional
-        the contour label positions for `Z2`str. The default is None.
-    clabel : str, optional
-        label to put on the colorbar. The default is ''.
-    bottom_depth : (S,) array_like, optional
-        list with bottom depth. The default is None.
-    clevels : array_like or number, optional
-        list of color levels, or number of levels to use for `Z`.
-        The default is 20.
-    station_text : str, optional
-        Name to label the station locations. Can be the Section Name for
-        instance. The default is ''.
-    interp_opt: int, optional
-        Indicator which is used to decide whether to use pcolormesh or contourf
-    tlocator: matplotlib.ticker locators, optional
-        special locator for the colorbar. For example logarithmic values,
-        for that use matplotlib.ticker.LogLocator(). Default is None.
+    Args:
+        X (array_like): (N,) X-values.
+        Y (array_like): (K,) Y-values.
+        Z (array_like): (K,N) The filled contour field.
+        Z2 (array_like, optional): (K,N) The contour field on top. Defaults to None.
+        ax (plot axes, optional): Axes object to plot on.. Defaults to current axes.
+        station_pos (array_like, optional): (S,) The station positions. Defaults to None.
+            - Places a arrow at the position of the station.
+        station_text (str or array_like, optional): Name to label the station locations or plot. Defaults to None.
+            - If a string is given, it will be used as the label for the plot.
+            - If an array_like is given, it will be used as the label for each station.
+        cmap (str or array_like, optional): The colormap for the filled contours. Defaults to "jet".
+        Z2_contours (int or array_like, optional): The contour label positions for `Z2` or amount. Defaults to None.
+        clabel (str, optional): Label to put on the colorbar. Defaults to "".
+        bottom_depth (array_like, optional): (S,) List with bottom depth. Defaults to None.
+        clevels (int or array_like, optional): List of color levels or number of levels to use for `Z`. Defaults to 20.
+        interp_opt (int, optional): Indicator which is used to decide whether to use pcolormesh or contourf.  Defaults to 1.
+            - 0: only z-interpolation, use pcolormesh
+            - 1: full interpolation, use contourf.
+        tlocator (matplotlib.ticker locators, optional): Special locator for the colorbar. Defaults to None.
+            - Example: logarithmic locator (use `matplotlib.ticker.LogLocator`).
+        cbar (bool, optional): If the colorbar is displayed. Defaults to True.
 
-    Returns
-    -------
-    ax : plot axes
-        The axes of the plot.
+    Returns:
+        tuple[Any, Any, Any | None]:
+            - plot axes: The axes object with the filled contour plot.
+            - contour lines: The contour lines of Z.
+            - colorbar: The colorbar object from Z2, if displayed, otherwise None.
     """
+
+    if not pd.api.types.is_list_like(X):
+        raise TypeError(f"'X' should be array_like, not a {type(X).__name__}.")
+    if not pd.api.types.is_list_like(Y):
+        raise TypeError(f"'Y' should be array_like, not a {type(Y).__name__}.")
+
+    if not pd.api.types.is_list_like(Z):
+        raise TypeError(f"'Z' should be array_like, not a {type(Z).__name__}.")
+    if not (len(Y), len(X)) == np.shape(Z):
+        raise ValueError(
+            f"('X', 'Y') should have the same shape as 'Z', not ({len(X),len(Y)} and {np.shape(Z)}."
+        )
+    if not pd.api.types.is_list_like(Z2) and Z2 is not None:
+        raise TypeError(f"'Z2' should be array_like, not a {type(Z2).__name__}.")
+    if Z2 is not None and not (len(Y), len(X)) == np.shape(Z2):
+        raise ValueError(
+            f"('X', 'Y') should have the same shape as Z2, not ({len(X),len(Y)} and {np.shape(Z2)}."
+        )
+
     # open new figure and get current axes, if none is provided
+    if not isinstance(ax, plt.Axes):
+        if ax is not None:
+            raise TypeError(
+                f"'ax' should be a matplotlib Axes object, not a {type(ax).__name__}."
+            )
     if ax is None:
-        ax = plt.gca()
+        ax: plt.Axes = plt.gca()
+
+    if not pd.api.types.is_list_like(station_pos) and station_pos is not None:
+        raise TypeError(
+            f"'station_pos' should be array_like, not a {type(station_pos).__name__}."
+        )
+    if station_text is not None:
+        if station_pos is None:
+            logging.warning(
+                "Warning: 'station_text' is given, but 'station_pos' is None. No station positions will be plotted."
+            )
+        elif pd.api.types.is_list_like(station_text):
+            for i in station_text:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Elements of 'station_text' should be strings, not a {type(i).__name__}."
+                    )
+            if len(station_text) == 1:
+                station_text = station_text[0]
+            elif len(station_text) != len(station_pos):
+                raise ValueError(
+                    f"'station_text' should have the same length as 'station_pos', not {len(station_text)} and {len(station_pos)}."
+                )
+        elif not isinstance(station_text, str):
+            raise TypeError(
+                f"'station_text' should be array_like or str not a {type(station_text).__name__}."
+            )
+    else:
+        station_text = ""
+
+    if not (pd.api.types.is_list_like(Z2_contours) or int) and Z2_contours is not None:
+        raise TypeError(
+            f"'Z2_contours' should be int or array_like, not a {type(Z2_contours).__name__}."
+        )
+
+    if not isinstance(clabel, str):
+        raise TypeError(f"'clabel' should be a string, not a {type(clabel).__name__}.")
+
+    if not (isinstance(clevels, (int)) or pd.api.types.is_list_like(clevels)):
+        raise TypeError(
+            f"'clevels' should be a int or array_like, not a {type(clevels).__name__}."
+        )
+
+    if not isinstance(interp_opt, int):
+        raise TypeError(
+            f"'interp_opt' should be an int, not a {type(interp_opt).__name__}."
+        )
+    if interp_opt not in [0, 1]:
+        raise ValueError(f"'interp_opt' should be either 0 or 1, not {interp_opt}.")
+
+    if not isinstance(cbar, bool):
+        raise TypeError(f"'cbar' should be a bool, not a {type(cbar).__name__}.")
 
     # get the labels for the Z2 contours
     if Z2 is not None and Z2_contours is None:
         Z2_contours = np.concatenate([list(range(21, 26)), np.arange(25.5, 29, 0.2)])
-        Z2_contours = [i for i in Z2_contours if np.nanmin(Z2) < i < np.nanmax(Z2)]
+        Z2_contours: list[Any] = [
+            i for i in Z2_contours if np.nanmin(Z2) < i < np.nanmax(Z2)
+        ]
 
     # get the Y-axis limits
-    y_limits = (0, np.nanmax(Y))
     if bottom_depth is not None:
-        y_limits = (0, np.nanmax(bottom_depth))
+        y_limits: tuple = (0, np.nanmax(bottom_depth))
+    else:
+        y_limits = (0, np.nanmax(Y))
 
     if interp_opt == 0:  # only z-interpolation: use pcolormesh
         norm = None
@@ -4128,7 +4487,7 @@ def contour_section(
 
         ax.fill_between(
             station_pos,
-            bottom_depth * 0 + y_limits[1] + 10,
+            np.full_like(bottom_depth, y_limits[1] + 10),
             bottom_depth,
             zorder=999,
             color="gray",
@@ -4149,82 +4508,120 @@ def contour_section(
                     textcoords="offset points",
                     ha="center",
                 )
+    if isinstance(station_text, str):
+        ax.set_title(station_text)
 
     return ax, cT, cSIG
 
 
 def plot_CTD_section(
-    CTD,
-    stations,
-    section_name="",
-    clevels_T=20,
-    clevels_S=20,
-    x_type="distance",
-    interp_opt=1,
-    bottom=False,
-    z_fine=False,
-):
-    """
-    This function plots a CTD section of Temperature and Salinity,
-    given CTD data either directly or via a file.
+    CTD: dict | str,
+    stations: list[str],
+    section_name: str = "",
+    clevels_T: float | npt.ArrayLike = 20,
+    clevels_S: float | npt.ArrayLike = 20,
+    x_type: str = "distance",
+    interp_opt: int = 1,
+    bottom: npt.ArrayLike = None,
+    z_fine: bool = False,
+) -> tuple[matplotlib.axes.Axes, matplotlib.axes.Axes, Any, Any, Any, Any]:
+    """This function plots a CTD section of Temperature and Salinity,
+    given CTD data either directly or via file(s).
 
-    Parameters
-    ----------
-    CTD : str or dict
-        Either a dict of dicts containing the CTD data, which can be made with
-              the function read_CTD. Or a str with a file where the dict is stored
-    stations : array_like
-        stations to plot (station numbers have to be found inside the CTD data!).
-    section_name : str, optional
-        name of the Section, will appear in the plot title. The default is ''.
-    clevels_T : array-like or number, optional
-        The levels of the filled contourf for the temperature plot. Either a number of levels,
-        or the specific levels. The defauls is 20.
-    x_type : str, optional
-        Wheter to use 'distance' or 'time' as the x-axis. The default is 'distance'.
-    interp_opt: int, optional
-        Integer which interpolation method to use for gridding
-                     0: no interpolation,
-                     1: linear interpolation, fine grid (default),
-                     2: linear interpolation, coarse grid. The default is 1.
-    z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
+    Args:
+        CTD (dict or str): Either a dictionary with CTD data or a string with the path.
+            - Path can lead to a .npy file or a directory with .cnv files, check read_CTD.
+        stations (list[str]): Stations to plot.
+        section_name (str, optional): Name of the Section, will appear in the plot title. Defaults to "".
+        clevels_T (float or npt.ArrayLike, optional): The levels of the filled contourf for the temperature plot. Defaults to 20.
+            - Either a number of levels or the specific levels.
+        clevels_S (float or npt.ArrayLike, optional): The levels of the filled contourf for the salinity plot. Defaults to 20.
+            - Either a number of levels or the specific levels.
+        x_type (str, optional): Wheter to use 'distance' or 'time' as the x-axis. Defaults to "distance".
+        interp_opt (int, optional): Integer which interpolation method to use for gridding. Defaults to 1.
+            - 0: no interpolation,
+            - 1: linear interpolation, fine grid (default),
+            - 2: linear interpolation, coarse grid. The default is 1.
+        bottom (npt.ArrayLike, optional): Where the ground is drawn. Defaults to None.
+            - If None, it will be extracted from the CTD data.
+        z_fine (bool, optional): Whether to use a fine z grid. Defaults to False.
+            - If True, will be 10 cm, otherwise 1 m.
 
-    Returns
-    -------
-    axT: matplotlib.pyplot.axes
-        The axes for the temperature subplot
-    axS: matplotlib.pyplot.axes
-        The axes for the Salinity subplot
-    Ct_T:
-        The ...
+    Returns:
+        tuple[matplotlib.axes.Axes, matplotlib.axes.Axes, Any, Any, Any, Any]:
+            - Axes for temperature subplot.
+            - Axes for salinity subplot.
+            - Contour object for temperature.
+            - Contour object for salinity.
+            - Contour object for the density in the temperature plot.
+            - Contour object for the density in the salinity plot.
     """
     # Check if the function has data to work with
-    assert type(CTD) in [dict, str], (
-        "Parameter *CTD*: You must provide either\n"
-        " a) a data dict or \n b) a npy file string with the data !"
-    )
+    if not isinstance(CTD, (dict, str)):
+        raise TypeError(
+            f"'CTD' should be a dict or a npy file string with the data, not {type(CTD).__name__}."
+        )
 
     # read in the data (only needed if no CTD-dict, but a file was given)
     if type(CTD) is str:
-        print("reading file...")
-        CTD = np.load(CTD, allow_pickle=True).item()
+        CTD = read_CTD(CTD)
+    # check if data is there
+    if type(CTD) is dict and len(CTD) == 0:
+        raise ValueError(
+            "The CTD data is empty! Please provide a valid CTD data dictionary or file."
+        )
 
     # Check if all stations given are found in the data
-    assert min([np.isin(st, list(CTD.keys())) for st in stations]), (
-        "Not all "
-        "of the provided stations were found in the CTD data! \n"
-        "The following stations were not found in the data: "
-        + "".join([str(st) + " " for st in stations if ~np.isin(st, list(CTD.keys()))])
-    )
+    if not pd.api.types.is_list_like(stations):
+        raise TypeError(
+            f"'stations' should be a list of strings, not a {type(stations).__name__}."
+        )
+
+    notfound_stations: list = [key for key in stations if not key in list(CTD.keys())]
+    if len(notfound_stations) != 0:
+        logging.info(
+            f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+        )
+        for i in notfound_stations:
+            stations.remove(i)
+        if len(stations) == 0:
+            raise ValueError(f"There are no CTD stations left.")
+
+    if not isinstance(section_name, str):
+        raise TypeError(
+            f"'section_name' should be a string, not a {type(section_name).__name__}."
+        )
+
+    if not isinstance(clevels_T, int) and not pd.api.types.is_list_like(clevels_T):
+        raise TypeError(
+            f"'clevels_T' should be an int or an array-like, not a {type(clevels_T).__name__}."
+        )
+    if not isinstance(clevels_S, int) and not pd.api.types.is_list_like(clevels_S):
+        raise TypeError(
+            f"'clevels_S' should be an int or an array-like, not a {type(clevels_S).__name__}."
+        )
+
+    if not interp_opt in [0, 1, 2]:
+        raise ValueError(f"'interp_opt' should be 0, 1 or 2, not {interp_opt}.")
+
+    if not pd.api.types.is_list_like(bottom) and bottom is not None:
+        raise TypeError(
+            f"'bottom' should be an array_like, not a {type(bottom).__name__}."
+        )
+
+    if not isinstance(z_fine, bool):
+        raise TypeError(f"'z_fine' should be a boolean, not a {type(z_fine).__name__}.")
+
     # Check if x_type is either distance or time
-    assert x_type in ["distance", "time"], "x_type must be eigher distance or " "time!"
+    if x_type not in get_args(__x_type__):
+        raise ValueError(f"'x_type' should be 'time' or 'distance' not '{x_type}'.")
 
     # select only the given stations in the data
     CTD = {key: CTD[key] for key in stations}
 
     # extract Bottom Depth
-    if type(bottom) == bool:
-        BDEPTH = np.asarray([d["BottomDepth"] for d in CTD.values()])
+    if bottom is None:
+        BDEPTH: np.ndarray = np.asarray([d["BottomDepth [m]"] for d in CTD.values()])
     else:
         BDEPTH = bottom
 
@@ -4241,8 +4638,8 @@ def plot_CTD_section(
     _, Ct_T, C_T = contour_section(
         X,
         Z,
-        fCTD["T"],
-        fCTD["SIGTH"],
+        fCTD["T [degC]"],
+        fCTD["SIGTH [kg/m^3]"],
         ax=axT,
         station_pos=station_locs,
         cmap=cmocean.cm.thermal,
@@ -4256,8 +4653,8 @@ def plot_CTD_section(
     _, Ct_S, C_S = contour_section(
         X,
         Z,
-        fCTD["S"],
-        fCTD["SIGTH"],
+        fCTD["S []"],
+        fCTD["SIGTH [kg/m^3]"],
         ax=axS,
         station_pos=station_locs,
         cmap=cmocean.cm.haline,
@@ -4284,98 +4681,157 @@ def plot_CTD_section(
 
 
 def plot_CTD_single_section(
-    CTD,
-    stations,
-    section_name="",
-    x_type="distance",
-    parameter="T",
-    parameter_contourlines="SIGTH",
-    clabel="Temperature [˚C]",
-    cmap=cmocean.cm.thermal,
-    clevels=20,
-    contourlevels=5,
-    interp_opt=1,
-    bottom=False,
-    tlocator=None,
-    z_fine=False,
-    cbar=True,
-):
-    """
-    This function plots a CTD section of a chosen variable,
-    given CTD data either directly (through `CTD`) or via a file (through)
-    `infile`.
-    Parameters
-    ----------
-    CTD : str or dict
-        Either a dict of dicts containing the CTD data, which can be made with
-              the function read_CTD. Or a str with a file where the dict is stored
-    stations : array_like
-        stations to plot (station numbers have to be found inside the CTD data!).
-    section_name : str, optional
-        name of the Section, will appear in the plot title. The default is ''.
-    x_type : str, optional
-        Wheter to use 'distance' or 'time' as the x-axis. The default is 'distance'.
-    parameter : str, optional
-        Which parameter to plot as filled contours. Check what parameters are available
-        in `CTD`. The default is 'T'.
-    parameter_contourlines : str, optional
-        Which parameter to plot as contourlines. Check what parameters are available
-        in `CTD`. The default is 'SIGTH'.
-    clabel : str, optional
-        The label on the colorbar axis. The default is 'Temperature [˚C]'.
-    cmap : array-like or str, optional
-        The colormap to be used. The default is cmocean.cm.thermal.
-    clevels : array-like or number, optional
-        The levels of the filled contourf. Either a number of levels,
-        or the specific levels. The defauls is 20.
-    contourlevels : array-like or number, optional
-        The levels of the contourlines. Either a number of levels,
-        or the specific levels. The defauls is 5.
-    bottom : array-like or False, optional
-        The bottom topography, either an array with values extracted from a bathymetry file, or False (default).
-        If False, the bottom depth from the CTD profiles will be used.
-    interp_opt: int, optional
-        Integer which interpolation method to use for gridding
-                     0: no interpolation,
-                     1: linear interpolation, fine grid (default),
-                     2: linear interpolation, coarse grid. The default is 1.
-    tlocator: matplotlib.ticker locators, optional
-        special locator for the colorbar. For example logarithmic values,
-        for that use matplotlib.ticker.LogLocator(). Default is None.
-    z_fine: Whether to use a fine z grid. If True, will be 10 cm, otherwise 1 m
-    cbar: switch to enable/disable the colorbar
+    CTD: str | dict,
+    stations: list[str],
+    section_name: str = "",
+    x_type: __x_type__ = "distance",
+    parameter: str = "T [degC]",
+    parameter_contourlines: str = "SIGTH [kg/m^3]",
+    clabel: str = "Temperature [˚C]",
+    cmap: Any = cmocean.cm.thermal,
+    clevels: int | npt.ArrayLike = 20,
+    contourlevels: int | npt.ArrayLike = 5,
+    interp_opt: int = 1,
+    bottom: npt.ArrayLike = None,
+    tlocator: Any = None,
+    z_fine: bool = False,
+    cbar: bool = True,
+) -> tuple[matplotlib.axes.Axes, Any, Any]:
+    """This function plots a CTD section of a chosen variable,
+    given CTD data either directly or via a file (through `CTD`).
 
-    Returns
-    -------
-    None.
+
+    Args:
+        CTD (dict or str): Either a dictionary with CTD data or a string with the path.
+            - Path can lead to a .npy file or a directory with .cnv files, check read_CTD.
+        stations (list[str]): Stations to plot.
+        section_name (str, optional): Name of the Section, will appear in the plot title. Defaults to "".
+        x_type (str, optional): Wheter to use 'distance' or 'time' as the x-axis. Defaults to "distance".
+        parameter (str, optional): Name of the parameter to plot as filled contours. Defaults to "T [degC]".
+        parameter_contourlines (str, optional): Name of the parameter to plot as contourlines. Defaults to "SIGTH [kg/m^3]".
+        clabel (str, optional): The label on the colorbar axis. Defaults to "Temperature [˚C]".
+        cmap (Any, optional): THe colormap to be used. Defaults to cmocean.cm.thermal.
+        clevels (int or npt.ArrayLike, optional): The levels of the filled contour.. Defaults to 20.
+            - Either a number of levels, or the specific levels.
+        contourlevels (int or npt.ArrayLike, optional): The levels of contourlines. Defaults to 5.
+            - Either a number of levels, or the specific levels.
+        interp_opt (int, optional): Which interpolation method to use for gridding. Defaults to 1.
+            - 0: no interpolation,
+            - 1: linear interpolation, fine grid (default),
+            - 2: linear interpolation, coarse grid.
+        bottom (npt.ArrayLike, optional): The bottom topography. Defaults to None.
+            - Either an array with values extracted from a bathymetry file, or None.
+            - If None, the bottom depth from the CTD profiles will be used.
+        tlocator (matplotlib.ticker locators, optional): Special locator for the colorbar. Defaults to None.
+            - Example: logarithmic locator (use `matplotlib.ticker.LogLocator`).
+        z_fine (bool, optional): Whether to use a fine z grid. Defaults to False.
+            - If True, will be 10 cm, otherwise 1 m.
+        cbar (bool, optional): If the colorbar is displayed. Defaults to True.
+
+    Returns:
+        tuple[matplotlib.axes.Axes, Any, Any]:
+            - Axes for the CTD section plot.
+            - Contour object for the filled contours.
+            - Contour object for the contour lines.
     """
     # Check if the function has data to work with
-    assert type(CTD) in [dict, str], (
-        "Parameter *CTD*: You must provide either\n"
-        " a) a data dict or \n b) a npy file string with the data !"
-    )
+    if not isinstance(CTD, (dict, str)):
+        raise TypeError(
+            f"'CTD' should be a dict or a npy file string with the data, not {type(CTD).__name__}."
+        )
 
     # read in the data (only needed if no CTD-dict, but a file was given)
     if type(CTD) is str:
-        print("reading file...")
-        CTD = np.load(CTD, allow_pickle=True).item()
+        CTD = read_CTD(CTD)
+    # check if data is there
+    if type(CTD) is dict and len(CTD) == 0:
+        raise ValueError(
+            "The CTD data is empty! Please provide a valid CTD data dictionary or file."
+        )
 
     # Check if all stations given are found in the data
-    assert min([np.isin(st, list(CTD.keys())) for st in stations]), (
-        "Not all "
-        "of the provided stations were found in the CTD data! \n"
-        "The following stations were not found in the data: "
-        + "".join([str(st) + " " for st in stations if ~np.isin(st, list(CTD.keys()))])
-    )
+    if not pd.api.types.is_list_like(stations):
+        raise TypeError(
+            f"'stations' should be a list of strings, not a {type(stations).__name__}."
+        )
+
+    notfound_stations: list = [key for key in stations if not key in list(CTD.keys())]
+    if len(notfound_stations) != 0:
+        logging.info(
+            f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+        )
+        for i in notfound_stations:
+            stations.remove(i)
+        if len(stations) == 0:
+            raise ValueError(f"There are no CTD stations left.")
+
+    if not isinstance(section_name, str):
+        raise TypeError(
+            f"'section_name' should be a string, not a {type(section_name).__name__}."
+        )
+
     # Check if x_type is either distance or time
-    assert x_type in ["distance", "time"], "x_type must be eigher distance or " "time!"
+    if x_type not in get_args(__x_type__):
+        raise ValueError(f"'x_type' should be 'time' or 'distance' not '{x_type}'.")
+
+    if not isinstance(parameter, str):
+        raise TypeError(
+            f"'parameter' should be a string, not a {type(parameter).__name__}."
+        )
+    if parameter not in CTD[list(CTD.keys())[0]].keys():
+        raise ValueError(f"'{parameter}' is not a valid parameter in the CTD data.")
+
+    if not isinstance(parameter_contourlines, str):
+        raise TypeError(
+            f"'parameter_contourlines' should be a string, not a {type(parameter_contourlines).__name__}."
+        )
+    if parameter_contourlines not in CTD[list(CTD.keys())[0]].keys():
+        raise ValueError(
+            f"'{parameter_contourlines}' is not a valid parameter in the CTD data."
+        )
+
+    if not isinstance(clabel, str):
+        raise TypeError(f"'clabel' should be a string, not a {type(clabel).__name__}.")
+
+    if not (isinstance(clevels, (int)) or pd.api.types.is_list_like(clevels)):
+        raise TypeError(
+            f"'clevels' should be a int or array_like, not a {type(clevels).__name__}."
+        )
+
+    if not (
+        isinstance(contourlevels, (int)) or pd.api.types.is_list_like(contourlevels)
+    ):
+        raise TypeError(
+            f"'contourlevels' should be a int or array_like, not a {type(contourlevels).__name__}."
+        )
+
+    if not isinstance(interp_opt, int):
+        raise TypeError(
+            f"'interp_opt' should be an int, not a {type(interp_opt).__name__}."
+        )
+    if interp_opt not in [0, 1, 2]:
+        raise ValueError(f"'interp_opt' should be either 0, 1 or 2, not {interp_opt}.")
+
+    if not pd.api.types.is_list_like(bottom) and bottom is not None:
+        raise TypeError(
+            f"'bottom' should be an array_like, not a {type(bottom).__name__}."
+        )
+
+    if not isinstance(z_fine, bool):
+        raise TypeError(f"'z_fine' should be a boolean, not a {type(z_fine).__name__}.")
+
+    if not isinstance(cbar, bool):
+        raise TypeError(f"'cbar' should be a boolean, not a {type(cbar).__name__}.")
 
     # select only the given stations in the data
     CTD = {key: CTD[key] for key in stations}
 
     # extract Bottom Depth
-    if type(bottom) == bool:
-        BDEPTH = np.asarray([d["BottomDepth"] for d in CTD.values()])
+    if bottom is None:
+        if "BottomDepth [m]" in CTD[list(CTD.keys())[0]]:
+            BDEPTH: np.ndarray = np.asarray(
+                [d["BottomDepth [m]"] for d in CTD.values()]
+            )
     else:
         BDEPTH = bottom
 
@@ -4423,46 +4879,94 @@ def plot_CTD_single_section(
 
 
 def plot_xarray_sections(
-    list_das,
-    list_cmaps,
-    list_clevels=None,
-    da_contours=None,
-    contourlevels=5,
-    interp=False,
-    switch_cbar=True,
-    add_station_ticks=True,
-):
-    """
-    Function to plot a variable number of variables from a section. Data can be from CTD or ADCP, but has to be provided as xarray datasets (see example notebook!)
+    list_das: list[xr.DataArray],
+    list_cmaps: list[Any],
+    list_clevels: list[npt.ArrayLike | int] = None,
+    da_contours: xr.DataArray = None,
+    contourlevels: int | npt.ArrayLike = 5,
+    interp: bool = False,
+    switch_cbar: bool = True,
+    add_station_ticks: bool = True,
+) -> tuple[plt.Figure, list[Any], list]:
+    """Function to plot a variable number of variables from a section.
+    Data can be from CTD or ADCP, but has to be provided as xarray datasets (see example notebook!)
 
-    Parameters
-    ----------
-    list_das : list
-        Each element of the list must be an xarray dataarray containing T, S, current data.
-    list_cmaps : list
-        Colormaps to be used for each subplot, order corresponding to the first list with the data.
-    list_clevels : list, optional
-        List with levels to use for the contourf plots, order corresponding to the first list with the data. Can bei either a integer (then it specifies the number of levels) or the explicit levels. The default is 20 levels.
-    da_contours : xarray data array, optional
-        Dataarray with data to plot as contour lines on top of the countourf. Typically used for density lines. The default is None (no contour lines).
-    contourlevels : int or array-like, optional
-        Sale as the clevels for the contourf plots, but for the contour lines. The default is 5.
-    interp : bool, optional
-        Switch to enable interpolation of the data onto a finer grid along the distance axis. The default is False.
-    switch_cbar : bool, optional
-        Switch to enable adding a colorbar to each contourf plot. The default is True.
-    add_station_ticks : bool, optional
-        Switch to add ticks for the locations of the CTD stations along the section. The default is True.
 
-    Returns
-    -------
-    fig, ax
-        The handles for the figure and the axes, to be used for further adjustments.
+    Args:
+        list_das (list[xr.DataArray]): List of xarray DataArrays to plot.
+            - Each DataArray should have 'distance' and 'depth' as coordinates.
+        list_cmaps (list[Any]): Colormaps to be used for each subplot.
+            - Same order as the DataArrays in `list_das`.
+        list_clevels (list[npt.ArrayLike or int], optional): List with levels to use for the contourf plots. Defaults to None.
+            - If None, it will use 20 levels for each DataArray.
+            - Same order as the DataArrays in `list_das`.
+        da_contours (xr.DataArray, optional): Dataarray with data to plot as contour lines on top of the contourf. Defaults to None.
+        contourlevels (int or npt.ArrayLike, optional): Same as the clevels for the contourf plot, but for the contour lines. Defaults to 5.
+            - If an int, it will use that many levels.
+            - If an array_like, it will use those levels.
+        interp (bool, optional): Interpolation to a finer grid. Defaults to False.
+        switch_cbar (bool, optional): Adds colorbar to each contourf plot. Defaults to True.
+        add_station_ticks (bool, optional): Add ticks for the locations of the CTD stations along the section. Defaults to True.
 
+    Returns:
+        tuple[plt.Figure, list[Any], list]:
+            - Figure object with the subplots.
+            - List of contourf objects for each subplot.
+            - List of contour line objects for each subplot.
     """
 
-    if list_clevels == None:
+    if not pd.api.types.is_list_like(list_das):
+        raise TypeError(
+            f"'list_das' should be a list of xarray DataArrays, not a {type(list_das).__name__}."
+        )
+
+    if not pd.api.types.is_list_like(list_cmaps):
+        raise TypeError(
+            f"'list_cmaps' should be a list of colormaps, not a {type(list_cmaps).__name__}."
+        )
+
+    if len(list_das) != len(list_cmaps):
+        raise ValueError(
+            f"'list_das' and 'list_cmaps' should have the same length, not {len(list_das)} and {len(list_cmaps)}."
+        )
+
+    if not isinstance(list_clevels, list) and list_clevels is not None:
+        raise TypeError(
+            f"'list_clevels' should be a list of levels, not a {type(list_clevels).__name__}."
+        )
+    if list_clevels is None:
         list_clevels = len(list_das) * [20]
+
+    if len(list_das) != len(list_clevels):
+        raise ValueError(
+            f"'list_das' and 'list_clevels' should have the same length, not {len(list_das)} and {len(list_clevels)}."
+        )
+
+    if not isinstance(da_contours, xr.DataArray) and da_contours is not None:
+        raise TypeError(
+            f"'da_contours' should be an xarray DataArray, not a {type(da_contours).__name__}."
+        )
+
+    if (
+        not (isinstance(da_contours, int) or pd.api.types.is_list_like(contourlevels))
+        and da_contours is not None
+    ):
+        raise TypeError(
+            f"'contourlevels' should be an int or array_like, not a {type(contourlevels).__name__}."
+        )
+
+    if not isinstance(interp, bool):
+        raise TypeError(f"'interp' should be a boolean, not a {type(interp).__name__}.")
+
+    if not isinstance(switch_cbar, bool):
+        raise TypeError(
+            f"'switch_cbar' should be a boolean, not a {type(switch_cbar).__name__}."
+        )
+
+    if not isinstance(add_station_ticks, bool):
+        raise TypeError(
+            f"'add_station_ticks' should be a boolean, not a {type(add_station_ticks).__name__}."
+        )
 
     N_subplots = len(list_das)
 
@@ -4612,7 +5116,7 @@ def plot_xarray_sections(
     # add station ticks
     if add_station_ticks:
         found_stations = False
-        i == 0
+        i = 0
         while (found_stations == False) & (i < len(list_das)):
             if "station" in list_das[i].coords:
                 stations = list_das[i]["station"].to_numpy()
@@ -4637,7 +5141,9 @@ def plot_xarray_sections(
                     ha="center",
                 )
         else:
-            print("Station ticks not possible when only VM-ADCP data is provided!")
+            logging.info(
+                "Station ticks not possible, no station data found in the provided data!"
+            )
 
     for a in axes:
         a.set_xlim(x_limits)
@@ -4650,163 +5156,382 @@ def plot_xarray_sections(
     return fig, axes, pics
 
 
-def plot_CTD_station(CTD, station, axes=None, add=False, linestyle="-"):
-    """
-    Plots the temperature and salinity profile of a single station.
-    Parameters
-    ----------
-    CTD : str or dict
-        Either a dict of dicts containing the CTD data, which can be made with
-              the function read_CTD. Or a str with a file where the dict is stored
-    station : number
-        Number which station to plot (must be in the CTD data!).
+def plot_CTD_station(
+    CTD: str | dict,
+    station: str,
+    lower_ax: str = "CT [degC]",
+    lower_ax_label: str = "Conservative temperature [$^\\circ$C]",
+    lower_color: str = "r",
+    upper_ax: str = "SA [g/kg]",
+    upper_ax_label: str = "Absolute salinity [g/kg]",
+    upper_color: str = "b",
+    axes: npt.ArrayLike = None,
+    linestyle: str = "-",
+) -> tuple[matplotlib.axes.Axes, matplotlib.axes.Axes]:
+    """Plots the CTD data for a single station, with two axes:
+    Standard temperature and absolute salinity.
 
-    ax: (2,) array-like
-        List of two axes, the first one being the axes for temperature,
-        and the second one for Salinity
-    add : bool, optional, depracated
-        Switch whether to add the plot to a figure (True), or to create a
-        new figure for the plot (False). The default is True. This parameter
-        is depracated, which means that it doesn't have any effect anymore.
-    Returns
-    -------
-    None.
+    Args:
+        CTD (dict or str): Either a dictionary with CTD data or a string with the path.
+            - Path can lead to a .npy file or a directory with .cnv files, check read_CTD.
+        station (str): The station to plot.
+        lower_ax (str, optional): The name of the data in the dict. Defaults to "CT [degC]".
+        lower_ax_label (str, optional): The label of the lower axes. Defaults to "Conservative temperature [$^\\circ]".
+        lower_color (str, optional): The color for the lower axes. Defaults to "r".
+        upper_ax (str, optional): The name of the data in the dict. Defaults to "SA [g/kg]".
+        upper_ax_label (str, optional): The name of the data in the dict. Defaults to "Absolute salinity [g/kg]".
+        upper_color (str, optional): The color for the upper axes. Defaults to "b".
+        axes (array_like, optional): (2,) List of two axes. Defaults to None.
+            - First: lower axes, second: upper axes.
+            - If None, will create new axes.
+        linestyle (str, optional): Linestyle to use. Defaults to "-".
+            - Can be any valid matplotlib linestyle (e.g. '-','--', '-.', ':').
+
+    Returns:
+        tuple[matplotlib.axes.Axes, matplotlib.axes.Axes]:
+            - Axes for the lower axes (temperature).
+            - Axes for the upper axes (salinity).
     """
     # Check if the function has data to work with
-    assert type(CTD) in [dict, str], (
-        "Parameter *CTD*: You must provide either\n"
-        " a) a data dict or \n b) a npy file string with the data !"
-    )
+    if not isinstance(CTD, (dict, str)):
+        raise TypeError(
+            f"'CTD' should be a dict or a npy file string with the data, not {type(CTD).__name__}."
+        )
 
     # read in the data (only needed if no CTD-dict, but a file was given)
     if type(CTD) is str:
-        print("reading file...")
-        CTD = np.load(CTD, allow_pickle=True).item()
+        CTD = read_CTD(CTD)
+    # check if data is there
+    if type(CTD) is dict and len(CTD) == 0:
+        raise ValueError(
+            "The CTD data is empty! Please provide a valid CTD data dictionary or file."
+        )
 
-    # Check if all stations given are found in the data
-    assert np.isin(station, list(CTD.keys())), (
-        "The station was not found in "
-        "the CTD data! \n The following stations are in the data: "
-        + "".join([str(st) + " " for st in CTD.keys()])
-    )
+    # Check if station is in the data
+    if station in CTD.keys():
+        # select station
+        CTD = CTD[station]
+    else:
+        raise ValueError(f"The given station is not in the data!")
 
+    if not isinstance(lower_ax, str):
+        raise TypeError(
+            f"'lower_ax' should be a string, not a {type(lower_ax).__name__}."
+        )
+    if lower_ax not in CTD.keys():
+        raise ValueError(f"'{lower_ax}' is not a valid parameter in the CTD data.")
+
+    if not isinstance(lower_ax_label, str):
+        raise TypeError(
+            f"'lower_ax_label' should be a string, not a {type(lower_ax_label).__name__}."
+        )
+
+    if not isinstance(lower_color, str):
+        raise TypeError(
+            f"'lower_color' should be a string, not a {type(lower_color).__name__}."
+        )
+
+    if not isinstance(upper_ax, str):
+        raise TypeError(
+            f"'upper_ax' should be a string, not a {type(upper_ax).__name__}."
+        )
+    if upper_ax not in CTD.keys():
+        raise ValueError(f"'{upper_ax}' is not a valid parameter in the CTD data.")
+
+    if not isinstance(upper_ax_label, str):
+        raise TypeError(
+            f"'upper_ax_label' should be a string, not a {type(upper_ax_label).__name__}."
+        )
+
+    if not isinstance(upper_color, str):
+        raise TypeError(
+            f"'upper_color' should be a string, not a {type(upper_color).__name__}."
+        )
+
+    if not pd.api.types.is_list_like(axes) and axes is not None:
+        raise TypeError(
+            f"'axes' should be a list of two axes, not a {type(axes).__name__}."
+        )
+    if axes is not None and len(axes) != 2:
+        raise ValueError(
+            f"'axes' should be a list of two axes, not a list of {len(axes)} axes."
+        )
+    if not isinstance(linestyle, str):
+        raise TypeError(
+            f"'linestyle' should be a string, not a {type(linestyle).__name__}."
+        )
     # end of checks.
 
-    # select station
-    CTD = CTD[station]
-
-    if axes == None:
-        ax = plt.gca()
-        ax2 = ax.twiny()
+    if axes is None:
+        ax: matplotlib.axes.Axes = plt.gca()
+        ax2: matplotlib.axes.Axes = ax.twiny()
         ax.invert_yaxis()
     else:
-        assert len(axes) == 2, "You need to provide a list of two axes"
-        ax = axes[0]
-        ax2 = axes[1]
+        if len(axes) != 2:
+            raise ValueError(f"'axes' should have a lenght of 2, not {len(axes)}.")
+        else:
+            ax = axes[0]
+            ax2 = axes[1]
 
     # plot
-    ax.plot(CTD["CT"], -CTD["z"], "r", linestyle=linestyle)
-    ax.set_xlabel("Conservative temperature [˚C]", color="r")
+    ax.plot(
+        CTD[lower_ax], -CTD["z [m]"], lower_color, linestyle=linestyle, label=station
+    )
+    ax.set_xlabel(lower_ax_label, color=lower_color)
     ax.set_ylabel("Depth [m]")
-    ax.spines["bottom"].set_color("r")
-    ax.tick_params(axis="x", colors="r")
+    ax.spines["bottom"].set_color(lower_color)
+    ax.tick_params(axis="x", colors=lower_color)
 
-    ax2.plot(CTD["SA"], -CTD["z"], "b", linestyle=linestyle)
-    ax2.set_xlabel("Absolute salinity [g / kg]", color="b")
-    ax2.tick_params(axis="x", colors="b")
+    if axes is not None:
+        ax.legend(bbox_to_anchor=(1.0, 1.02), loc="upper left")
+
+    ax2.plot(CTD[upper_ax], -CTD["z [m]"], upper_color, linestyle=linestyle)
+    ax2.set_xlabel(upper_ax_label, color=upper_color)
+    ax2.tick_params(axis="x", colors=upper_color)
     plt.tight_layout()
 
     return ax, ax2
 
 
 def plot_CTD_map(
-    CTD,
-    stations=None,
-    topography=None,
-    extent=None,
-    depth_contours=[10, 50, 100, 150, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000],
-    st_labels="",
-    adjust_text=False,
-):
-    """
-    Function which plots a very basic map of selected CTD stations.
-    Parameters
-    ----------
-    CTD : dict
-        Dictionary containing the CTD data.
-    stations : array_like, optional
-        The positions to put on the map. The default is all stations.
-    topography : str or array-like, optional
-        Either a file or an array with topography data.
-        If topography is given in a file, three filetypes are supported:
-            - .nc, in that case the file should contain the variables
-              'lat', 'lon', and 'z'
-            - .mat, in that case the file should contain the variables
-              'lat', 'lon', and 'D'
-            - .npy, in that case the file should contain an array with
-              lat, lon and elevation as columns (and total size 3 x lon x lat)
-        If topography is given as an array, it should be an array with
-              lat, lon and elevation as columns (and total size 3 x lon x lat)
-        The default is None, then no bathymetry will be plotted (only coasts).
-    extent : (4,) array_like, optional
-        List of map extent. Must be given as [lon0,lon1,lat0,lat1].
-        The default is None.
-    depth_contours : array_like, optional
-        A list containing contour levels for the bathymetry. The default is
-        [10,50,100,150,200,300,400,500,1000,2000,3000,4000,5000].
-    adjust_text : bool, optional
-        Whether to adjust the station names so they don't overlap. Default is
-        True.
-    Returns
-    -------
-    None.
+    CTD: str | dict,
+    stations: str | npt.ArrayLike = None,
+    topography: str | npt.ArrayLike = None,
+    extent: npt.ArrayLike = None,
+    depth_contours: npt.ArrayLike = [
+        10,
+        50,
+        100,
+        150,
+        200,
+        300,
+        400,
+        500,
+        1000,
+        2000,
+        3000,
+        4000,
+        5000,
+    ],
+    st_labels: str | npt.ArrayLike = "",
+    adjust_text: bool = False,
+) -> tuple[plt.Figure, matplotlib.axes.Axes]:
+    """Function which plots a very basic map of selected CTD stations.
+
+    Args:
+        CTD (dict or str): Either a dictionary with CTD data or a string with the path.
+            - Path can lead to a .npy file or a directory with .cnv files, check read_CTD.
+        stations (str or array_like, optional): The station(s) which should be displayed. Defaults to None.
+        topography (str or array_like, optional): Topography data. Defaults to None.
+            Can work with:
+                - Path to the example data directory.
+                - '.nc' with 'lat', 'lon' and 'z'.
+                - '.mat' with 'lat', 'lon' and 'D'.
+                - '.npy' with an array containing lat, lon and elevation as columns
+                - array_like with lat, lon and elevation
+        extent (array_like, optional): (4,) List of map extent. Defaults to None.
+            - [lon0, lon1, lat0, lat1]
+        depth_contours (array_like, optional): List containing countour levels for the bathymetry. Defaults to [10, 50, 100, 150, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000].
+        st_labels (str or array_like, optional): Text to label the stations. Defaults to "".
+            - str: Adding to every station.
+            - array_like: Needs to be the same length as stations, will override stationnumbers.
+        adjust_text (bool, optional): Whether to adjust the station names so they don't overlap. Defaults to False.
+
+    Returns:
+        tuple[plt.Figure, matplotlib.axes.Axes]:
+            - Figure object of the subplot.
+            - Axes object.
     """
 
-    assert type(st_labels) in [str, list, tuple], (
-        "st_labels must either be" "a string, a tuple or a list."
-    )
-    # if no stations are provided, just plot all stations
+    if not isinstance(CTD, (dict, str)):
+        raise TypeError(
+            f"'CTD' should be a dict or a npy file string with the data, not {type(CTD).__name__}."
+        )
+
+    # read in the data (only needed if no CTD-dict, but a file was given)
+    if type(CTD) is str:
+        CTD = read_CTD(CTD)
+    # check if data is there
+    if type(CTD) is dict and len(CTD) == 0:
+        raise ValueError(
+            "The CTD data is empty! Please provide a valid CTD data dictionary or file."
+        )
+
+    if (
+        not (pd.api.types.is_list_like(stations) or isinstance(stations, str))
+        and stations is not None
+    ):
+        raise TypeError(
+            f"'stations' should be a array_like or a string, not a {type(stations).__name__}."
+        )
+    if stations is not None and isinstance(stations, str):
+        stations = [stations]
+    if stations is not None:
+        for s in stations:
+            if not isinstance(s, str):
+                raise TypeError(
+                    f"Each station in 'stations' should be a string, not a {type(s).__name__}."
+                )
     if stations is None:
-        stations = CTD.keys()
+        # if no stations are provided, just plot all stations
+        stations = list(CTD.keys())
+    else:
+        notfound_stations: list = [
+            key for key in stations if not key in list(CTD.keys())
+        ]
+        if len(notfound_stations) != 0:
+            logging.info(
+                f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+            )
+            for i in notfound_stations:
+                stations.remove(i)
+            if len(stations) == 0:
+                raise ValueError(f"There are no CTD stations left.")
+
+    if not isinstance(adjust_text, bool):
+        raise ValueError(
+            f"'adjust_text' should be an bool, not a {type(adjust_text).__name__}."
+        )
 
     # select only stations
     CTD = {key: CTD[key] for key in stations}
-    lat = [value["LAT"] for value in CTD.values()]
-    lon = [value["LON"] for value in CTD.values()]
+    lat: list = [value["lat"] for value in CTD.values()]
+    lon: list = [value["lon"] for value in CTD.values()]
     std_lat, std_lon = np.std(lat), np.std(lon)
-    lon_range = [min(lon) - std_lon, max(lon) + std_lon]
-    lat_range = [min(lat) - std_lat, max(lat) + std_lat]
 
-    ax = plt.axes(projection=ccrs.PlateCarree())
     if extent is None:
-        extent = [lon_range[0], lon_range[1], lat_range[0], lat_range[1]]
-    ax.set_extent(extent)
+        lon_range: list = [min(lon) - std_lon, max(lon) + std_lon]
+        lat_range: list = [min(lat) - std_lat, max(lat) + std_lat]
+        extent: list = [lon_range[0], lon_range[1], lat_range[0], lat_range[1]]
+    fig, ax = plot_empty_map(extent, topography, depth_contours)
 
-    if topography is not None:
-        if type(topography) is str:
-            ext = topography.split(".")[-1]
-            if ext == "mat":
-                topo = loadmat(topography)
-                topo_lat, topo_lon, topo_z = topo["lat"], topo["lon"], topo["D"]
-            elif ext == "npy":
-                topo = np.load(topography)
-                topo_lat, topo_lon, topo_z = topo[0], topo[1], topo[2]
-            elif ext == "nc":
-                topo = Dataset(topography)
-                topo_lat, topo_lon, topo_z = (
-                    topo.variables["lat"][:],
-                    topo.variables["lon"][:],
-                    topo.variables["z"][:],
+    # add the points, and add labels
+    if isinstance(st_labels, str):
+        st_texts: list[str] = [st_labels + str(s) for s in stations]
+    elif pd.api.types.is_list_like(st_labels):
+        if len(st_labels) == len(stations):
+            st_texts = st_labels
+        else:
+            raise ValueError(
+                f"'st_labels' and 'stations' should be the same length, is {len(st_labels)} and {len(stations)}."
+            )
+    else:
+        raise ValueError(
+            f"'st_labels' should be string or array_like, not {type(st_labels).__name__}."
+        )
+
+    ax.plot(lon, lat, "xr", transform=ccrs.PlateCarree())
+    texts: list = []
+    for label, st_lat, st_lon in zip(st_texts, lat, lon):
+        if extent[0] < st_lon < extent[1] and extent[2] < st_lat < extent[3]:
+            texts.append(
+                ax.text(
+                    st_lon,
+                    st_lat,
+                    label,
+                    horizontalalignment="center",
+                    verticalalignment="bottom",
                 )
-                if len(topo_lon.shape) == 1:
-                    topo_lon, topo_lat = np.meshgrid(topo_lon, topo_lat)
-            else:
-                assert False, "Unknown topography file extension!"
-        else:  # assume topography is array with 3 columns (lat,lon,z)
-            topo_lat, topo_lon, topo_z = topography[0], topography[1], topography[2]
+            )
 
+    if adjust_text:
+        adj_txt(
+            texts,
+            expand_text=(1.2, 1.6),
+            arrowprops=dict(arrowstyle="-", color="black"),
+            ax=ax,
+        )
+    plt.gcf().canvas.draw()
+    plt.tight_layout()
+
+    return fig, ax
+
+
+def plot_empty_map(
+    extent: npt.ArrayLike,
+    topography: str | npt.ArrayLike = None,
+    depth_contours: npt.ArrayLike = [
+        10,
+        50,
+        100,
+        150,
+        200,
+        300,
+        400,
+        500,
+        1000,
+        2000,
+        3000,
+        4000,
+        5000,
+    ],
+) -> tuple[plt.Figure, matplotlib.axes.Axes]:
+    """Function which plots a very basic map of selected CTD stations.
+
+    Args:
+        extent (array_like): (4,) List of map extent. Defaults to None.
+            - [lon0, lon1, lat0, lat1]
+        topography (str or array_like, optional): Topography data. Defaults to None.
+            Can work with:
+                - Path to the example data directory.
+                - '.nc' with 'lat', 'lon' and 'z'.
+                - '.mat' with 'lat', 'lon' and 'D'.
+                - '.npy' with an array containing lat, lon and elevation as columns
+                - array_like with lat, lon and elevation
+        depth_contours (array_like, optional): List containing countour levels for the bathymetry. Defaults to [10, 50, 100, 150, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000].
+
+    Returns:
+        tuple[plt.Figure, matplotlib.axes.Axes]:
+            - Figure object of the subplot.
+            - Axes object.
+    """
+
+    if not pd.api.types.is_list_like(extent):
+        raise ValueError(
+            f"''extent' should be an array_like, not {type(extent).__name__}."
+        )
+    if len(extent) != 4:
+        raise ValueError(f"'extent' should have the length 4, not {len(extent)}.")
+
+    if not pd.api.types.is_list_like(depth_contours):
+        raise ValueError(
+            f"'depth_contours' should be an array_like, not {type(depth_contours).__name__}."
+        )
+
+    fig, ax = plt.subplots(1, 1, subplot_kw={"projection": ccrs.PlateCarree()})
+    ax.set_extent(extent)
+    if isinstance(topography, str):
+        if os.path.isdir(topography):
+            topography = os.path.join(
+                topography, "Svalbard_map_data", "bathymetry_svalbard.mat"
+            )
+        if not os.path.isfile(topography):
+            raise FileNotFoundError(f"Topography file '{topography}' not found.")
+        ext: str = os.path.splitext(topography)[-1].lower()
+        if ext == ".mat":
+            topo = loadmat(topography)
+            topo_lat, topo_lon, topo_z = topo["lat"], topo["lon"], topo["D"]
+        elif ext == ".npy":
+            topo = np.load(topography)
+            topo_lat, topo_lon, topo_z = topo[0], topo[1], topo[2]
+        elif ext == ".nc":
+            topo = Dataset(topography)
+            topo_lat, topo_lon, topo_z = (
+                topo.variables["lat"][:],
+                topo.variables["lon"][:],
+                topo.variables["z"][:],
+            )
+            if len(topo_lon.shape) == 1:
+                topo_lon, topo_lat = np.meshgrid(topo_lon, topo_lat)
+        else:
+            raise ValueError(f"Unknown topography file extension: {ext}")
+    elif pd.api.types.is_list_like(topography):
+        # assume topography is array with 3 columns (lat,lon,z)
+        topo_lat, topo_lon, topo_z = topography[0], topography[1], topography[2]
+    elif topography is not None:
+        raise ValueError(f"The submitted format for 'topography' is not valid.")
+    if topography is not None:
         topo_z[topo_z < -1] = -1  # discard elevation above sea level
-
         BC = ax.contour(
             topo_lon,
             topo_lat,
@@ -4816,8 +5541,7 @@ def plot_CTD_map(
             linewidths=0.3,
             transform=ccrs.PlateCarree(),
         )
-        clabels = ax.clabel(BC, depth_contours, fontsize=4, fmt="%i")
-        print(clabels)
+        clabels: list = ax.clabel(BC, depth_contours, fontsize=4, fmt="%i")
         if clabels is not None:
             for txt in clabels:
                 txt.set_bbox(dict(facecolor="none", edgecolor="none", pad=0, alpha=0.0))
@@ -4832,133 +5556,6 @@ def plot_CTD_map(
             )
         )
 
-    # add the points, and add labels
-    if type(st_labels) == str:
-        st_texts = [st_labels + str(s) for s in stations]
-    else:
-        st_texts = st_labels
-
-    ax.plot(lon, lat, "xr", transform=ccrs.PlateCarree())
-    texts = []
-    for i, station in enumerate(stations):
-        if extent[0] < lon[i] < extent[1] and extent[2] < lat[i] < extent[3]:
-            texts.append(
-                ax.text(
-                    lon[i],
-                    lat[i],
-                    st_texts[i],
-                    horizontalalignment="center",
-                    verticalalignment="bottom",
-                )
-            )
-
-    gl = ax.gridlines(
-        crs=ccrs.PlateCarree(),
-        draw_labels=True,
-        linewidth=1,
-        color="gray",
-        alpha=0.5,
-        linestyle="--",
-    )
-    gl.xformatter = LONGITUDE_FORMATTER
-    gl.yformatter = LATITUDE_FORMATTER
-
-    # make sure aspect ration of the axes is not too extreme
-    ax.set_aspect("auto")
-    if adjust_text:
-        adj_txt(
-            texts,
-            expand_text=(1.2, 1.6),
-            arrowprops=dict(arrowstyle="-", color="black"),
-            ax=ax,
-        )
-    plt.gcf().canvas.draw()
-    plt.tight_layout()
-
-
-def plot_empty_map(
-    extent,
-    topography=None,
-    depth_contours=[10, 50, 100, 150, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000],
-):
-    """
-    Function which plots a very basic map of selected CTD stations.
-    Parameters
-    ----------
-    extent : (4,) array_like
-        List of map extent. Must be given as [lon0,lon1,lat0,lat1].
-    topography : str or array-like, optional
-        Either a file or an array with topography data.
-        If topography is given in a file, three filetypes are supported:
-            - .nc, in that case the file should contain the variables
-              'lat', 'lon', and 'z'
-            - .mat, in that case the file should contain the variables
-              'lat', 'lon', and 'D'
-            - .npy, in that case the file should contain an array with
-              lat, lon and elevation as columns (and total size 3 x lon x lat)
-        If topography is given as an array, it should be an array with
-              lat, lon and elevation as columns (and total size 3 x lon x lat)
-        The default is None, then no bathymetry
-        will be plotted.
-    depth_contours : array_like, optional
-        A list containing contour levels for the bathymetry. The default is
-        [10,50,100,150,200,300,400,500,1000,2000,3000,4000,5000].
-    Returns
-    -------
-    None.
-    """
-
-    fig, ax = plt.subplots(1, 1, subplot_kw={"projection": ccrs.PlateCarree()})
-    ax.set_extent(extent)
-    if topography is not None:
-        if type(topography) is str:
-            ext = topography.split(".")[-1]
-            if ext == "mat":
-                topo = loadmat(topography)
-                topo_lat, topo_lon, topo_z = topo["lat"], topo["lon"], topo["D"]
-            elif ext == "npy":
-                topo = np.load(topography)
-                topo_lat, topo_lon, topo_z = topo[0], topo[1], topo[2]
-            elif ext == "nc":
-                topo = Dataset(topography)
-                topo_lat, topo_lon, topo_z = (
-                    topo.variables["lat"][:],
-                    topo.variables["lon"][:],
-                    topo.variables["z"][:],
-                )
-                if len(topo_lon.shape) == 1:
-                    topo_lon, topo_lat = np.meshgrid(topo_lon, topo_lat)
-            else:
-                assert False, "Unknown topography file extension!"
-        else:  # assume topography is array with 3 columns (lat,lon,z)
-            topo_lat, topo_lon, topo_z = topography[0], topography[1], topography[2]
-
-        topo_z[topo_z < -1] = -1  # discard elevation above sea level
-        BC = ax.contour(
-            topo_lon,
-            topo_lat,
-            topo_z,
-            colors="lightblue",
-            levels=depth_contours,
-            linewidths=0.3,
-            transform=ccrs.PlateCarree(),
-        )
-        clabels = ax.clabel(BC, depth_contours, fontsize=4, fmt="%i")
-        print(clabels)
-        if clabels is not None:
-            for txt in clabels:
-                txt.set_bbox(dict(facecolor="none", edgecolor="none", pad=0, alpha=0.0))
-        ax.contour(topo_lon, topo_lat, topo_z, levels=[0.1], colors="k", linewidths=0.5)
-        ax.contourf(
-            topo_lon, topo_lat, topo_z, levels=[-1, 1], colors=["lightgray", "white"]
-        )
-    else:  # if no topography is provided
-        ax.add_feature(
-            cartopy.feature.GSHHSFeature(
-                scale="auto", facecolor="lightgray", linewidth=0.5
-            )
-        )
-
     gl = ax.gridlines(
         crs=ccrs.PlateCarree(),
         draw_labels=True,
@@ -4978,76 +5575,146 @@ def plot_empty_map(
     return fig, ax
 
 
-def plot_CTD_ts(CTD, stations=None, pref=0):
-    """
-    Plots a TS diagram of selected stations from a CTD dataset.
-    Parameters
-    ----------
-    CTD : dict
-        Dictionary containing the CTD data.
-    stations : array-like, optional
-        The desired stations. The default is all stations in CTD.
-    pref : TYPE, optional
-        Which reference pressure to use. The following options exist:\n
-        0:    0 dbar\n
-        1: 1000 dbar\n
-        2: 2000 dbar\n
-        3: 3000 dbar\n
-        4: 4000 dbar\n
-        The default is 0.
-    Returns
-    -------
-    None.
-    """
-    # select only input stations
-    if stations is not None:
-        CTD = {key: CTD[key] for key in stations}
+def plot_CTD_ts(
+    CTD: str | dict,
+    stations: str | npt.ArrayLike = None,
+    pref: int = 0,
+    legend: bool = True,
+) -> None:
+    """Plots a TS diagram of selected stations from a CTD dataset.
 
-    max_S = max([np.nanmax(value["SA"]) for value in CTD.values()]) + 0.1
-    min_S = min([np.nanmin(value["SA"]) for value in CTD.values()]) - 0.1
+    Args:
+        CTD (dict or str): Either a dictionary with CTD data or a string with the path.
+            - Path can lead to a .npy file or a directory with .cnv files, check read_CTD.
+        stations (str or npt.ArrayLike, optional): The desired station(s). Defaults to None.
+            - If None, selects all.
+        pref (int, optional): Pressure to use. Defaults to 0.
+            Options:
+                - 0:    0 dbar
+                - 1: 1000 dbar
+                - 2: 2000 dbar
+                - 3: 3000 dbar
+                - 4: 4000 dbar
+        legend (bool, optional): If the legend should be displayed. Defaults to True.
 
-    max_T = max([np.nanmax(value["CT"]) for value in CTD.values()]) + 0.5
-    min_T = min([np.nanmin(value["CT"]) for value in CTD.values()]) - 0.5
+    Returns:
+        None
+    """
+    # Check if the function has data to work with
+    if not isinstance(CTD, (dict, str)):
+        raise TypeError(
+            f"'CTD' should be a dict or a npy file string with the data, not {type(CTD).__name__}."
+        )
+
+    # read in the data (only needed if no CTD-dict, but a file was given)
+    if type(CTD) is str:
+        CTD = read_CTD(CTD)
+    # check if data is there
+    if type(CTD) is dict and len(CTD) == 0:
+        raise ValueError(
+            "The CTD data is empty! Please provide a valid CTD data dictionary or file."
+        )
+
+    # Check if all stations given are found in the data
+    if stations is None:
+        stations = CTD.keys()
+    if not pd.api.types.is_list_like(stations):
+        raise TypeError(
+            f"'stations' should be a list of strings, not a {type(stations).__name__}."
+        )
+
+    notfound_stations: list = [key for key in stations if not key in list(CTD.keys())]
+    if len(notfound_stations) != 0:
+        logging.info(
+            f"The stations '{notfound_stations}' are not in the CTD data. Proceeding without them."
+        )
+        for i in notfound_stations:
+            stations.remove(i)
+        if len(stations) == 0:
+            raise ValueError(f"There are no CTD stations left.")
+
+    if not isinstance(pref, int):
+        raise ValueError(f"'pref' should be an int, not {type(pref).__name__}.")
+    if pref < 0 or pref > 4:
+        raise ValueError(
+            f"'pref' should be in a the range between 0 and 4, not {pref}."
+        )
+
+    if not isinstance(legend, bool):
+        raise ValueError(f"'legend' should be a bool, not {type(legend).__name__}.")
+
+    max_S = max([np.nanmax(value["SA [g/kg]"]) for value in CTD.values()]) + 0.1
+    min_S = min([np.nanmin(value["SA [g/kg]"]) for value in CTD.values()]) - 0.1
+
+    max_T = max([np.nanmax(value["CT [degC]"]) for value in CTD.values()]) + 0.5
+    min_T = min([np.nanmin(value["CT [degC]"]) for value in CTD.values()]) - 0.5
 
     create_empty_ts((min_T, max_T), (min_S, max_S), p_ref=pref)
 
     # Plot the data in the empty TS-diagram
     for station in CTD.values():
         plt.plot(
-            station["SA"],
-            station["CT"],
+            station["SA [g/kg]"],
+            station["CT [degC]"],
             linestyle="none",
             marker=".",
             label=station["unis_st"],
         )
 
-    if len(CTD.keys()) > 1:
-        plt.legend(ncol=2, framealpha=1, columnspacing=0.7, handletextpad=0.4)
+    if len(CTD.keys()) > 1 and legend:
+        plt.legend(
+            bbox_to_anchor=(1.0, 1.02),
+            loc="upper left",
+            ncol=2,
+            framealpha=1,
+            columnspacing=0.7,
+            handletextpad=0.4,
+        )
+    plt.tight_layout()
 
-    return
+    return None
 
 
-def create_empty_ts(T_extent, S_extent, p_ref=0):
+def create_empty_ts(
+    T_extent: npt.ArrayLike, S_extent: npt.ArrayLike, p_ref: int = 0
+) -> None:
+    """Creates an empty TS-diagram to plot data into.
+
+    Args:
+        T_extent (array_like): (2, ) The minimum and maximum conservative temperature.
+        S_extent (array_like): (2, ) The minimum and maximum absolute salinity.
+        pref (int, optional): Pressure to use. Defaults to 0.
+            Options:
+                - 0:    0 dbar
+                - 1: 1000 dbar
+                - 2: 2000 dbar
+                - 3: 3000 dbar
+                - 4: 4000 dbar
+
+    Returns:
+        None
     """
-    Creates an empty TS-diagram to plot data into.
-    Parameters
-    ----------
-    T_extent : (2,) array_like
-        The minimum and maximum conservative temperature.
-    S_extent : (2,) array_like
-        The minimum and maximum absolute salinity.
-    p_ref : int, optional
-        Which reference pressure to use. The following options exist:\n
-        0:    0 dbar\n
-        1: 1000 dbar\n
-        2: 2000 dbar\n
-        3: 3000 dbar\n
-        4: 4000 dbar\n
-        The default is 0.
-    Returns
-    -------
-    None.
-    """
+
+    if not pd.api.types.is_list_like(T_extent):
+        raise ValueError(
+            f"'T_extent' should be array_like, not {type(T_extent).__name__}."
+        )
+    if len(T_extent) != 2:
+        raise ValueError(f"'T_extent' should have the length 2, not {len(T_extent)}.")
+
+    if not pd.api.types.is_list_like(S_extent):
+        raise ValueError(
+            f"'S_extent' should be array_like, not {type(S_extent).__name__}."
+        )
+    if len(S_extent) != 2:
+        raise ValueError(f"'S_extent' should have the length 2, not {len(S_extent)}.")
+
+    if not isinstance(p_ref, int):
+        raise ValueError(f"'p_ref' should be an int, not {type(p_ref).__name__}.")
+    if p_ref < 0 or p_ref > 4:
+        raise ValueError(
+            f"'p_ref' should be in a the range between 0 and 4, not {p_ref}."
+        )
 
     sigma_functions = [gsw.sigma0, gsw.sigma1, gsw.sigma2, gsw.sigma3, gsw.sigma4]
     T = np.linspace(T_extent[0], T_extent[1], 100)
@@ -5062,55 +5729,65 @@ def create_empty_ts(T_extent, S_extent, p_ref=0):
 
     plt.ylabel("Conservative Temperature [°C]")
     plt.xlabel("Absolute Salinity [g kg$^{-1}$]")
-    plt.title("$\Theta$ - $S_A$ Diagram")
+    plt.title("$\\Theta$ - $S_A$ Diagram")
     if p_ref > 0:
-        plt.title("Density: $\sigma_{" + str(p_ref) + "}$", loc="left", fontsize=10)
+        plt.title("Density: $\\sigma_{" + str(p_ref) + "}$", loc="left", fontsize=10)
 
-    return
+    return None
 
 
-def check_VM_ADCP_map(ds):
-    """
-    Small function to produce an interactive map of the VM-ADCP measurements. This can be used to easily determine the times to use in a section plot (see example notebook!).
+def check_VM_ADCP_map(ds: xr.Dataset) -> None:
+    """Creates an interactive map of VM-ADCP measurements to help select time intervals for section plots.
 
-    Parameters
-    ----------
-    ds : xarray dataset
-        Either from Codas or WinADCP.
+    Args:
+        ds (xr.Dataset): Dataset from CODAS or WinADCP.
 
-    Returns
-    -------
-    None.
-
+    Returns:
+        None
     """
 
     df = ds[["time", "lat", "lon"]].to_pandas()
     df["time"] = df.index
 
-    fig = px.scatter_mapbox(df, lon="lon", lat="lat", hover_data="time")
+    # deprecated!!!
+    fig = px.scatter_map(
+        df,
+        "lat",
+        "lon",
+        hover_data=["time"],
+    )
     fig.update_layout(mapbox_style="open-street-map"),
     pplot(fig)
 
-    return
+    return None
 
 
-def plot_tidal_spectrum(data, constituents=["M2"]):
+def plot_tidal_spectrum(
+    data: pd.Series | tide, constituents: list[str] = ["M2"]
+) -> tuple[plt.Figure, matplotlib.axes.Axes]:
+    """Plots the tidal spectrum and marks specified tidal constituents.
+
+    Args:
+        data (pd.Series or tide): Time series of spectral data (output of 'calculate_tidal_spectrum' or a tide object).
+        constituents (list[str], optional): List of tidal constituents to mark on the plot. Defaults to ["M2"].
+
+    Returns:
+        tuple[plt.Figure, matplotlib.axes.Axes]:
+            - The figure of the plot.
+            - The axes of the plot.
     """
-    Function to plot a tidal spectrum and add indicators for a set of tidal frequencies. A complete list of all available tidal constituents can be printed with 'print(list(uptide.tidal.omega.keys()))'.
 
-    Parameters
-    ----------
-    data : pd.Series
-        time Series of spectral data (output of the function 'calculate_tidal_spectrum')
-    constituents : list, optional
-        List with constituents to add to the plot. Default is ['M2'].
+    if isinstance(data, tide):
+        if not hasattr(data, "spectrum"):
+            raise ValueError(
+                "The provided tide object does not have a 'spectrum' attribute."
+            )
+        else:
+            data = data.spectrum
 
-    Returns
-    -------
-        fig, ax : Handles of the created figure.
-    """
-
-    omega_dict = dict(zip(utide.ut_constants.const.name, utide.ut_constants.const.freq))
+    omega_dict: dict = dict(
+        zip(utide.ut_constants.const.name, utide.ut_constants.const.freq)
+    )
     tidal_freqs = np.array([omega_dict[c] for c in constituents])
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
@@ -5118,7 +5795,7 @@ def plot_tidal_spectrum(data, constituents=["M2"]):
     ax.grid()
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xticks(24 * tidal_freqs)
+    ax.set_xticks(24 * tidal_freqs)  # per day
     ax.set_xticklabels(constituents)
     ax.minorticks_off()
     ax.set_xlim(right=data.index[-1])
@@ -5128,67 +5805,83 @@ def plot_tidal_spectrum(data, constituents=["M2"]):
 
 
 def plot_map_tidal_ellipses(
-    amp_major,
-    amp_minor,
-    inclin,
-    theta,
-    constituents,
-    lat_center=78.122,
-    lon_center=14.26,
-    map_extent=[11.0, 16.0, 78.0, 78.3],
-    topography=None,
-):
+    amp_major: npt.ArrayLike,
+    amp_minor: npt.ArrayLike,
+    inclin: npt.ArrayLike,
+    constituents: npt.ArrayLike,
+    lat_center: num.Number = 78.122,
+    lon_center: num.Number = 14.26,
+    map_extent: list[num.Number, num.Number, num.Number, num.Number] = [
+        11.0,
+        16.0,
+        78.0,
+        78.3,
+    ],
+    topography: str = None,
+) -> tuple[plt.Figure, matplotlib.axes.Axes, Any]:
     """
-    Function to plot tidal ellipses on a map.
-    Parameters
-    ----------
-    amp_major : array
-        Amplitudes along the major axis, one element for each specified tidal constituent (see below).
-    amp_minor : array
-        Amplitudes along the minor axis, one element for each specified tidal constituent (see below).
-    inclin : array
-        Inclination of the ellipses, one element for each specified tidal constituent (see below).
-    theta : array
-        Phase of the maximum current, one element for each specified tidal constituent (see below).
-    constituents : list
-        List with the names of the constituent, for the legend.
-    lat_center : float, optional
-        Center position for the ellipses. Typically the position of the mooring that measured the data. Default is the approximate position of IS-E.
-    lon_center : float, optional
-        Center position for the ellipses. Typically the position of the mooring that measured the data. Default is the approximate position of IS-E.
-    map_extent : list, optional
-        List with order lon_min, lon_max, lat_min, lat_max. Specifies the area limits to plot on the map.
-    topography : str or array-like, optional
-        Either a file or an array with topography data.
-        If topography is given in a file, three filetypes are supported:
-            - .nc, in that case the file should contain the variables
-              'lat', 'lon', and 'z'
-            - .mat, in that case the file should contain the variables
-              'lat', 'lon', and 'D'
-            - .npy, in that case the file should contain an array with
-              lat, lon and elevation as columns (and total size 3 x lon x lat)
-        If topography is given as an array, it should be an array with
-              lat, lon and elevation as columns (and total size 3 x lon x lat)
-        The default is None, then no bathymetry
-        will be plotted.
+    Plots tidal ellipses for specified tidal constituents on a map.
 
-    Returns
-    -------
-        fig, ax_map, ellipse_inset : Handles of the created figure.
+    Args:
+        amp_major (array_like): Amplitudes along the major axis, one element for each specified tidal constituent.
+        amp_minor (array_like): Amplitudes along the minor axis, one element for each specified tidal constituent.
+        inclin (array_like): Inclination of the ellipses, one element for each specified tidal constituent.
+        constituents (array_like): List with the names of the constituent, for the legend.
+        lat_center (float, optional): Center latitude for the ellipses. Typically the position of the mooring that measured the data. Defaults to IS-E position.
+        lon_center (float, optional): Center longitude for the ellipses. Typically the position of the mooring that measured the data. Defaults to IS-E position.
+        map_extent (list[float], optional): List with [lon_min, lon_max, lat_min, lat_max]. Specifies the area limits to plot on the map. Defaults to [11.0, 16.0, 78.0, 78.3].
+        topography (str or array_like, optional): Topography data. Can be:
+            - Path to a .nc file (should contain 'lat', 'lon', 'z').
+            - Path to a .mat file (should contain 'lat', 'lon', 'D').
+            - Path to a .npy file (should contain array with lat, lon, elevation as columns).
+            - Array_like with lat, lon, elevation as columns.
+            - None for no bathymetry. Defaults to None.
+
+    Returns:
+        tuple[plt.Figure, matplotlib.axes.Axes, AxesHostAxes]:
+            - Figure object of the map.
+            - Axes object for the map.
+            - Axes object for the ellipse inset.
     """
 
-    phi = np.linspace(0, 2 * np.pi, 1000)
+    if not pd.api.types.is_list_like(amp_major):
+        raise ValueError(
+            f"'amp_major' should be array_like, not {type(amp_major).__name__}."
+        )
+    if not pd.api.types.is_list_like(amp_minor):
+        raise ValueError(
+            f"'amp_minor' should be array_like, not {type(amp_minor).__name__}."
+        )
+    if not pd.api.types.is_list_like(inclin):
+        raise ValueError(f"'inclin' should be array_like, not {type(inclin).__name__}.")
+    if not pd.api.types.is_list_like(constituents):
+        raise ValueError(
+            f"'constituents' should be array_like, not {type(constituents).__name__}."
+        )
+    if (
+        len(amp_major) != len(amp_minor)
+        or len(amp_major) != len(inclin)
+        or len(amp_major) != len(constituents)
+    ):
+        raise ValueError(
+            f"'amp_major', 'amp_minor', 'inclin' and 'constituents' should have the same length, not {len(amp_major)}, {len(amp_minor)}, {len(inclin)} and {len(constituents)}."
+        )
+
+    if not isinstance(lat_center, num.Number):
+        raise ValueError(
+            f"'lat_center' should be a number, not {type(lat_center).__name__}."
+        )
+
+    if not isinstance(lon_center, num.Number):
+        raise ValueError(
+            f"'lon_center' should be a number, not {type(lon_center).__name__}."
+        )
 
     fig, ax_map = plot_empty_map(extent=map_extent, topography=topography)
 
-    inset_size = 0.3
+    phi = np.linspace(0, 2 * np.pi, 1000)
+    inset_size = 2.2
 
-    """x, y = ax_map.projection.transform_point(lon_center, lat_center, ccrs.PlateCarree())
-    data2axes = (ax_map.transAxes + ax_map.transData.inverted()).inverted()
-    xp, yp = data2axes.transform((x, y))
-    ip = InsetPosition(ax_map, [xp - inset_size / 2, yp - inset_size / 2, inset_size, inset_size])
-    ellipse_inset = fig.add_axes((0, 0, 1, 1))
-    ellipse_inset.set_axes_locator(ip)"""
     ellipse_inset = inset_axes(
         ax_map,
         width=inset_size,
@@ -5196,38 +5889,553 @@ def plot_map_tidal_ellipses(
         loc="center",
         bbox_to_anchor=(lon_center, lat_center),
         bbox_transform=ax_map.transData,
-    )  # should work, not sure, didn't test
+        borderpad=0.0,
+    )
     ellipse_inset.axis("off")
     ellipse_inset.set_facecolor("none")
     ellipse_inset.tick_params(labelleft=False, labelbottom=False)
     ellipse_inset.grid(False)
     ellipse_inset.set_aspect(1.0)
 
-    for i, (a, b, t, g) in enumerate(zip(amp_major, amp_minor, inclin, theta)):
+    for i, (a, b, t) in enumerate(zip(amp_major, amp_minor, inclin)):
         E = np.array([a * np.cos(phi), b * np.sin(phi)])
+        t = np.radians(t)
         R_rot = np.squeeze(np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]))
         E_rot = np.zeros((2, E.shape[1]))
-        for j in range(E.shape[1]):
-            E_rot[:, j] = np.dot(R_rot, E[:, j])
+
+        E_rot = R_rot @ E
 
         ellipse_inset.plot(E_rot[0, :], E_rot[1, :], c=f"C{i}", label=constituents[i])
-
-        ind = np.where(abs(t - g) == np.nanmin(abs(t - g)))[0][0]
-
         ellipse_inset.annotate(
             "",
-            xy=(E_rot[0, ind], E_rot[1, ind]),
+            xy=E_rot[:, 0],
             xycoords="data",
             xytext=(0.0, 0.0),
             textcoords="data",
             arrowprops=dict(arrowstyle="-|>", connectionstyle="arc3", color=f"C{i}"),
         )
 
-        ellipse_inset.legend(
-            ncol=len(constituents), bbox_to_anchor=(1.65, 3.85), loc="upper right"
-        )
+    if len(constituents) == 1:
+        ax_map.title(constituents[0])
+    else:
+        n_col_size = len(constituents) if len(constituents) <= 7 else 7
+        fig.legend(ncol=n_col_size, bbox_to_anchor=(0.5, 0.990), loc="lower center")
 
     return fig, ax_map, ellipse_inset
+
+
+def plot_tidal_ellipses(
+    amp_major: npt.ArrayLike,
+    amp_minor: npt.ArrayLike,
+    inclin: npt.ArrayLike,
+    constituents: npt.ArrayLike,
+    muliple_plots: bool = False,
+    n_row_col: tuple[int, int] = None,
+) -> tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
+    """Function to plot tidal ellipses in a TS-diagram.
+
+    Args:
+        amp_major (array_like): Amplitudes along the major axis, one element for each specified tidal constituent.
+        amp_minor (array_like): Amplitudes along the minor axis, one element for each specified tidal constituent.
+        inclin (array_like): Inclination of the ellipses, one element for each specified tidal constituent.
+        constituents (array_like): List with the names of the constituent, for the legend.
+        muliple_plots (bool, optional): If True, plot each constituent in a separate subplot. Defaults to False.
+        n_row_col (tuple[int, int], optional): Tuple specifying (nrows, ncols) for subplots. If None, tries to guess. Defaults to None.
+
+    Returns:
+        tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
+            - Figure object.
+            - Axes object(s).
+    """
+    if not pd.api.types.is_list_like(amp_major):
+        raise ValueError(
+            f"'amp_major' should be array_like, not {type(amp_major).__name__}."
+        )
+    if not pd.api.types.is_list_like(amp_minor):
+        raise ValueError(
+            f"'amp_minor' should be array_like, not {type(amp_minor).__name__}."
+        )
+    if not pd.api.types.is_list_like(inclin):
+        raise ValueError(f"'inclin' should be array_like, not {type(inclin).__name__}.")
+    if not pd.api.types.is_list_like(constituents):
+        raise ValueError(
+            f"'constituents' should be array_like, not {type(constituents).__name__}."
+        )
+    if (
+        len(amp_major) != len(amp_minor)
+        or len(amp_major) != len(inclin)
+        or len(amp_major) != len(constituents)
+    ):
+        raise ValueError(
+            f"'amp_major', 'amp_minor', 'inclin' and 'constituents' should have the same length, not {len(amp_major)}, {len(amp_minor)}, {len(inclin)} and {len(constituents)}."
+        )
+
+    if not isinstance(muliple_plots, bool):
+        raise ValueError(
+            f"'muliple_plots' should be a bool, not {type(muliple_plots).__name__}."
+        )
+
+    if n_row_col is not None and not isinstance(n_row_col, tuple):
+        raise ValueError(
+            f"'n_row_col' should be a tuple with two integers, not {type(n_row_col).__name__}."
+        )
+    if n_row_col is not None and len(n_row_col) != 2:
+        raise ValueError(
+            f"'n_row_col' should be a tuple with two integers, not {len(n_row_col)}."
+        )
+
+    phi = np.linspace(0, 2 * np.pi, 1000)
+    if muliple_plots:
+        if len(constituents) <= 1:
+            raise ValueError(
+                "If 'muliple_plots' is True, 'constituents' should have more than one element."
+            )
+        if n_row_col is None:
+            if len(constituents) % 3 == 0:
+                n_row_col = (len(constituents) // 3, 3)
+            elif len(constituents) % 4 == 0:
+                n_row_col = (len(constituents) // 4, 4)
+            elif len(constituents) % 2 == 0:
+                n_row_col = (len(constituents) // 2, 2)
+            else:
+                n_row_col = (len(constituents) // 3 + 1, 3)
+        elif not isinstance(n_row_col, tuple) or len(n_row_col) != 2:
+            raise ValueError(
+                f"'n_row_col' should be a tuple with two integers, not {n_row_col}."
+            )
+        fig, axes = plt.subplots(
+            ncols=n_row_col[1],
+            nrows=n_row_col[0],
+            figsize=(n_row_col[1] * 3, n_row_col[0] * 3),
+        )
+        flat_axes = axes.flatten()
+        max_a = np.max(amp_major) * 1.1
+    else:
+        fig, axes = plt.subplots(ncols=1, nrows=1, figsize=(3, 3))
+        flat_axes = [axes]
+        max_a = np.max(amp_major) * 1.1
+
+    for i, (a, b, t, n) in enumerate(zip(amp_major, amp_minor, inclin, constituents)):
+        if not muliple_plots:
+            ind = 0  # always plot in the first axes
+        else:
+            ind: int = i  # as index for the axes
+            i = 0  # same color for all ellipses
+            flat_axes[ind].set_xlim(-max_a, max_a)
+            flat_axes[ind].set_ylim(-max_a, max_a)
+            flat_axes[ind].set_aspect("equal")
+            flat_axes[ind].grid()
+
+        E = np.array([a * np.cos(phi), b * np.sin(phi)])
+        R_rot = np.squeeze(np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]))
+        E_rot = np.zeros((2, E.shape[1]))
+        E_rot = R_rot @ E
+
+        flat_axes[ind].plot(E_rot[0, :], E_rot[1, :], label=n, color=f"C{i}")
+        flat_axes[ind].annotate(
+            "",
+            xy=(E_rot[0, 0], E_rot[1, 0]),
+            xycoords="data",
+            xytext=(0.0, 0.0),
+            textcoords="data",
+            arrowprops=dict(arrowstyle="-|>", connectionstyle="arc3", color=f"C{i}"),
+        )
+
+        if muliple_plots:
+            flat_axes[ind].set_title(n)
+
+    if not muliple_plots:
+        axes.grid()
+        n_col_size: int = len(constituents) if len(constituents) <= 7 else 7
+        fig.legend(ncol=n_col_size, bbox_to_anchor=(0.5, 0.90), loc="lower center")
+    else:
+        fig.subplots_adjust(hspace=0.3, wspace=0.3)
+
+    return fig, axes
+
+
+def plot_tidal_time_series(
+    data: npt.ArrayLike,
+    time: npt.ArrayLike,
+    transparent_data: npt.ArrayLike | None = None,
+    data_args: list[dict] | dict | None = None,
+    transparent_data_args: dict | None = None,
+    label: str | list[str] | None = None,
+    transparent_labels: str | list[str] | None = None,
+    moon_phase: list[list, list] | bool = True,
+    moon_apsides: list[list, list] | bool = True,
+    figsize: tuple[int, int] = None,
+) -> tuple[plt.figure, matplotlib.axes.Axes]:
+    """Plots a time series of tidal data with optional transparency and moon phase/orbit overlays.
+
+    Args:
+        data (array_like): Data to be plotted, can be 1D or 2D.
+        time (array_like): Time values corresponding to the data, should match the length of data.
+        transparent_data (array_like or None, optional): Data to be plotted ontop of 'data'. Defaults to None.
+        data_args (list[dict] or dict or None, optional): Arguments to give to plt.plot. Defaults to None.
+            - If None, uses default arguments.
+            - If dict, applies the same arguments to all data.
+            - If list of dicts, applies each dict to the corresponding data.
+        transparent_data_args (dict or None, optional): Arguments to give to plt.plot. Defaults to None.
+            - If None, uses default arguments.
+            - If dict, applies the same arguments to all transparent data.
+            - If list of dicts, applies each dict to the corresponding transparent data.
+        label (str or list[str] or None, optional): Label for the normal data. Defaults to None.
+            - If None, no label is used.
+            - If str, applies the same label to all data.
+            - If list of str, applies each label to the corresponding data.
+        transparent_labels (str or list[str] or None, optional): Label for the transparent data. Defaults to None.
+            - If None, no label is used.
+            - If str, applies the same label to all transparent data.
+            - If list of str, applies each label to the corresponding transparent data.
+        moon_phase (list[list, list] or bool, optional): Used to include the moon phases (full and new). Defaults to True.
+            - If True, uses the default moon phases.
+            - If list, should contain two lists with the full and new moon dates.
+            - If False, no moon phases are plotted.
+        moon_apsides (list[list, list] or bool, optional): Used to include the apsides (apogee and perigee). Defaults to True.
+            - If True, uses the default apsides.
+            - If list, should contain two lists with the apogee and perigee dates.
+            - If False, no apsides are plotted.
+        figsize (tuple[int, int], optional): Sets the used figsize. Defaults to None.
+            - If None, uses the default figsize of (10, 5 * number_of_subplots / 1.5).
+            - Also used to set the size of markers in the plot.
+
+    Returns:
+        tuple[plt.figure, matplotlib.axes.Axes]:
+            - Figure object of the plot.
+            - Axes object of the plot.
+    """
+
+    if not pd.api.types.is_list_like(data):
+        raise ValueError(f"'data' should be array_like, not {type(data).__name__}.")
+    data = np.asarray(data)
+    number = 1 if data.ndim == 1 else data.shape[0]
+
+    if not pd.api.types.is_list_like(time):
+        raise ValueError(f"'time' should be array_like, not {type(time).__name__}.")
+    if data.ndim == 1 and len(time) != len(data):
+        raise ValueError(
+            f"'data' and 'time' should have the same length, not {len(data)} and {len(time)}."
+        )
+    elif data.ndim == 2 and len(time) != data.shape[1]:
+        raise ValueError(
+            f"'data' and 'time' should have the same length, not {data.shape[1]} and {len(time)}."
+        )
+    elif data.ndim > 2:
+        raise ValueError(f"'data' should be 1D or 2D array_like, not {data.ndim}.")
+
+    if transparent_data is not None:
+        if not pd.api.types.is_list_like(transparent_data):
+            raise ValueError(
+                f"'transparent_data' should be array_like, not {type(transparent_data).__name__}."
+            )
+        transparent_data = np.asarray(transparent_data)
+        if transparent_data.ndim == 1 and len(time) != len(transparent_data):
+            raise ValueError(
+                f"'transparent_data' and 'time' should have the same length, not {len(transparent_data)} and {len(time)}."
+            )
+        elif transparent_data.ndim == 2 and len(time) != transparent_data.shape[1]:
+            raise ValueError(
+                f"'transparent_data' and 'time' should have the same length, not {transparent_data.shape[1]} and {len(time)}."
+            )
+        elif transparent_data.ndim > 2:
+            raise ValueError(
+                f"'transparent_data' should be 1D or 2D array_like, not {transparent_data.ndim}."
+            )
+
+    if data_args is None:
+        data_args = [{} for _ in range(number)]
+    elif isinstance(data_args, dict):
+        data_args = [data_args for _ in range(number)]
+    elif pd.api.types.is_list_like(data_args):
+        if len(data_args) != number:
+            raise ValueError(
+                f"'data_args' should have the same length as 'data', not {len(data_args)}."
+            )
+        for i in data_args:
+            if not isinstance(i, dict):
+                raise ValueError(
+                    f"Each element in 'data_args' should be a dict, not {type(i).__name__}."
+                )
+    else:
+        raise ValueError(
+            f"'data_args' should be a dict or a list of dicts, not {type(data_args).__name__}."
+        )
+
+    if transparent_data is not None and transparent_data_args is None:
+        transparent_data_args = [{} for _ in range(number)]
+    elif isinstance(transparent_data_args, dict):
+        transparent_data_args = [transparent_data_args for _ in range(number)]
+    elif pd.api.types.is_list_like(transparent_data_args):
+        if len(transparent_data_args) != number:
+            raise ValueError(
+                f"'transparent_data_args' should have the same length as 'data', not {len(transparent_data_args)}."
+            )
+        for i in transparent_data_args:
+            if not isinstance(i, dict):
+                raise ValueError(
+                    f"Each element in 'transparent_data_args' should be a dict, not {type(i).__name__}."
+                )
+    elif transparent_data is not None:
+        raise ValueError(
+            f"'transparent_data_args' should be a dict or a list of dicts, not {type(transparent_data_args).__name__}."
+        )
+
+    if not isinstance(label, (str, list, type(None))):
+        raise ValueError(
+            f"'label' should be a string, list of strings or None, not {type(label).__name__}."
+        )
+    if isinstance(label, str):
+        label = [label for _ in range(number)]
+    label = label if label is not None else ["" for _ in range(number)]
+    if len(label) != number:
+        raise ValueError(
+            f"'label' should have the same length as 'data', not {len(label)}."
+        )
+
+    if transparent_data is not None:
+        if isinstance(transparent_labels, str):
+            transparent_labels = [transparent_labels for _ in range(number)]
+        elif transparent_labels is None:
+            transparent_labels = ["" for _ in range(number)]
+        elif not pd.api.types.is_list_like(transparent_labels):
+            raise ValueError(
+                f"'transparent_labels' should be a string, list of strings or None, not {type(transparent_labels).__name__}."
+            )
+        if len(transparent_labels) != number:
+            raise ValueError(
+                f"'transparent_labels' should have the same length as 'data', not {len(transparent_labels)}."
+            )
+
+    if not isinstance(moon_phase, (list, bool)):
+        raise ValueError(
+            f"'moon_phase' should be a list or bool, not {type(moon_phase).__name__}."
+        )
+    elif isinstance(moon_phase, list):
+        for i in moon_phase:
+            try:
+                pd.to_datetime(i)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"Each element in 'moon_phase' should be a valid date string or datetime object, not {i}."
+                )
+    if moon_phase is not False:
+        if isinstance(moon_phase, list):
+            moon_phase = (
+                pd.to_datetime(moon_phase)
+                .sort_values()
+                .clip(lower=min(time), upper=max(time))
+            )
+        else:
+            current = eph.Date(min(time))
+            end = eph.Date(max(time))
+            full_moons = []
+            new_moons = []
+
+            next_full = eph.next_full_moon(current)
+            next_new = eph.next_new_moon(current)
+
+            while next_full < end:
+                full_moons.append(eph.localtime(next_full))
+                next_full = eph.next_full_moon(next_full)
+
+            while next_new < end:
+                new_moons.append(eph.localtime(next_new))
+                next_new = eph.next_new_moon(next_new)
+            moon_phase = [full_moons, new_moons]
+
+    if not isinstance(moon_apsides, (list, bool)):
+        raise ValueError(
+            f"'moon_apsides' should be a list or bool, not {type(moon_apsides).__name__}."
+        )
+    elif isinstance(moon_apsides, list):
+        for i in moon_apsides:
+            try:
+                pd.to_datetime(i)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"Each element in 'moon_apsides' should be a valid date string or datetime object, not {i}."
+                )
+    if moon_apsides is not False:
+        if isinstance(moon_apsides, list):
+            moon_apsides = pd.to_datetime(moon_apsides).sort_values()
+            moon_apsides = moon_apsides[
+                (moon_apsides >= min(time)) & (moon_apsides <= max(time))
+            ]
+
+        else:
+            observer = eph.Observer()
+            dates = []
+            distances = []
+            current = eph.Date(min(time)) - 30
+            end = eph.Date(max(time)) + 30
+
+            while current < end:
+                observer.date = current
+                moon = eph.Moon(observer)
+                dates.append(eph.localtime(current))
+                distances.append(moon.earth_distance)
+                current += 0.1
+
+            distances = np.array(distances)
+            dates = np.array(dates)
+
+            apogee_indices, _ = signal.find_peaks(distances, distance=150)
+            apogee_dates = []
+            # debuging
+            # apogee_dists = []
+            for i in apogee_indices:
+                apogee_dates.append(dates[i])
+                # apogee_dists.append(distances[i])
+
+            perigee_indices, _ = signal.find_peaks(-distances, distance=150)
+            perigee_dates = []
+            # debuging
+            # perigee_dists = []
+            for i in perigee_indices:
+                perigee_dates.append(dates[i])
+                # perigee_dists.append(distances[i])
+
+            apogee_dates = pd.to_datetime(apogee_dates)
+            apogee_dates = apogee_dates[
+                (apogee_dates >= min(time)) & (apogee_dates <= max(time))
+            ]
+
+            perigee_dates = pd.to_datetime(perigee_dates)
+            perigee_dates = perigee_dates[
+                (perigee_dates >= min(time)) & (perigee_dates <= max(time))
+            ]
+            moon_apsides = [
+                list(apogee_dates.to_pydatetime()),
+                list(perigee_dates.to_pydatetime()),
+            ]
+
+    if figsize is None:
+        figsize = (10, 5 * number / 1.5)
+    if not isinstance(figsize, tuple):
+        raise ValueError(
+            f"'figsize' should be a tuple of two integers, not {type(figsize).__name__}."
+        )
+    if len(figsize) != 2:
+        raise ValueError(
+            f"'figsize' should be a tuple of two integers, not {len(figsize)}."
+        )
+
+    fig, axes = plt.subplots(number, 1, figsize=figsize, sharex=True)
+    if number == 1:
+        axes = [axes]
+    for i, (ax, data_arg, name) in enumerate(zip(axes, data_args, label)):
+        data_arg.setdefault("color", f"C{i*2}")
+        data_arg.setdefault("label", name)
+        if transparent_data is not None:
+            data_arg.setdefault("alpha", 0.5)
+        if number > 1:
+            ax.plot(time, data[i, :], **data_arg)
+            data_max = np.nanmax(data[i, :])
+            data_min = np.nanmin(data[i, :])
+        else:
+            ax.plot(time, data, **data_arg)
+            data_max = np.nanmax(data)
+            data_min = np.nanmin(data)
+
+        if transparent_data is not None:
+            transparent_data_args[i].setdefault("color", f"C{i*2+1}")
+            transparent_data_args[i].setdefault("alpha", 0.7)
+            transparent_data_args[i].setdefault("label", transparent_labels[i])
+            if number > 1:
+                ax.plot(
+                    time,
+                    transparent_data[i, :],
+                    **transparent_data_args[i],
+                )
+                if np.nanmax(transparent_data[i, :]) > data_max:
+                    data_max = np.nanmax(transparent_data[i, :])
+                if np.nanmin(transparent_data[i, :]) < data_min:
+                    data_min = np.nanmin(transparent_data[i, :])
+            else:
+                ax.plot(
+                    time,
+                    transparent_data,
+                    **transparent_data_args[i],
+                )
+                if np.nanmax(transparent_data) > data_max:
+                    data_max = np.nanmax(transparent_data)
+                if np.nanmin(transparent_data) < data_min:
+                    data_min = np.nanmin(transparent_data)
+
+        if len(name) != 0:
+            ax.legend()
+
+        if moon_phase is not False or moon_apsides is not False:
+            marker_size = figsize[0] * figsize[1] * 1.5 / number
+        if moon_phase is not False:
+            y_pos = data_max + (data_max - data_min) * 0.05
+            full_m = ax.scatter(
+                moon_phase[0],
+                np.full_like(moon_phase[0], y_pos),
+                edgecolor="black",
+                color="black",
+                s=marker_size,
+                marker="o",
+                label="Full Moon",
+            )
+            new_m = ax.scatter(
+                moon_phase[1],
+                np.full_like(moon_phase[1], y_pos),
+                edgecolor="black",
+                color="white",
+                s=marker_size,
+                marker="o",
+                label="New Moon",
+            )
+
+        if moon_apsides is not False:
+            if moon_phase is not False:
+                y_pos = data_max + (data_max - data_min) * 0.1
+            else:
+                y_pos = data_max + (data_max - data_min) * 0.05
+            apo = ax.scatter(
+                moon_apsides[0],
+                np.full_like(moon_apsides[0], y_pos),
+                color="red",
+                s=marker_size,
+                marker="+",
+                label="Apogee",
+            )
+            peri = ax.scatter(
+                moon_apsides[1],
+                np.full_like(moon_apsides[1], y_pos),
+                color="blue",
+                s=marker_size,
+                marker="1",
+                label="Perigee",
+            )
+
+        ax.xaxis.grid(True)
+
+    handels: list = []
+    labels: list = []
+    if moon_apsides is not False:
+        handels.append(apo)
+        labels.append(apo.get_label())
+        handels.append(peri)
+        labels.append(peri.get_label())
+    if moon_phase is not False:
+        handels.append(full_m)
+        labels.append(full_m.get_label())
+        handels.append(new_m)
+        labels.append(new_m.get_label())
+    if len(handels) > 0:
+        fig.legend(
+            handles=handels,
+            labels=labels,
+            loc="upper left",
+            bbox_to_anchor=(0.99, 0.94),
+        )
+
+    fig.tight_layout(h_pad=0.2, rect=[0, 0, 1, 0.95])
+
+    return fig, axes
 
 
 ############################################################################
@@ -5319,3 +6527,81 @@ def portasal(
         )
         run += 1
     return None
+
+
+# delete:
+if False:
+    codas_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/VM-ADCP/CODAS_processed_data/ENRprocessed/AGF214_2024_os75bb_short.nc"
+    codas_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/VMADCP/CODAS/os75bb_short_LTA.nc"
+    WinADCP_old_p = "/Users/pselle/Documents/Uni/Svalbard/AGF-213/unisacsi_example_data/VMADCP/WinADCP/AGF214_202309_031_LTA.mat"
+    WinADCP_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/VM-ADCP/WinADCP_processed_data/AGF214_202409_015_LTA.mat"
+    tidal_stuff = "/Users/pselle/Documents/Uni/Svalbard/Tidal_models"
+    CTD_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/CTD/binned1db_down"
+    CTD_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/CTD"
+    mooring_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/IS1617.mat"
+    mooring_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/ISE2223.mat"
+    Seaguard_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/SeaGuard/RCM_2282_20231002_1800/2282.txt"
+    LADCP_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/LADCP/LADCP_HH202309_LTA.mat"
+    MSS_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/Dateien von Frank Nilsen - Data/MSS/mat/"
+    MSS_excel_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/Dateien von Frank Nilsen - Data/MSS/MSS_log.xlsx"
+    Mini_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/VEMCO/Minilog-II-T_358945_20240925_1.csv"
+    Mini_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/VEMCO/Minilog-II-T_358945_20230928_1.csv"
+    SBE37_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/SBE37/SBE37SM-RS232_03722999_2023_09_28.cnv"
+    SBE37_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/SBE37SM/37-SM_03723003_2024_09_25.cnv"
+    SBE26_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/sbe26_HO2_1364.tid"
+    RBRc_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/RBRconcerto/206125_20230928_0909.rsk"
+    RBRc_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/RBRconcerto/206124_20240925_2031.rsk"
+    RBRs_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/RBRsolo/205993_20230928_0641_upgraded.rsk"
+    RBRs_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/RBRsolo/205993_20240925_2018.rsk"
+    Thermosal_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Thermosalinograph/*.cnv"
+    # CTD = read_CTD(CTD_new_p)
+    sea = read_Seaguard(Seaguard_p)
+    sea = sea[:-2]
+    sea_an_0 = tide(p=sea["p [dbar]"], t=sea.index, lat=78.122)
+    sea_an_0.reconstruct()
+    sea_0 = read_Seaguard(
+        "/Users/pselle/Documents/Uni/Svalbard/AGF-214/DATA/SeaGuard/RCM_2375_20231002_1800/2375.txt"
+    )
+    vu_ob = tide(t=sea.index, u=sea["u [cm/s]"], v=sea["v [cm/s]"], lat=78)
+    plot_map_tidal_ellipses(
+        vu_ob.constituents["amp_major"][:4],
+        vu_ob.constituents["amp_minor"][:4],
+        vu_ob.constituents["inclination [deg]"][:4],
+        vu_ob.constituents.index[:4],
+        map_extent=[
+            10,
+            17,
+            77.9,
+            78.4,
+        ],
+    )
+    plot_tidal_ellipses(
+        vu_ob.constituents["amp_major"][:4],
+        vu_ob.constituents["amp_minor"][:4],
+        vu_ob.constituents["inclination [deg]"][:4],
+        vu_ob.constituents.index[:4],
+    )
+
+    sea_example = read_Seaguard(
+        "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/SeaGuard/Seaguard_2370.txt"
+    )
+    uv_ex = tide(
+        t=sea_example.index,
+        u=sea_example["u [cm/s]"],
+        v=sea_example["v [cm/s]"],
+        lat=78.122,
+    )
+    fig, ax_map, ax_ellipse = plot_map_tidal_ellipses(
+        uv_ex.constituents["amp_major"][:1],
+        uv_ex.constituents["amp_minor"][:1],
+        uv_ex.constituents["inclination"][:1],
+        uv_ex.constituents.index[:1],
+        lat_center=78.122,
+        lon_center=14.26,
+        map_extent=[11.0, 16.0, 78.0, 78.3],
+        topography=f"/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Svalbard_map_data/bathymetry_svalbard.mat",
+    )
+
+    plot_tidal_time_series(
+        sea_an_0.p, sea_an_0.p.index, moon_apsides=True, moon_phase=True
+    )

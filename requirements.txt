@@ -21,9 +21,10 @@ gsw
 adjusttext
 spectrum
 pytmd
-pytide
+utide
 plotly
 dask-labextension
 windrose
 seaborn
 glob2
+ephem

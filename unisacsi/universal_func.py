@@ -418,6 +418,12 @@ def present_dict(d: dict, offset="") -> None:
                 print(offset, i, ": dict, containing:")
                 present_dict(k, offset=" |" + offset + "       ")
                 print()
+            elif (
+                (1 < np.size(k) < 5)
+                and isinstance(k, (pd.DataFrame, pd.Series, dict))
+                and (type(k.iloc[0]) != dict)
+            ):
+                print(offset, i, ":", k)
             elif (1 < np.size(k) < 5) and (type(k[0]) != dict):
                 print(offset, i, ":", k)
             elif np.size(k) == 1:

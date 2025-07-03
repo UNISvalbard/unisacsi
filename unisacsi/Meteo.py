@@ -13,7 +13,6 @@ meteorological instrument data. This includes:
 The functions were developed at the University Centre in Svalbard. They were
 optimized for the file formats typically used in the UNIS courses.
 """
-# %%
 
 from . import universal_func as uf
 import pandas as pd
@@ -256,7 +255,6 @@ def read_EddyPro_full_output(filepath: str) -> pd.DataFrame:
     df["TIMESTAMP"] = pd.to_datetime(
         df.pop("date") + " " + df.pop("time"), format=date_format + " " + time_format
     )
-    df["TIMESTAMP"] = pd.to_datetime(df["TIMESTAMP"])
     df.set_index("TIMESTAMP", inplace=True)
     df.sort_index(inplace=True)
 
