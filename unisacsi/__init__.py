@@ -28,7 +28,7 @@ from .Ocean import (
     CTD_to_grid,
     CTD_to_xarray,
     section_to_xarray,
-    mooring_into_xarray,
+    mooring_to_xarray,
     calc_freshwater_content,
     myloadmat,
     mat2py_time,
