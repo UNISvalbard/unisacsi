@@ -138,7 +138,7 @@ def std_names(
         ]
         if len(existing_variable) == 1:
             filterd_name: list[str] = [
-                x.lower()
+                x.lower().strip(".")
                 for x in split_name
                 if x not in existing_variable and x not in var_attr
             ]
@@ -147,7 +147,7 @@ def std_names(
         elif existing_variable == ["T", "Humidity"]:
             existing_variable = ["T"]
             filterd_name: list[str] = [
-                x.lower()
+                x.lower().strip(".")
                 for x in split_name
                 if x not in existing_variable and x not in var_attr
             ]
