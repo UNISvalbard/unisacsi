@@ -18,7 +18,14 @@ import matplotlib.axes
 from numpy._typing._array_like import NDArray
 
 # from .
-import universal_func as uf
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html.",
+    category=UserWarning,
+)
+from . import universal_func as uf
 from seabird.cnv import fCNV
 import gsw
 import numpy as np
@@ -44,10 +51,7 @@ import os
 import plotly.express as px
 from plotly.offline import plot as pplot
 
-# from mpl_toolkits.axes_grid1.inset_locator import InsetPosition will look into that later
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
-# import uptide
 import utide
 import spectrum
 from scipy import signal
@@ -63,7 +67,6 @@ import numbers as num
 import time
 from typing import Literal, Any, get_args, overload
 import logging
-import warnings
 import sounddevice as sd
 from collections import Counter
 from itertools import chain
@@ -2897,7 +2900,13 @@ def read_RCM7(filepath: str) -> pd.DataFrame:
         df.drop(columns=["%Y", "MM", "DD", "hh", "mm"], inplace=True)
     df.sort_index(inplace=True)
     df.rename(
-        columns={"U": "u [m/s]", "V": "v [m/s]"}, inplace=True
+        columns={
+            "U": "u [cm/s]",
+            "V": "v [cm/s]",
+            "F": "Speed [cm/s]",
+            "A": "Dir [deg]",
+        },
+        inplace=True,
     )  # needs to be checked
 
     df = uf.std_names(df, add_units=True, module="o")
