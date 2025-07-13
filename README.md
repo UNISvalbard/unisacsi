@@ -56,15 +56,6 @@ Once the environment is created, activate it with:
 conda activate myenv
 ```
 
-Two more packages can only be installed using pip. The first one you will need to process RBR data, the second one provides functionality to do tidal harmonic analyses.
-
-```
-pip install pyrsktools
-pip install uptide
-pip install seabird
-pip install sounddevice
-```
-
 Now you can install the unisacsi toolbox with:
 
 ```
@@ -85,4 +76,4 @@ Start jupyter-notebook inside your newly created environment and open the exampl
 
 ## MET model data download
 
-The configurations for the download of model data from AROME-Arctic or METCoOp is done via a seperate configuration file, which can be downloaded from the github repository (see instructions above) and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specified.
+The configurations for the download of model data from AROME-Arctic or METCoOp is done via a seperate configuration file, which can be downloaded from the github repository (see instructions above) and adjusted to individual needs. When using the toolbox function to download model data, the path to the configuration file has to be specifiedpip install pyrsktools
