@@ -5419,9 +5419,7 @@ def plot_CTD_map(
     CTD_station: dict = {}
     for key in CTD.keys():
         if CTD[key]["unis_st"] in CTD_station.keys():
-            CTD_station[CTD[key]["unis_st"]] = CTD_station[CTD[key]["unis_st"]].append(
-                key
-            )
+            CTD_station[CTD[key]["unis_st"]].append(key)
         else:
             CTD_station[CTD[key]["unis_st"]] = [key]
 
