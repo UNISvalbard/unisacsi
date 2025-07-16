@@ -568,6 +568,34 @@ def CTD_to_xarray(
     return ds
 
 
+def xarray_inspect_duplicates(ds: xr.Dataset) -> None:
+    """Inspect for duplicate station entries in an xarray Dataset.
+    Prints the number of occurrences and details of each duplicate station.
+    Use this information to clean up the dataset. Decide which occurrences to keep.
+    By using `ds_clean=ds.drop_isel(station=list_of_indices_to_drop)` to remove duplicates.
+
+    Args:
+        ds (xr.Dataset): Dataset to inspect for duplicates.
+    """
+    stations = ds.station.values
+    unique_stations, counts = np.unique(stations, return_counts=True)
+    duplicates = unique_stations[counts > 1]
+
+    for dup_station in duplicates:
+        indices = np.where(stations == dup_station)[0]
+        print(
+            f"\nStation {dup_station} appears {counts[unique_stations == dup_station][0]} times at indices: {indices}"
+        )
+        dup_data: xr.Dataset = ds.where(ds.station == dup_station, drop=True)
+        for i, idx in enumerate(indices):
+            time_str = pd.to_datetime(dup_data.time.values[i]).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            print(
+                f"  Index {idx}: lat={dup_data.lat.values[i]:.3f}, lon={dup_data.lon.values[i]:.3f}, date={time_str}"
+            )
+
+
 def section_to_xarray(
     ds: xr.Dataset,
     stations: list = None,
@@ -608,7 +636,7 @@ def section_to_xarray(
                 ds_section = ds_section.sortby("time", ascending=False)
 
         ds_section = ds_section.where(
-            ds_section["speed_ship"] > ship_speed_threshold, drop=True
+            ds_section["Speed_ship"] > ship_speed_threshold, drop=True
         )
 
         ds_section["distance"] = xr.DataArray(
