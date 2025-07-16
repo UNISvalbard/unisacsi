@@ -2074,7 +2074,7 @@ def read_CTD(
         p["SIGTH [kg/m^3]"] = gsw.sigma0(p["SA [g/kg]"], p["CT [degC]"])
         if p["filename"].split(".")[0].split("_")[0][-4::].isdigit():
             p["st"] = int(p["filename"].split(".")[0].split("_")[0][-4::])
-        p["unis_st"] = unis_station
+        p["unis_st"] = unis_station.split("_")[0]
         if "OX [ml/l]" in p:
             p["OX [ml/l]"] = oxy_corr[0] * p["OX [ml/l]"] + oxy_corr[1]
         CTD_dict[p["unis_st"]] = p
@@ -5333,6 +5333,7 @@ def plot_CTD_map(
     ],
     st_labels: str | npt.ArrayLike = "",
     adjust_text: bool = False,
+    min_dist: float = 250,
 ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Function which plots a very basic map of selected CTD stations.
 
@@ -5354,6 +5355,7 @@ def plot_CTD_map(
             - str: Adding to every station.
             - array_like: Needs to be the same length as stations, will override stationnumbers.
         adjust_text (bool, optional): Whether to adjust the station names so they don't overlap. Defaults to False.
+        min_dist (float, optional): Minimum distance in meters for two stations to be considered duplicates. Defaults to 250.
 
     Returns:
         tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -5427,16 +5429,24 @@ def plot_CTD_map(
         key: CTD_station[key] for key in CTD_station.keys() if len(CTD_station[key]) > 1
     }
     for key, value in CTD_duplicates.items():
-        key_lat: set = set()
-        key_lon: set = set()
+        key_lat: list = []
+        key_lon: list = []
         for st in value:
-            CTD[st]["lat"] = key_lat.add(CTD[st]["lat"])
-            CTD[st]["lon"] = key_lon.add(CTD[st]["lon"])
-        if len(key_lat) == 1 and len(key_lon) == 1:
+            key_lat.append(CTD[st]["lat"])
+            key_lon.append(CTD[st]["lon"])
+        key_lat: np.ndarray = np.array(key_lat)
+        key_lon: np.ndarray = np.array(key_lon)
+        if (
+            np.std(key_lat) * 111.320 <= min_dist
+            and np.std(key_lon) * np.mean(np.cos(np.radians(key_lat))) * 111.320
+            <= min_dist
+        ):
+            CTD[key] = {}
             CTD[key]["lat"] = list(key_lat)[0]
             CTD[key]["lon"] = list(key_lon)[0]
             for st in value:
                 del CTD[st]
+                stations[stations.index(st)] = key
 
     lat: list = [value["lat"] for value in CTD.values()]
     lon: list = [value["lon"] for value in CTD.values()]
