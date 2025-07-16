@@ -1442,7 +1442,14 @@ def read_WinADCP(filepath: str) -> xr.Dataset:
     )
 
     time: list[pd.Timestamp] = [
-        pd.Timestamp(year=2000 + y, month=m, day=d, hour=H, minute=M, second=s)
+        pd.Timestamp(
+            year=2000 + int(y),
+            month=int(m),
+            day=int(d),
+            hour=int(H),
+            minute=int(M),
+            second=int(s),
+        )
         for y, m, d, H, M, s in zip(
             data["SerYear"],
             data["SerMon"],
