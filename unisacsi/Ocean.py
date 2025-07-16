@@ -629,6 +629,11 @@ def section_to_xarray(
         return ds_section
 
     elif (stations != None) & (time_periods == None):  # for CTD and L-ADCP
+        if len(ds.station.values) != len(np.unique(ds.station.values)):
+            logging.warning(
+                "There are duplicate station numbers in the dataset. Using the first occurrence of each station."
+            )
+            ds = ds.drop_duplicates("station", keep="first")
         ds_section = ds.sel(station=stations)
         ds_section["distance"] = xr.DataArray(
             np.insert(
