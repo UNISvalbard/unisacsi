@@ -2863,12 +2863,21 @@ def read_Thermosalinograph(
     return df_total
 
 
-def read_RCM7(filepath: str) -> pd.DataFrame:
+def read_RCM7(
+    filepath: str,
+    column_rename: dict[str, str] = {
+        "U": "[cm/s]",
+        "V": "v [cm/s]",
+        "F": "Speed [cm/s]",
+        "A": "Dir [deg]",
+    },
+) -> pd.DataFrame:
     """Reads data from one data file from a RCM7 current meter.
     Standard variable names and convention are used (e.g. p [dbar], S []).
 
     Args:
         filepath (str): Path to the .lst file.
+        column_rename (dict, optional): Dictionary to rename the columns. Defaults to {"U": "[cm/s]", "V": "v [cm/s]", "F": "Speed [cm/s]", "A": "Dir [deg]"}.
 
     Returns:
         pd.DataFrame: Dataframe with time as index and the individual variables as columns.
@@ -2900,14 +2909,9 @@ def read_RCM7(filepath: str) -> pd.DataFrame:
         df.drop(columns=["%Y", "MM", "DD", "hh", "mm"], inplace=True)
     df.sort_index(inplace=True)
     df.rename(
-        columns={
-            "U": "u [cm/s]",
-            "V": "v [cm/s]",
-            "F": "Speed [cm/s]",
-            "A": "Dir [deg]",
-        },
+        columns=column_rename,
         inplace=True,
-    )  # needs to be checked
+    )
 
     df = uf.std_names(df, add_units=True, module="o")
 
@@ -3266,6 +3270,7 @@ class tide:
                 lat (float): Latitude in degrees.
                 constituents (str | list[str], optional): Tidal constituents to analyze. Defaults to "auto".
                 add_vari (list[str], optional): Additional single variables to include. Defaults to None.
+                    - Check the `utide.solve` documentation for available options.
                 **args: Additional keyword arguments passed to `utide.solve
 
         2. **Using pressure (p) data**:
@@ -3277,6 +3282,7 @@ class tide:
                 lat (float): Latitude in degrees.
                 constituents (str | list[str], optional): Tidal constituents to analyze. Defaults to "auto".
                 add_vari (list[str], optional): Additional single variables to include. Defaults to None.
+                    - Check the `utide.solve` documentation for available options.
                 **args: Additional keyword arguments passed to `utide.solve`.
 
         3. **From precomputed data**:
@@ -3675,6 +3681,8 @@ class tide:
         Args:
             constituents (list[str], optional): List of tidal constituents to plot. Defaults to None.
                 - If None, plots all constituents from the spectrum.
+            exclude_constituents (list[str], optional): List of constituents to exclude from the plot. Defaults to None.
+                - If provided, constituents will be excluded from the plot.
 
         Returns:
             tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -3747,6 +3755,9 @@ class tide:
             raise AttributeError(
                 "The tide object does not have tidal constituents. Please perform a tidal harmonic analysis first."
             )
+        if not hasattr(self, "u") or not hasattr(self, "v"):
+            raise AttributeError("The tide object does not have tidal current data.")
+
         if constituents is not None:
             if not isinstance(constituents, list):
                 raise TypeError(
@@ -6536,81 +6547,3 @@ def portasal(
         )
         run += 1
     return None
-
-
-# delete:
-if False:
-    codas_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/VM-ADCP/CODAS_processed_data/ENRprocessed/AGF214_2024_os75bb_short.nc"
-    codas_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/VMADCP/CODAS/os75bb_short_LTA.nc"
-    WinADCP_old_p = "/Users/pselle/Documents/Uni/Svalbard/AGF-213/unisacsi_example_data/VMADCP/WinADCP/AGF214_202309_031_LTA.mat"
-    WinADCP_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/VM-ADCP/WinADCP_processed_data/AGF214_202409_015_LTA.mat"
-    tidal_stuff = "/Users/pselle/Documents/Uni/Svalbard/Tidal_models"
-    CTD_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/CTD/binned1db_down"
-    CTD_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/CTD"
-    mooring_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/IS1617.mat"
-    mooring_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/ISE2223.mat"
-    Seaguard_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/SeaGuard/RCM_2282_20231002_1800/2282.txt"
-    LADCP_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/LADCP/LADCP_HH202309_LTA.mat"
-    MSS_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/Dateien von Frank Nilsen - Data/MSS/mat/"
-    MSS_excel_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/Dateien von Frank Nilsen - Data/MSS/MSS_log.xlsx"
-    Mini_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/VEMCO/Minilog-II-T_358945_20240925_1.csv"
-    Mini_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/VEMCO/Minilog-II-T_358945_20230928_1.csv"
-    SBE37_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/SBE37/SBE37SM-RS232_03722999_2023_09_28.cnv"
-    SBE37_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/SBE37SM/37-SM_03723003_2024_09_25.cnv"
-    SBE26_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/sbe26_HO2_1364.tid"
-    RBRc_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/RBRconcerto/206125_20230928_0909.rsk"
-    RBRc_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/RBRconcerto/206124_20240925_2031.rsk"
-    RBRs_old_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/RBRsolo/205993_20230928_0641_upgraded.rsk"
-    RBRs_new_p = "/Users/pselle/Library/CloudStorage/OneDrive-UniversitetssenteretpåSvalbardAS/Svalbard/AGF-214 - Dateien von Ragnheid Skogseth/Fieldwork/DATA/I-SE/RBRsolo/205993_20240925_2018.rsk"
-    Thermosal_p = "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Thermosalinograph/*.cnv"
-    # CTD = read_CTD(CTD_new_p)
-    sea = read_Seaguard(Seaguard_p)
-    sea = sea[:-2]
-    sea_an_0 = tide(p=sea["p [dbar]"], t=sea.index, lat=78.122)
-    sea_an_0.reconstruct()
-    sea_0 = read_Seaguard(
-        "/Users/pselle/Documents/Uni/Svalbard/AGF-214/DATA/SeaGuard/RCM_2375_20231002_1800/2375.txt"
-    )
-    vu_ob = tide(t=sea.index, u=sea["u [cm/s]"], v=sea["v [cm/s]"], lat=78)
-    plot_map_tidal_ellipses(
-        vu_ob.constituents["amp_major"][:4],
-        vu_ob.constituents["amp_minor"][:4],
-        vu_ob.constituents["inclination [deg]"][:4],
-        vu_ob.constituents.index[:4],
-        map_extent=[
-            10,
-            17,
-            77.9,
-            78.4,
-        ],
-    )
-    plot_tidal_ellipses(
-        vu_ob.constituents["amp_major"][:4],
-        vu_ob.constituents["amp_minor"][:4],
-        vu_ob.constituents["inclination [deg]"][:4],
-        vu_ob.constituents.index[:4],
-    )
-
-    sea_example = read_Seaguard(
-        "/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Mooring/SeaGuard/Seaguard_2370.txt"
-    )
-    uv_ex = tide(
-        t=sea_example.index,
-        u=sea_example["u [cm/s]"],
-        v=sea_example["v [cm/s]"],
-        lat=78.122,
-    )
-    fig, ax_map, ax_ellipse = plot_map_tidal_ellipses(
-        uv_ex.constituents["amp_major"][:1],
-        uv_ex.constituents["amp_minor"][:1],
-        uv_ex.constituents["inclination"][:1],
-        uv_ex.constituents.index[:1],
-        lat_center=78.122,
-        lon_center=14.26,
-        map_extent=[11.0, 16.0, 78.0, 78.3],
-        topography=f"/Users/pselle/Documents/Uni/Svalbard/Internship/UNISacis/Data/unisacsi_example_data/Svalbard_map_data/bathymetry_svalbard.mat",
-    )
-
-    plot_tidal_time_series(
-        sea_an_0.p, sea_an_0.p.index, moon_apsides=True, moon_phase=True
-    )
