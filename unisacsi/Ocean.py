@@ -16,8 +16,6 @@ from _collections_abc import dict_keys
 
 import matplotlib.axes
 from numpy._typing._array_like import NDArray
-
-# from .
 import warnings
 
 warnings.filterwarnings(
@@ -5415,11 +5413,36 @@ def plot_CTD_map(
 
     # select only stations
     CTD = {key: CTD[key] for key in stations}
+
+    CTD_station: dict = {}
+    for key in CTD.keys():
+        if CTD[key]["unis_st"] in CTD_station.keys():
+            CTD_station[CTD[key]["unis_st"]] = CTD_station[CTD[key]["unis_st"]].append(
+                key
+            )
+        else:
+            CTD_station[CTD[key]["unis_st"]] = [key]
+
+    CTD_duplicates: dict = {
+        key: CTD_station[key] for key in CTD_station.keys() if len(CTD_station[key]) > 1
+    }
+    for key, value in CTD_duplicates.items():
+        key_lat: set = set()
+        key_lon: set = set()
+        for st in value:
+            CTD[st]["lat"] = key_lat.add(CTD[st]["lat"])
+            CTD[st]["lon"] = key_lon.add(CTD[st]["lon"])
+        if len(key_lat) == 1 and len(key_lon) == 1:
+            CTD[key]["lat"] = list(key_lat)[0]
+            CTD[key]["lon"] = list(key_lon)[0]
+            for st in value:
+                del CTD[st]
+
     lat: list = [value["lat"] for value in CTD.values()]
     lon: list = [value["lon"] for value in CTD.values()]
-    std_lat, std_lon = np.std(lat), np.std(lon)
 
     if extent is None:
+        std_lat, std_lon = np.std(lat), np.std(lon)
         lon_range: list = [min(lon) - std_lon, max(lon) + std_lon]
         lat_range: list = [min(lat) - std_lat, max(lat) + std_lat]
         extent: list = [lon_range[0], lon_range[1], lat_range[0], lat_range[1]]
@@ -5512,6 +5535,10 @@ def plot_empty_map(
         )
     if len(extent) != 4:
         raise ValueError(f"'extent' should have the length 4, not {len(extent)}.")
+    if not (extent[0] < extent[1] and extent[2] < extent[3]):
+        raise ValueError(
+            f"'extent' should be in the form [lon_min, lon_max, lat_min, lat_max], not {extent}."
+        )
 
     if not pd.api.types.is_list_like(depth_contours):
         raise ValueError(
