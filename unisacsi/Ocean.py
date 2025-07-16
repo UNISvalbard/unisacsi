@@ -3012,8 +3012,9 @@ def download_tidal_model(
             zfile.extract(m, path=local_dir)
             # change permissions mode
             local_file.chmod(mode=0o775)
-            # close the zipfile object
-            zfile.close()
+
+        # close the zipfile object
+        zfile.close()
 
         logging.info("Done downloading!")
 
