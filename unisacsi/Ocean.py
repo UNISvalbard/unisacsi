@@ -2077,7 +2077,7 @@ def read_CTD(
         p["unis_st"] = unis_station.split("_")[0]
         if "OX [ml/l]" in p:
             p["OX [ml/l]"] = oxy_corr[0] * p["OX [ml/l]"] + oxy_corr[1]
-        CTD_dict[p["unis_st"]] = p
+        CTD_dict[unis_station] = p
 
     # check if a station was duplicated
     dub_stations: list[str] = [
