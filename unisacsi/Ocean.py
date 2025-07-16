@@ -639,6 +639,11 @@ def section_to_xarray(
             ds_section["Speed_ship"] > ship_speed_threshold, drop=True
         )
 
+        if ds_section.sizes["time"] == 0:
+            raise ValueError(
+                "No data remains after applying ship speed threshold and timestamps. Dataset is empty."
+            )
+
         ds_section["distance"] = xr.DataArray(
             np.insert(
                 np.cumsum(
