@@ -5698,6 +5698,9 @@ def plot_CTD_ts(
     if not isinstance(legend, bool):
         raise ValueError(f"'legend' should be a bool, not {type(legend).__name__}.")
 
+    if len(stations) != len(CTD.keys()):
+        CTD: dict = {key: CTD[key] for key in stations}
+
     max_S = max([np.nanmax(value["SA [g/kg]"]) for value in CTD.values()]) + 0.1
     min_S = min([np.nanmin(value["SA [g/kg]"]) for value in CTD.values()]) - 0.1
 
