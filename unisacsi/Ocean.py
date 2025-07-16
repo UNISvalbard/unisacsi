@@ -5012,7 +5012,7 @@ def plot_xarray_sections(
         )
 
     if (
-        not (isinstance(da_contours, int) or pd.api.types.is_list_like(contourlevels))
+        not (isinstance(contourlevels, int) or pd.api.types.is_list_like(contourlevels))
         and da_contours is not None
     ):
         raise TypeError(
