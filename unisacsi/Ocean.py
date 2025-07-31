@@ -5380,6 +5380,8 @@ def plot_CTD_map(
     st_labels: str | npt.ArrayLike = "",
     adjust_text: bool = False,
     min_dist: float = 250,
+    fig: plt.Figure | None = None,
+    ax: matplotlib.axes.Axes | None = None,
 ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Function which plots a very basic map of selected CTD stations.
 
@@ -5402,6 +5404,10 @@ def plot_CTD_map(
             - array_like: Needs to be the same length as stations, will override stationnumbers.
         adjust_text (bool, optional): Whether to adjust the station names so they don't overlap. Defaults to False.
         min_dist (float, optional): Minimum distance in meters for two stations to be considered duplicates. Defaults to 250.
+        fig (plt.Figure, optional): Figure to plot on. Defaults to None.
+            - If None, will create a new figure.
+        ax (matplotlib.axes.Axes, optional): Axes to plot on. Defaults to None.
+            - If None, will create new axes.
 
     Returns:
         tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -5500,7 +5506,12 @@ def plot_CTD_map(
         lon_range: list = [min(lon) - std_lon, max(lon) + std_lon]
         lat_range: list = [min(lat) - std_lat, max(lat) + std_lat]
         extent: list = [lon_range[0], lon_range[1], lat_range[0], lat_range[1]]
-    fig, ax = plot_empty_map(extent, topography, depth_contours)
+
+    if fig is None or ax is None:
+        fig_ax: bool = False
+        fig, ax = plot_empty_map(extent, topography, depth_contours)
+    else:
+        fig_ax: bool = True
 
     # add the points, and add labels
     if isinstance(st_labels, str):
@@ -5517,7 +5528,11 @@ def plot_CTD_map(
             f"'st_labels' should be string or array_like, not {type(st_labels).__name__}."
         )
 
-    ax.plot(lon, lat, "xr", transform=ccrs.PlateCarree())
+    if not fig_ax:
+        ax.plot(lon, lat, "xr", transform=ccrs.PlateCarree())
+    else:
+        ax.plot(lon, lat, "xr", transform=ccrs.PlateCarree(), zorder=10)
+
     texts: list = []
     for label, st_lat, st_lon in zip(st_texts, lat, lon):
         if extent[0] < st_lon < extent[1] and extent[2] < st_lat < extent[3]:
@@ -5528,6 +5543,7 @@ def plot_CTD_map(
                     label,
                     horizontalalignment="center",
                     verticalalignment="bottom",
+                    transform=ccrs.PlateCarree(),
                 )
             )
 
@@ -5535,11 +5551,18 @@ def plot_CTD_map(
         adj_txt(
             texts,
             expand_text=(1.2, 1.6),
-            arrowprops=dict(arrowstyle="-", color="black"),
+            arrowprops=dict(
+                arrowstyle="-",
+                color="black",
+                shrinkA=5,  # Add this to prevent arrows from striking through text
+                shrinkB=5,  # Add this for both ends of the arrow
+            ),
             ax=ax,
         )
     plt.gcf().canvas.draw()
-    plt.tight_layout()
+
+    if not fig_ax:
+        plt.tight_layout()
 
     return fig, ax
 

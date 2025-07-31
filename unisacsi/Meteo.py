@@ -841,6 +841,12 @@ def download_IWIN_from_THREDDS(
 
 
 class MapGenerator:
+
+    __aspects__ = Literal[
+        "auto",
+        "equal",
+    ]
+
     def __init__(
         self,
         lat_limits: list[int | float],
@@ -850,6 +856,7 @@ class MapGenerator:
         path_mapdata: str | None = ...,
         subplots_parameters: dict[str, Any] = None,
         gridlines_parameters: dict[str, Any] = None,
+        aspect: __aspects__ | float = None,
     ) -> None:
         """Function to initialize an empty map using a Mercator projection.
         This function neither draws features like coastlines, topography etc.
@@ -871,6 +878,8 @@ class MapGenerator:
             gridlines_parameters (dict[str,Any],optional): Additional parameters passed to GeoAxes.gridlines. Defaults to None.
                 - For available options check cartopy.mpl.geoaxes.GeoAxes.gridlines.
                 - If not specified, draw_labels=False is always set by default.
+            aspect (str, optional): Aspect ratio of the map. Defaults to None.
+                - For available options check cartopy.mpl.geoaxes.GeoAxes.set_aspect.
         """
 
         if subplots_parameters is None:
@@ -925,8 +934,24 @@ class MapGenerator:
         self.ax: np.ndarray[GeoAxes]
         self.ax = np.array(self.ax) if (nrows > 1 or ncols > 1) else np.array([self.ax])
 
+        if aspect is not None:
+            if isinstance(aspect, str):
+                if aspect not in self.__aspects__:
+                    raise ValueError(
+                        f"Invalid aspect value '{aspect}'. Choose from {self.__aspects__}."
+                    )
+            elif not isinstance(aspect, (int, float)):
+                raise TypeError(
+                    f"'aspect' should be a str or a number, not a {type(aspect).__name__}."
+                )
+        else:
+            aspect = ax[0].get_aspect()
+
+        self.aspect: str = aspect
+
         for ax in self.ax.flat:
             ax.set_extent(self.lon_limits + self.lat_limits, crs=ccrs.PlateCarree())
+            ax.set_aspect(aspect)
             gl = ax.gridlines(**gridlines_parameters)
             gl.left_labels = True
             gl.bottom_labels = True
@@ -1085,6 +1110,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         return self
 
@@ -1215,6 +1241,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         return self
 
@@ -1462,6 +1489,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         if more_custom:
             if option == 0:
@@ -1728,6 +1756,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         if more_custom:
             if option == 0:
@@ -1982,6 +2011,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         if more_custom:
             if option % 3 == 0:
@@ -2145,6 +2175,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         return self
 
@@ -2233,6 +2264,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         return self
 
@@ -2497,6 +2529,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         if more_custom:
             if not single_color and color_values and cbar_label != ...:
@@ -2613,6 +2646,7 @@ class MapGenerator:
         self.ax.flat[ax].set_title(title)
         self.ax.flat[ax].set_xlabel(xlabel)
         self.ax.flat[ax].set_ylabel(ylabel)
+        self.ax.flat[ax].set_aspect(self.aspect)
 
         return self
 
