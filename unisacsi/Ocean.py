@@ -5704,7 +5704,10 @@ def plot_CTD_ts(
     stations: str | npt.ArrayLike = None,
     pref: int = 0,
     legend: bool = True,
-) -> None:
+    ax: matplotlib.axes.Axes | None = None,
+    fig: plt.Figure | None = None,
+    water_masses: pd.DataFrame = None,
+) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Plots a TS diagram of selected stations from a CTD dataset.
 
     Args:
@@ -5720,9 +5723,22 @@ def plot_CTD_ts(
                 - 3: 3000 dbar
                 - 4: 4000 dbar
         legend (bool, optional): If the legend should be displayed. Defaults to True.
+        ax (matplotlib.axes.Axes, optional): Axes to plot on. Defaults to None.
+            - If None, will create new axes.
+            - Needs to be provided with `fig`.
+        fig (plt.Figure, optional): Figure to plot on. Defaults to None.
+            - If None, will create a new figure.
+            - Needs to be provided with `ax`.
+        water_masses (pd.DataFrame, optional): DataFrame with water masses to plot. Defaults to None.
+            - Should have columns 'T_min', 'T_max', 'SA_min', 'SA_max', 'Abbr'.
+            - You can add the column 'Position' to specify the position of the label.
+                - If not provided (set to None), the label will be placed in the center of the rectangle.
+                - If provided, it should be a list with two elements: [x, y] position of the label.
 
     Returns:
-        None
+        tuple[plt.Figure, matplotlib.axes.Axes]:
+            - Figure object of the subplot.
+            - Axes object.
     """
     # Check if the function has data to work with
     if not isinstance(CTD, (dict, str)):
@@ -5776,11 +5792,18 @@ def plot_CTD_ts(
     max_T = max([np.nanmax(value["CT [degC]"]) for value in CTD.values()]) + 0.5
     min_T = min([np.nanmin(value["CT [degC]"]) for value in CTD.values()]) - 0.5
 
-    create_empty_ts((min_T, max_T), (min_S, max_S), p_ref=pref)
+    fig, ax = create_empty_ts(
+        (min_T, max_T),
+        (min_S, max_S),
+        p_ref=pref,
+        ax=ax,
+        fig=fig,
+        water_masses=water_masses,
+    )
 
     # Plot the data in the empty TS-diagram
     for station in CTD.values():
-        plt.plot(
+        ax.plot(
             station["SA [g/kg]"],
             station["CT [degC]"],
             linestyle="none",
@@ -5789,7 +5812,7 @@ def plot_CTD_ts(
         )
 
     if len(CTD.keys()) > 1 and legend:
-        plt.legend(
+        ax.legend(
             bbox_to_anchor=(1.0, 1.02),
             loc="upper left",
             ncol=2,
@@ -5797,14 +5820,19 @@ def plot_CTD_ts(
             columnspacing=0.7,
             handletextpad=0.4,
         )
-    plt.tight_layout()
+    fig.tight_layout()
 
-    return None
+    return fig, ax
 
 
 def create_empty_ts(
-    T_extent: npt.ArrayLike, S_extent: npt.ArrayLike, p_ref: int = 0
-) -> None:
+    T_extent: npt.ArrayLike,
+    S_extent: npt.ArrayLike,
+    p_ref: int = 0,
+    ax: matplotlib.axes.Axes | None = None,
+    fig: plt.Figure | None = None,
+    water_masses: pd.DataFrame = None,
+) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Creates an empty TS-diagram to plot data into.
 
     Args:
@@ -5817,9 +5845,22 @@ def create_empty_ts(
                 - 2: 2000 dbar
                 - 3: 3000 dbar
                 - 4: 4000 dbar
+        ax (matplotlib.axes.Axes, optional): Axes to plot on. Defaults to None.
+            - If None, will create new axes.
+            - Needs to be provided with `fig`.
+        fig (plt.Figure, optional): Figure to plot on. Defaults to None.
+            - If None, will create a new figure.
+            - Needs to be provided with `ax`.
+        water_masses (pd.DataFrame, optional): DataFrame with water masses to plot. Defaults to None.
+            - Should have columns 'T_min', 'T_max', 'SA_min', 'SA_max', 'Abbr'.
+            - You can add the column 'Position' to specify the position of the label.
+                - If not provided (set to None), the label will be placed in the center of the rectangle.
+                - If provided, it should be a list with two elements: [x, y] position of the label.
 
     Returns:
-        None
+        tuple[plt.Figure, matplotlib.axes.Axes]:
+            - Figure object of the subplot.
+            - Axes object.
     """
 
     if not pd.api.types.is_list_like(T_extent):
@@ -5843,6 +5884,13 @@ def create_empty_ts(
             f"'p_ref' should be in a the range between 0 and 4, not {p_ref}."
         )
 
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1)
+    if fig is None or ax is None:
+        raise ValueError(
+            "Either both 'fig' and 'ax' should be None, or both should be provided."
+        )
+
     sigma_functions = [gsw.sigma0, gsw.sigma1, gsw.sigma2, gsw.sigma3, gsw.sigma4]
     T = np.linspace(T_extent[0], T_extent[1], 100)
     S = np.linspace(S_extent[0], S_extent[1], 100)
@@ -5851,16 +5899,75 @@ def create_empty_ts(
 
     SIGMA = sigma_functions[p_ref](S, T)
 
-    cs = plt.contour(S, T, SIGMA, colors="k", linestyles="--")
-    plt.clabel(cs, fmt="%1.1f")
+    cs = ax.contour(S, T, SIGMA, colors="k", linestyles="--")
+    ax.clabel(cs, fmt="%1.1f")
 
-    plt.ylabel("Conservative Temperature [°C]")
-    plt.xlabel("Absolute Salinity [g kg$^{-1}$]")
-    plt.title("$\\Theta$ - $S_A$ Diagram")
-    if p_ref > 0:
-        plt.title("Density: $\\sigma_{" + str(p_ref) + "}$", loc="left", fontsize=10)
+    ax.set_ylabel(r"Conservative Temperature [$^\circ$C]")
+    ax.set_xlabel("Absolute Salinity [g kg$^{-1}$]")
+    if len(fig.axes) != 1:
+        ax.set_title("$\\Theta$ - $S_A$ Diagram")
+        if p_ref > 0:
+            ax.set_title(
+                "Density: $\\sigma_{" + str(p_ref) + "}$", loc="left", fontsize=10
+            )
 
-    return None
+    if water_masses is not None:
+        if not isinstance(water_masses, pd.DataFrame):
+            raise TypeError(
+                f"'water_masses' should be a pandas DataFrame, not {type(water_masses).__name__}."
+            )
+        if not all(
+            col in water_masses.columns
+            for col in ["T_min", "T_max", "SA_min", "SA_max", "Abbr"]
+        ):
+            raise ValueError(
+                "'water_masses' DataFrame should contain 'T_min', 'T_max', 'S_min', 'S_max', and 'Abbr' columns."
+            )
+
+        for wm in water_masses.iterrows():
+            wm = wm[1]
+            if wm["T_max"] < T_extent[0] or wm["T_min"] > T_extent[1]:
+                continue
+            if wm["T_min"] < T_extent[0]:
+                wm["T_min"] = T_extent[0]
+            if wm["T_max"] > T_extent[1]:
+                wm["T_max"] = T_extent[1]
+
+            if wm["SA_max"] < S_extent[0] or wm["SA_min"] > S_extent[1]:
+                continue
+            if wm["SA_min"] < S_extent[0]:
+                wm["SA_min"] = S_extent[0]
+            if wm["SA_max"] > S_extent[1]:
+                wm["SA_max"] = S_extent[1]
+            rect = matplotlib.patches.Rectangle(
+                (wm["SA_min"], wm["T_min"]),
+                wm["SA_max"] - wm["SA_min"],
+                wm["T_max"] - wm["T_min"],
+                linewidth=1,
+                edgecolor="black",
+                facecolor="none",
+            )
+            ax.add_patch(rect)
+            if (
+                "Position" in wm.index
+                and wm["Position"] is not None
+                and len(wm["Position"]) == 2
+            ):
+                x_pos_text = wm["Position"][0]
+                y_pos_text = wm["Position"][1]
+            else:
+                x_pos_text = wm["SA_min"] + (wm["SA_max"] - wm["SA_min"]) / 2
+                y_pos_text = wm["T_min"] + (wm["T_max"] - wm["T_min"]) / 2
+            ax.text(
+                x_pos_text,
+                y_pos_text,
+                wm["Abbr"],
+                ha="center",
+                va="center",
+                fontweight="bold",
+            )
+
+    return fig, ax
 
 
 def check_VM_ADCP_map(ds: xr.Dataset) -> None:
