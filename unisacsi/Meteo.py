@@ -39,7 +39,7 @@ from cartopy.mpl.geoaxes import GeoAxes
 import os
 import datetime
 from collections import defaultdict
-from typing import Literal, Any, Self
+from typing import Literal, Any, Self, get_args
 import warnings
 import logging
 import re
@@ -842,11 +842,6 @@ def download_IWIN_from_THREDDS(
 
 class MapGenerator:
 
-    __aspects__ = Literal[
-        "auto",
-        "equal",
-    ]
-
     def __init__(
         self,
         lat_limits: list[int | float],
@@ -856,7 +851,7 @@ class MapGenerator:
         path_mapdata: str | None = ...,
         subplots_parameters: dict[str, Any] = None,
         gridlines_parameters: dict[str, Any] = None,
-        aspect: __aspects__ | float = None,
+        aspect: Literal["auto", "equal"] | float = None,
     ) -> None:
         """Function to initialize an empty map using a Mercator projection.
         This function neither draws features like coastlines, topography etc.
@@ -936,9 +931,9 @@ class MapGenerator:
 
         if aspect is not None:
             if isinstance(aspect, str):
-                if aspect not in self.__aspects__:
+                if aspect not in ["auto", "equal"]:
                     raise ValueError(
-                        f"Invalid aspect value '{aspect}'. Choose from {self.__aspects__}."
+                        f"'aspect' should be 'auto', 'equal' or a number, not '{aspect}'."
                     )
             elif not isinstance(aspect, (int, float)):
                 raise TypeError(
