@@ -945,7 +945,7 @@ class MapGenerator:
                     f"'aspect' should be a str or a number, not a {type(aspect).__name__}."
                 )
         else:
-            aspect = ax[0].get_aspect()
+            aspect = self.ax.flat[0].get_aspect()
 
         self.aspect: str = aspect
 
