@@ -80,6 +80,7 @@ def read_MET_AWS(filepath: str) -> pd.DataFrame | dict[str, pd.DataFrame]:
             dayfirst=True,
             parse_dates=[2],
             header=0,
+            decimal=",",
         )
     else:
         raise ValueError(f"Invalid file format: {filepath}. Expected a .csv file.")
