@@ -562,6 +562,8 @@ def CTD_to_xarray(
     ds["P"].attrs["long_name"] = "Pressure"
     ds["SIGTH"].attrs["long_name"] = "Density (sigma-theta)"
     ds["OX"].attrs["long_name"] = "Oxygen"
+    ds["bottom_depth"].attrs["units"] = "m"
+    ds["depth"].attrs["units"] = "m"
 
     ds.attrs = {"source": "CTD_to_xarray"}
 
@@ -654,6 +656,7 @@ def section_to_xarray(
             ),
             dims=["time"],
             coords={"distance": ds_section.time},
+            attrs={"units": "km"},
         )
         ds_section = ds_section.swap_dims({"time": "distance"}).dropna(
             "depth", how="all"
@@ -678,6 +681,7 @@ def section_to_xarray(
             ),
             dims=["station"],
             coords={"distance": ds_section.station},
+            attrs={"units": "km"},
         )
         ds_section = ds_section.swap_dims({"station": "distance"}).dropna(
             "depth", how="all"
@@ -1308,6 +1312,139 @@ def ctd_identify_water_masses(
                 CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
 
     return CTD
+
+
+def calc_baroclinic_velocity(
+    ds: xr.Dataset,
+    upper_boundary: int | list[int] = None,
+    lower_boundary: int | list[int] = None,
+) -> xr.Dataset:
+    """Calculate baroclinic velocity from the given dataset.
+
+    Args:
+        ds (xr.Dataset): Input dataset containing necessary variables.
+            - bottom_depth
+            - SIGTH
+            - depth
+            - station
+            - lat
+        upper_boundary (int or list[int], optional): Upper boundary for the integration in m. Defaults to None.
+            - int uses for all distances
+            - list of int uses for each distance
+        lower_boundary (int or list[int], optional): Lower boundary for the integration in m. Defaults to None.
+            - Distance to seafloor.
+            - int uses for all distances
+            - list of int uses for each distance
+
+    Returns:
+        xr.Dataset: Dataset with baroclinic velocity.
+    """
+
+    if not isinstance(ds, xr.Dataset):
+        raise TypeError(f"'ds' should be a xarray.Dataset, not a {type(ds).__name__}.")
+    if not all(
+        var in ds.variables
+        for var in ["bottom_depth", "SIGTH", "depth", "station", "lat"]
+    ):
+        raise ValueError(
+            f"Missing required variable(s) in dataset: {set(['bottom_depth', 'SIGTH', 'depth', 'station', 'lat']) - set(ds.variables)}"
+        )
+    if not "distance" in ds.variables:
+        raise ValueError(
+            f"Missing required variable in dataset: 'distance'. Use section_to_xarray() on the dataset."
+        )
+
+    if not (
+        isinstance(upper_boundary, int)
+        or pd.api.types.is_list_like(upper_boundary)
+        or upper_boundary is None
+    ):
+        raise TypeError(
+            f"'upper_boundary' should be an int or a list of ints, not a {type(upper_boundary).__name__}."
+        )
+    if pd.api.types.is_list_like(upper_boundary):
+        for i in upper_boundary:
+            if not isinstance(i, int):
+                raise TypeError(
+                    f"Objects in 'upper_boundary' should be an int, not a {type(i).__name__}."
+                )
+        if len(upper_boundary) != len(ds.distance):
+            raise ValueError(
+                f"'upper_boundary' list length {len(upper_boundary)} does not match 'distance' length {len(ds.distance)}."
+            )
+
+    if not (
+        isinstance(lower_boundary, int)
+        or pd.api.types.is_list_like(lower_boundary)
+        or lower_boundary is None
+    ):
+        raise TypeError(
+            f"'lower_boundary' should be an int or a list of ints, not a {type(lower_boundary).__name__}."
+        )
+    if pd.api.types.is_list_like(lower_boundary):
+        for i in lower_boundary:
+            if not isinstance(i, int):
+                raise TypeError(
+                    f"Objects in 'lower_boundary' should be an int, not a {type(i).__name__}."
+                )
+        if len(lower_boundary) != len(ds.distance):
+            raise ValueError(
+                f"'lower_boundary' list length {len(lower_boundary)} does not match 'distance' length {len(ds.distance)}."
+            )
+
+    sig_grad: xr.DataArray = ds["SIGTH"].differentiate("distance")
+    if ds.distance.attrs.get("units") == "km":
+        sig_grad = sig_grad / 1000
+
+    f: float = np.nanmean(2.0 * 7.292e-5 * np.sin(np.deg2rad(ds["lat"].values)))
+
+    g: float = 9.81  # m/s^2, gravitational acceleration
+
+    # with all variables as xarrays with similar dimentions, calculations with each index can be done
+    dv_dz: xr.DataArray = (-1.0 * (g / (f * (ds.SIGTH + 1000)))) * sig_grad
+
+    # add layer of no motion at the bottom
+    if isinstance(lower_boundary, int):
+        for d, z in zip(dv_dz.distance.values, dv_dz.bottom_depth.values):
+            dv_dz.loc[dict(distance=d)].values[
+                ((dv_dz.depth >= z - lower_boundary) & (dv_dz.depth < z))
+                & (~np.isnan(dv_dz.loc[dict(distance=d)].values))
+            ] = 0
+    elif pd.api.types.is_list_like(lower_boundary):
+        for d, z, lb in zip(
+            dv_dz.distance.values, dv_dz.bottom_depth.values, lower_boundary
+        ):
+            dv_dz.loc[dict(distance=d)].values[
+                ((dv_dz.depth >= z - lb) & (dv_dz.depth < z))
+                & (~np.isnan(dv_dz.loc[dict(distance=d)].values))
+            ] = 0
+
+    # add layer of no motion at the top
+    if isinstance(upper_boundary, int):
+        dv_dz.values[
+            (dv_dz.depth.values <= upper_boundary)[:, np.newaxis]
+            & (~np.isnan(dv_dz.values))
+        ] = 0
+    elif pd.api.types.is_list_like(upper_boundary):
+        for d, ub in zip(dv_dz.distance.values, upper_boundary):
+            dv_dz.loc[dict(distance=d)].values[
+                (dv_dz.depth.values <= ub)
+                & (~np.isnan(dv_dz.loc[dict(distance=d)].values))
+            ] = 0
+
+    # creating an xarray with the dz for the integration
+    dz = xr.DataArray(np.ones_like(dv_dz.values), coords=dv_dz.coords, dims=dv_dz.dims)
+
+    # sortby() resorts the data along the depth dimention in the oposite direction, it is used to start the integration
+    # from the bottom.
+    # cumsum() integrates the data numerically by the given parameter
+    ds["baroclinic_velocity"] = (
+        (dv_dz * dz).sortby(dv_dz.depth, ascending=False).cumsum("depth")
+    )
+    ds["baroclinic_velocity"].attrs["units"] = "m/s"
+    ds["baroclinic_velocity"].attrs["long_name"] = "Baroclinic velocity"
+
+    return ds
 
 
 ############################################################################
@@ -4968,7 +5105,7 @@ def plot_xarray_sections(
         contourlevels (int or npt.ArrayLike, optional): Same as the clevels for the contourf plot, but for the contour lines. Defaults to 5.
             - If an int, it will use that many levels.
             - If an array_like, it will use those levels.
-        interp (bool, optional): Interpolation to a finer grid. Defaults to False.
+        interp (bool, optional): Interpolation to a finer grid along the depth dimension. Defaults to False.
         switch_cbar (bool, optional): Adds colorbar to each contourf plot. Defaults to True.
         add_station_ticks (bool, optional): Add ticks for the locations of the CTD stations along the section. Defaults to True.
 
