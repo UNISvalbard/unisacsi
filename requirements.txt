@@ -2,3 +2,4 @@ nb_conda_kernels
 git
 pip
 yaml
+setuptools<81

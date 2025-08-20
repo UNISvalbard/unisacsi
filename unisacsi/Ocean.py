@@ -546,7 +546,7 @@ def CTD_to_xarray(
             )
         )
 
-    ds: xr.Dataset = xr.merge(list_da)
+    ds: xr.Dataset = xr.merge(list_da, compat="no_conflicts")
 
     ds = ds.sortby("time")
     ds = ds.interp(depth=np.arange(np.ceil(ds.depth[0]), np.floor(ds.depth[-1]) + 1.0))
@@ -786,7 +786,7 @@ def mooring_to_xarray(
             )
         )
 
-    ds: xr.Dataset = xr.merge(list_da)
+    ds: xr.Dataset = xr.merge(list_da, compat="no_conflicts")
     ds.attrs = {"source": "mooring_to_xarry"}
 
     return ds
@@ -1933,7 +1933,7 @@ def read_LADCP(
             )
         )
 
-    ds: xr.Dataset = xr.merge(list_of_das)
+    ds: xr.Dataset = xr.merge(list_of_das, compat="no_conflicts")
     ds["ship_station"] = xr.DataArray(
         adcp["stnr"], dims=["station"], coords={"station": ds.station}
     )
