@@ -3748,12 +3748,22 @@ class tide:
             )
         return self.single_values
 
-    def calc_spectrum(self, p: pd.Series = None, bandwidth: int = 8) -> pd.Series:
+    def calc_spectrum(
+        self,
+        p: pd.Series = None,
+        v: pd.Series = None,
+        u: pd.Series = None,
+        bandwidth: int = 8,
+    ) -> pd.Series:
         """Function to calculate a spectrum for a the tide time series.
 
         Args:
             p (pd.Series, optional): Time series of data. Defaults to None.
                 - Just needed if the object was initialized without.
+                - Will overwrite original.
+            v (pd.Series, optional): Time series of northward current data. Defaults to None.
+                - Will overwrite original.
+            u (pd.Series, optional): Time series of eastward current data. Defaults to None.
                 - Will overwrite original.
             bandwidth (int, optional): Bandwith fo the multitaper smoothing. Defaults to 8.
                 - Should be 2,4,8,16,32 etc. (the higher the number the stronger the smoothing).
@@ -3761,23 +3771,74 @@ class tide:
         Returns:
             pd.Series: Series with the spectral data, the index is specifying the frequency per day.
         """
-        if p is None:
-            if "p" in vars(self).keys():
-                p = pd.Series(self.p, index=self.t)
+        if p is None and v is None and u is None:
+            vars_in: list[int] = [i for i in vars(self).keys() if i in ["p", "v", "u"]]
+            if len(vars_in) == 0:
+                raise ValueError(
+                    "No data was passed to the object and no default data is available. Please pass 'p', 'v' or/and 'u' as a parameter or set them before calling this method."
+                )
+            if len(vars_in) == 1:
+                if "p" in vars_in:
+                    data: pd.Series = pd.Series(self.p, index=self.t)
+                elif "v" in vars_in:
+                    data = pd.Series(self.v, index=self.t)
+                elif "u" in vars_in:
+                    data = pd.Series(self.u, index=self.t)
+            elif len(vars_in) == 2:
+                if "u" in vars_in and "v" in vars_in:
+                    data = pd.Series(self.u + 1j * self.v, index=self.t)
+                else:
+                    raise ValueError(
+                        "No valid combination of data was found. Please pass 'p', 'v' or/and 'u' as a parameter."
+                    )
             else:
                 raise ValueError(
-                    "No pressure data was passed to the object. Please pass 'p' as a parameter or set 'self.p' before calling this method."
+                    "No valid data was passed to the object. Please pass 'p', 'v' or/and 'u' as a parameter or set before calling this method."
                 )
-        else:
+        elif p is not None and v is None and u is None:
             if not isinstance(p, pd.Series):
                 raise TypeError(
                     f"'p' should be a pandas Series, not a {type(p).__name__}."
                 )
+            else:
+                data = p
+        elif v is not None and p is None and u is None:
+            if not isinstance(v, pd.Series):
+                raise TypeError(
+                    f"'v' should be a pandas Series, not a {type(v).__name__}."
+                )
+            else:
+                data = v
+        elif u is not None and p is None and v is None:
+            if not isinstance(u, pd.Series):
+                raise TypeError(
+                    f"'u' should be a pandas Series, not a {type(u).__name__}."
+                )
+            else:
+                data = u
+        elif u is not None and v is not None and p is None:
+            if not isinstance(u, pd.Series):
+                raise TypeError(
+                    f"'u' should be a pandas Series, not a {type(u).__name__}."
+                )
+            if not isinstance(v, pd.Series):
+                raise TypeError(
+                    f"'v' should be a pandas Series, not a {type(v).__name__}."
+                )
+            if not u.index.equals(v.index):
+                raise ValueError(
+                    f"'u' and 'v' should have the same index, not {u.index} and {v.index}."
+                )
+            data = pd.Series(u + 1j * v, index=u.index)
+        else:
+            raise ValueError(
+                "No valid data was passed to the object. Please pass 'p', 'v' or/and 'u' as a parameter or set before calling this method."
+            )
         if not isinstance(bandwidth, int):
             raise TypeError(
                 f"'bandwidth' should be an int, not a {type(bandwidth).__name__}."
             )
-        self.spectrum: pd.Series = calculate_tidal_spectrum(p, bandwidth=bandwidth)
+        self.spectrum: pd.Series = calculate_tidal_spectrum(data, bandwidth=bandwidth)
 
         return self.spectrum
 

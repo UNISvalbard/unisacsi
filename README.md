@@ -20,13 +20,13 @@ Note for Apple users: The toolbox currently only works in an x86-environment (ma
 Download the file requirements.txt directly from the github repository (open the file on the webpage, click on "Raw", right-click and Save as...), then type in a anaconda-prompt/terminal window (you can change *myenv* to your desired name for the enviroment):
 
 ```
-conda create -n myenv --file requirements.txt
+conda create -n myenv python=3.12 --file requirements.txt
 ```
 
 For Apple silicon users with arm64-native anaconda:
 
 ```
-CONDA_SUBDIR=osx-64 conda create -n myenv --file requirements.txt
+CONDA_SUBDIR=osx-64 conda create -n myenv python=3.12 --file requirements.txt
 ```
 
 Follow the instructions and be patient, this might take some minutes!
@@ -47,7 +47,7 @@ conda config --set solver libmamba
 Now try again to create the new environment:
 
 ```
-conda create -n myenv --file requirements.txt
+conda create -n myenv python=3.12 --file requirements.txt
 ```
 
 Once the environment is created, activate it with:
