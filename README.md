@@ -6,7 +6,7 @@ The oceanographic part of this toolbox was originally developed at the Geophysic
 
 ## Installation
 
-We recommend the use of the anaconda distribution and the underlying conda package manager. It can be downloaded and installed from [here](https://www.anaconda.com/products/distribution). Furthermore, you should add the conda-forge channel. Open an anaconda-prompt/terminal window and type:
+We recommend the use of the anaconda distribution and the underlying conda package manager. It can be downloaded and installed from [here](https://www.anaconda.com/products/distribution). Furthermore, you should add the conda-forge channel. Open an anaconda-prompt/terminal window as an administrator and type:
 
 ```
 conda config --add channels conda-forge
@@ -60,6 +60,12 @@ Now you can install the unisacsi toolbox with:
 
 ```
 pip install git+https://github.com/UNISvalbard/unisacsi.git@WIP-Selle
+```
+
+In case you run into a problem with spectrum use the following line and repeat the line above:
+
+```
+conda install -c conda-forge spectrum
 ```
 
 In case we find and fix a bug or add new functionalities to the toolbox during the course, we might tell you to update your local copy of the package:

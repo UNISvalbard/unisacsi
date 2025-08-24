@@ -1,8 +1,8 @@
-__version__ = "0.4.00"
+__version__ = "1.0.00"
 __authors__: list[str] = [
     "Lukas Frank <lukasf@unis.no",
     "Jakob Dörr <jakob.dorr@uib.no",
-    "Patrick Selle <108687@student.unis.no",
+    "Patrick Selle <patrick.selle@uni-potsdam.de",
 ]
 
 from .Meteo import (

@@ -5361,7 +5361,7 @@ def plot_xarray_sections(
     da_max_distances = [da.distance.max().values for da in list_das]
     if da_contours is not None:
         da_max_distances = da_max_distances + [da_contours.distance.max().values]
-    x_limits = (0, np.nanmin(da_max_distances))
+    x_limits = (0, np.nanmax(da_max_distances))
 
     if bottom is not None:
         for a in axes:
@@ -5373,7 +5373,7 @@ def plot_xarray_sections(
                 color="gray",
             )
     else:
-        print("No bottom data found!")
+        logging.info("No bottom data found!")
 
     # add station ticks
     if add_station_ticks:
@@ -6521,11 +6521,11 @@ def plot_tidal_time_series(
             - If str, applies the same label to all transparent data.
             - If list of str, applies each label to the corresponding transparent data.
         moon_phase (list[list, list] or bool, optional): Used to include the moon phases (full and new). Defaults to True.
-            - If True, uses the default moon phases.
+            - If True, uses the default moon phases (from ephem).
             - If list, should contain two lists with the full and new moon dates.
             - If False, no moon phases are plotted.
         moon_apsides (list[list, list] or bool, optional): Used to include the apsides (apogee and perigee). Defaults to True.
-            - If True, uses the default apsides.
+            - If True, uses the default apsides (from ephem).
             - If list, should contain two lists with the apogee and perigee dates.
             - If False, no apsides are plotted.
         figsize (tuple[int, int], optional): Sets the used figsize. Defaults to None.
