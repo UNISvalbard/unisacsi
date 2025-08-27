@@ -62,17 +62,25 @@ Now you can install the unisacsi toolbox with:
 pip install git+https://github.com/UNISvalbard/unisacsi.git
 ```
 
-In case you run into a problem with spectrum use the following line and repeat the line above:
-
-```
-conda install -c conda-forge spectrum
-```
-
 In case we find and fix a bug or add new functionalities to the toolbox during the course, we might tell you to update your local copy of the package:
 
 ```
 pip install git+https://github.com/UNISvalbard/unisacsi.git --upgrade
 ```
+
+## Known issues:
+
+### No wheel build for Spectrum:
+
+Use the following command and try pip install again.
+
+```
+conda install -c conda-forge spectrum
+```
+
+### Jupyter is not starting/INTEL oneMKL Error:
+
+Add *nomkl* to the top of the requirements.txt.
 
 ## Examples
 

@@ -14,8 +14,21 @@ in student cruises at UNIS.
 from __future__ import print_function, annotations
 from _collections_abc import dict_keys
 
-import matplotlib.axes
-from numpy._typing._array_like import NDArray
+import copy
+import datetime
+import glob
+import logging
+import numbers as num
+import os
+import pathlib
+import posixpath
+import re
+import time
+from collections import Counter
+from itertools import chain
+from typing import Any, Literal, get_args, overload
+
+
 import warnings
 
 warnings.filterwarnings(
@@ -23,54 +36,72 @@ warnings.filterwarnings(
     message="pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html.",
     category=UserWarning,
 )
-from . import universal_func as uf
-from seabird.cnv import fCNV
-import gsw
+
+import matplotlib
+import matplotlib.axes
+import matplotlib.pyplot as plt
+from matplotlib.dates import date2num, datestr2num
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
 import numpy as np
 import numpy.typing as npt
-import matplotlib.pyplot as plt
-import matplotlib
-from netCDF4 import Dataset
-import glob
-from scipy.interpolate import interp1d, griddata
-import scipy.io as spio
-from scipy.io import loadmat
-from matplotlib.dates import date2num, datestr2num
+from numpy._typing._array_like import NDArray
+
+import pandas as pd
+
 import cmocean
 import cartopy.crs as ccrs
 import cartopy.feature
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-import pandas as pd
-from adjustText import adjust_text as adj_txt
-from pyrsktools import RSK
+
+from netCDF4 import Dataset
+
+from scipy import signal
+from scipy.interpolate import interp1d, griddata
+import scipy.io as spio
+from scipy.io import loadmat
+
+from seabird.cnv import fCNV
+
+import gsw
+
 import xarray as xr
-import datetime
-import os
+
+from adjustText import adjust_text as adj_txt
+
+from pyrsktools import RSK
+
 import plotly.express as px
 from plotly.offline import plot as pplot
 
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import utide
 import spectrum
-from scipy import signal
 
-import re
-import pathlib
 import zipfile
-import posixpath
+
 import pyTMD.utilities
 import pyTMD.compute
 
-import numbers as num
-import time
-from typing import Literal, Any, get_args, overload
-import logging
-import sounddevice as sd
-from collections import Counter
-from itertools import chain
-import copy
+try:
+    import sounddevice as sd
+
+    _HAS_SOUNDDEVICE = True
+except OSError:  # PortAudio not found
+    logging.warning(
+        f"{__name__}: PortAudio not found, sounddevice functionality will be disabled."
+    )
+    sd = None
+    _HAS_SOUNDDEVICE = False
+except ImportError:  # sounddevice module not installed
+    logging.warning(
+        f"{__name__}: An ImportError occurred while trying to import sounddevice."
+    )
+    sd = None
+    _HAS_SOUNDDEVICE = False
 
 import ephem as eph
+
+from . import universal_func as uf
 
 
 ############################################################################
@@ -6888,6 +6919,8 @@ def play_tone(
     Returns:
         None
     """
+    if not _HAS_SOUNDDEVICE:
+        raise RuntimeError("sounddevice module is not available")
     t: NDArray = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
     waveform: NDArray = np.sin(2 * np.pi * frequency * t)
     sd.play(waveform, samplerate)
@@ -6923,6 +6956,10 @@ def portasal(
     f_measure: float = 400
     f_stdby: float = 600
     f_final: float = 800
+    if not _HAS_SOUNDDEVICE:
+        logging.warning(
+            "'sounddevice' module not found, audio feedback will be disabled."
+        )
     while number > run:
         if input("Press Enter if you start the sampling process.").lower() == "ende":
             break
@@ -6931,11 +6968,13 @@ def portasal(
                 time.sleep(t_flushing * 1.3)
             else:
                 time.sleep(t_flushing)
-            play_tone(f_flushing)
+            if _HAS_SOUNDDEVICE:
+                play_tone(f_flushing)
             print(datetime.now().strftime("%H:%M:%S"), f"{i+1}. flush", sep="\t")
         for i in range(n_measure):
             time.sleep(t_flushing)
-            play_tone(f_measure)
+            if _HAS_SOUNDDEVICE:
+                play_tone(f_measure)
             print(
                 datetime.now().strftime("%H:%M:%S"), f"Start measurment {i}.", sep="\t"
             )
@@ -6944,14 +6983,16 @@ def portasal(
                     break
             time.sleep(t_measure)
             if i != n_measure - 1:
-                play_tone(f_stdby)
+                if _HAS_SOUNDDEVICE:
+                    play_tone(f_stdby)
                 print(
                     datetime.now().strftime("%H:%M:%S"),
                     f"End of measurment {i}",
                     sep="\t",
                 )
             else:
-                play_tone(f_final)
+                if _HAS_SOUNDDEVICE:
+                    play_tone(f_final)
         print(
             datetime.now().strftime("%H:%M:%S"),
             f"Finished the {run}. bottle.",
