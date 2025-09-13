@@ -6150,7 +6150,7 @@ def create_empty_ts(
             for col in ["T_min", "T_max", "SA_min", "SA_max", "Abbr"]
         ):
             raise ValueError(
-                "'water_masses' DataFrame should contain 'T_min', 'T_max', 'S_min', 'S_max', and 'Abbr' columns."
+                "'water_masses' DataFrame should contain 'T_min', 'T_max', 'SA_min', 'SA_max', and 'Abbr' columns."
             )
 
         for wm in water_masses.iterrows():
