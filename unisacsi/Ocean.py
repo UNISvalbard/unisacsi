@@ -2959,7 +2959,7 @@ def read_RBR(filepath: str) -> pd.DataFrame:
 
         df: pd.DataFrame = pd.DataFrame(data, index=time, columns=variables)
 
-        df = uf.std_names(df, add_units=True)
+        df = uf.std_names(df, add_units=True, module="o")
 
         df.sort_index(axis=0, inplace=True)
 
