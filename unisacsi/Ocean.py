@@ -1265,7 +1265,7 @@ def create_water_mass_DataFrame(
 
 
 def ctd_identify_water_masses(
-    CTD: dict, water_mass_def: pd.DataFrame, stations: npt.ArrayLike = None
+    CTD: dict, water_mass_def: pd.DataFrame, stations: npt.ArrayLike = None, use_SA: bool = False
 ) -> dict[dict]:
     """Function to assign each ctd measurement tuple of T and S the corresponding water mass (AW, TAW, LW etc.).
 
@@ -1276,6 +1276,7 @@ def ctd_identify_water_masses(
             - Needs to contain columns with the name '['Abbr','T_min','T_max','S_psu_max','S_psu_min']'.
         stations (array_like, optional): List of stations to select from CTD. Defaults to None.
             - If set to None all stations are used.
+        use_SA (bool, optional): If True, the water masses are identified based on Absolute Salinity.
 
     Returns:
         dict[dict]: Dict with the ctd data, each station has new variables 'water_mass' and 'water_mass_Abbr'.
@@ -1315,30 +1316,49 @@ def ctd_identify_water_masses(
     if not "Abbr" in water_mass_def.columns:
         raise ValueError(f"'Abbr' should be a column in 'water_mass_def.columns'.")
     if not "T_min" in water_mass_def.columns:
-        raise ValueError(f"'T_min' should be a column in 'water_mass_def.columns'.")
+            raise ValueError(f"'T_min' should be a column in 'water_mass_def.columns'.")
     if not "T_max" in water_mass_def.columns:
         raise ValueError(f"'T_max' should be a column in 'water_mass_def.columns'.")
-    if not "S_psu_min" in water_mass_def.columns:
-        raise ValueError(f"'S_psu_min' should be a column in 'water_mass_def.columns'.")
-    if not "S_psu_max" in water_mass_def.columns:
-        raise ValueError(f"'S_psu_max' should be a column in 'water_mass_def.columns'.")
+    if use_SA:
+        if not "SA_min" in water_mass_def.columns:
+            raise ValueError(f"'SA_min' should be a column in 'water_mass_def.columns'.")
+        if not "SA_max" in water_mass_def.columns:
+            raise ValueError(f"'SA_max' should be a column in 'water_mass_def.columns'.")
+    else:
+        if not "S_psu_min" in water_mass_def.columns:
+            raise ValueError(f"'S_psu_min' should be a column in 'water_mass_def.columns'.")
+        if not "S_psu_max" in water_mass_def.columns:
+            raise ValueError(f"'S_psu_max' should be a column in 'water_mass_def.columns'.")
 
     for s in stations:
         CTD[s]["water_mass"] = np.ones_like(CTD[s]["T [degC]"]) * np.nan
         CTD[s]["water_mass_Abbr"] = np.empty_like(CTD[s]["T [degC]"], dtype="object")
         for index, row in water_mass_def.iterrows():
             if row["Abbr"] != "ArW":
-                ind = np.all(
-                    np.array(
-                        [
-                            CTD[s]["T [degC]"] > row["T_min"],
-                            CTD[s]["T [degC]"] <= row["T_max"],
-                            CTD[s]["S []"] > row["S_psu_min"],
-                            CTD[s]["S []"] <= row["S_psu_max"],
-                        ]
-                    ),
-                    axis=0,
-                )
+                if use_SA:
+                    ind = np.all(
+                        np.array(
+                            [
+                                CTD[s]["T [degC]"] > row["T_min"],
+                                CTD[s]["T [degC]"] <= row["T_max"],
+                                CTD[s]["SA [g/kg]"] > row["SA_min"],
+                                CTD[s]["SA [g/kg]"] <= row["SA_max"],
+                            ]
+                        ),
+                        axis=0,
+                    )
+                else:
+                    ind = np.all(
+                        np.array(
+                            [
+                                CTD[s]["T [degC]"] > row["T_min"],
+                                CTD[s]["T [degC]"] <= row["T_max"],
+                                CTD[s]["S []"] > row["S_psu_min"],
+                                CTD[s]["S []"] <= row["S_psu_max"],
+                            ]
+                        ),
+                        axis=0,
+                    )
                 CTD[s]["water_mass"][ind] = index
                 CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
 
