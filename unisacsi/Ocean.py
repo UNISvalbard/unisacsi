@@ -5727,6 +5727,7 @@ def plot_CTD_map(
     CTD_duplicates: dict = {
         key: CTD_station[key] for key in CTD_station.keys() if len(CTD_station[key]) > 1
     }
+
     for key, value in CTD_duplicates.items():
         key_lat: list = []
         key_lon: list = []
@@ -5743,9 +5744,14 @@ def plot_CTD_map(
             CTD[key] = {}
             CTD[key]["lat"] = list(key_lat)[0]
             CTD[key]["lon"] = list(key_lon)[0]
-            for st in value:
+            for i, st in enumerate(value):
                 del CTD[st]
-                stations[stations.index(st)] = key
+                if i == 0:
+                    stations[stations.index(st)] = key
+                else:
+                    stations.remove(st)
+
+    CTD = {key: CTD[key] for key in stations}
 
     lat: list = [value["lat"] for value in CTD.values()]
     lon: list = [value["lon"] for value in CTD.values()]
