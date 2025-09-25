@@ -1603,6 +1603,164 @@ def read_ADCP_CODAS(
     return ds
 
 
+def read_ADCP_CODAS_mat(
+        path_to_folder: str, loadadditional_var: str | list[str] = None
+) -> xr.Dataset:
+    """Reads ADCP data from .mat files processed by CODAS.
+
+    Args:
+        filepath (str): Path to the folder containing the '.mat' file(s).
+            - Only the files named "allbins_*.mat" are considered.
+        loadadditional_var (str or list[str], optional): Name(s) of variabels that should be imported as well. Defaults to None.
+            - Standard variabels: "U", "V", "AMP", "PGOOD", "HEADING", "U_SHIP", "V_SHIP", "E"
+
+    Returns:
+        xr.Dataset: Dataset containing the adcp data. Current velocities are adjusted for the ship's motion.
+    """
+
+    all_files_full = sorted(glob.glob(os.path.join(path_to_folder,"allbins_*.mat")))
+    all_files = [os.path.basename(f) for f in all_files_full]
+
+    if len(all_files_full) == 0:
+        raise ValueError(f"No .mat files found in {path_to_folder}")
+    
+    if loadadditional_var == None:
+        loadadditional_var = []
+    if not isinstance(loadadditional_var, str) or not pd.api.types.is_list_like(
+        loadadditional_var
+    ):
+        if pd.api.types.is_list_like(loadadditional_var):
+            for i in loadadditional_var:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Objects in 'loadadditional_var' should be a string, not a {type(i).__name__}. ('{i}')"
+                    )
+        else:
+            raise TypeError(
+                f"'loadadditional_var' should be a string or a list of strings, not a {type(i).__name__}."
+            )
+
+    load_additiona_var_dict: dict = {}
+    if isinstance(loadadditional_var, str):
+        load_additiona_var_dict[loadadditional_var] = loadadditional_var.lower()
+    else:
+        for vari in loadadditional_var:
+            load_additiona_var_dict[vari] = vari.lower()
+
+    extract_vars: dict = {
+        "U": "u",
+        "V": "v",
+        "AMP": "amp",
+        "PGOOD": "pg",
+        "E": "e"
+    }
+
+
+
+    if 'allbins_depth.mat' not in all_files:
+        raise ValueError(f"'allbins_depth.mat' not found in {path_to_folder}. This file is required!")
+    d = myloadmat(os.path.join(path_to_folder, 'allbins_depth.mat'))
+    depth = d["DEPTH"]
+    
+
+    if 'allbins_other.mat' not in all_files:
+        raise ValueError(f"'allbins_other.mat' not found in {path_to_folder}. This file is required!")
+    d = myloadmat(os.path.join(path_to_folder, 'allbins_other.mat'))
+    
+    n_bins = d["NBINS"]
+    n_prfs = d["NPRFS"]
+
+    time_raw = d["TIME"]
+    if time_raw.shape == (6, n_prfs):
+        time_raw = np.transpose(time_raw)
+    time_vec = np.array([np.datetime64(f"{t[0]}-{t[1]:02d}-{t[2]:02d}T{t[3]:02d}:{t[4]:02d}:{t[5]:02d}") for t in time_raw])
+
+    if depth.shape == (n_bins, n_prfs):
+        depth = np.transpose(depth)
+
+    ds_data = xr.Dataset(
+        data_vars={"Heading_ship": ("time", d["HEADING"])},
+        coords={
+                "lat": ("time", d["LAT_END"]),
+                "lon": ("time", d["LON_END"]),
+                "depth": (("time", "depth_cell"), depth),
+                "time": ("time", time_vec),}
+    )
+
+    for vari_mat, vari_lower in extract_vars.items():
+        file = f'allbins_{vari_lower}.mat'
+
+        if file not in all_files:
+            raise ValueError(f"'{file}' not found in {path_to_folder}. This file is required!")
+        d = myloadmat(os.path.join(path_to_folder, file))
+        data = d[vari_mat]
+        if data.shape == (n_bins, n_prfs):
+            data = np.transpose(data)
+        ds_data[vari_lower] = (("time", "depth_cell"), data)
+        if vari_mat in ["U", "V"]:
+            ds_data[f"{vari_lower}_ship"] = ("time", d[f"{vari_mat}_SHIP"])
+
+
+
+    for vari_mat, vari_lower in load_additiona_var_dict.items():
+        if vari_mat == "W":
+            file = f'allbins_{vari_lower}.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            data = d[vari_mat]
+            if data.shape == (n_bins, n_prfs):
+                data = np.transpose(data)
+            ds_data[vari_lower] = (("time", "depth_cell"), data)
+        elif "MEAN" in vari_mat:
+            file = f'allbins_{vari_mat[0].lower()}.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            ds_data[vari_lower] = ("time", d[vari_mat])
+        elif "BT" in vari_mat:
+            file = f'allbins_bt.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            ds_data[vari_lower] = ("time", d[vari_mat])
+        elif vari_mat == "PFLAG":
+            file = f'allbins_pf.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            data = d[vari_mat]
+            if data.shape == (n_bins, n_prfs):
+                data = np.transpose(data)
+            ds_data[vari_lower] = (("time", "depth_cell"), data)
+        else:
+            print(f"Extraction of {vari_mat} no supported! Typo?! If not: Sorry, too bad :(")
+            continue
+
+    for vari in ["u", "v"]:
+        ds_data[vari] = ds_data[vari] + ds_data[f"{vari}_ship"]
+
+    ds_data["Speed_ship"] = xr.apply_ufunc(np.sqrt, ds_data["u_ship"] ** 2.0 + ds_data["v_ship"] ** 2.0)
+    ds_data["Speed_ship"].attrs["name"] = "Speed_ship"
+    ds_data["Speed_ship"].attrs["units"] = "m/s"
+    ds_data["Speed_ship"].attrs["long_name"] = "total ship speed"
+
+    ds_data["u"].attrs["long_name"] = "Eastward current velocity"
+    ds_data["v"].attrs["long_name"] = "Northward current velocity"
+    ds_data["u_ship"].attrs["long_name"] = "Eastward ship speed"
+    ds_data["v_ship"].attrs["long_name"] = "Northward ship speed"
+    ds_data["pg"].attrs["long_name"] = "Percent good"
+    ds_data["Heading_ship"].attrs["long_name"] = "Ship heading"
+    ds_data["Speed_ship"].attrs["long_name"] = "Ship speed"
+
+    return ds_data
+
+
+
 def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
     """Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
 
