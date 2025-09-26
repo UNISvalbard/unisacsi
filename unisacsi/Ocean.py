@@ -1772,6 +1772,7 @@ def read_ADCP_CODAS_mat(
     ds_data["v_ship"].attrs["long_name"] = "Northward ship speed"
     ds_data["pg"].attrs["long_name"] = "Percent good"
     ds_data["Heading_ship"].attrs["long_name"] = "Ship heading"
+    ds_data["Heading_ship"].attrs["units"] = "degree"
 
     return ds_data
 
