@@ -1793,7 +1793,7 @@ def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
 
     ds["depth_binsize"] = (
         ds.depth.isel(depth_cell=slice(0, 2))
-        .diff(dim="depth_cell")
+        .diff(dim="depth_cell").round()
         .squeeze("depth_cell", drop=True)
         .drop_vars("depth")
     )
