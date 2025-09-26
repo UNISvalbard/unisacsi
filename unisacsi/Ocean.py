@@ -1743,19 +1743,35 @@ def read_ADCP_CODAS_mat(
 
     for vari in ["u", "v"]:
         ds_data[vari] = ds_data[vari] + ds_data[f"{vari}_ship"]
+    
+    if "u_mean" in ds_data.data_vars:
+        ds_data["u_mean"] = ds_data["u_mean"] + ds_data[f"u_ship"]
+        ds_data["u_mean"].attrs["long_name"] = "Eastward depth-averaged current velocity"
+
+    if "v_mean" in ds_data.data_vars:
+        ds_data["v_mean"] = ds_data["v_mean"] + ds_data[f"v_ship"]
+        ds_data["v_mean"].attrs["long_name"] = "Northward depth-averaged current velocity"
+
 
     ds_data["Speed_ship"] = xr.apply_ufunc(np.sqrt, ds_data["u_ship"] ** 2.0 + ds_data["v_ship"] ** 2.0)
     ds_data["Speed_ship"].attrs["name"] = "Speed_ship"
     ds_data["Speed_ship"].attrs["units"] = "m/s"
-    ds_data["Speed_ship"].attrs["long_name"] = "total ship speed"
+    ds_data["Speed_ship"].attrs["long_name"] = "Ship speed"
 
+    ds_data["u"].attrs["name"] = "u"
+    ds_data["u"].attrs["units"] = "m/s"
     ds_data["u"].attrs["long_name"] = "Eastward current velocity"
+    ds_data["v"].attrs["name"] = "v"
+    ds_data["v"].attrs["units"] = "m/s"
     ds_data["v"].attrs["long_name"] = "Northward current velocity"
+    ds_data["u_ship"].attrs["name"] = "u_ship"
+    ds_data["u_ship"].attrs["units"] = "m/s"
     ds_data["u_ship"].attrs["long_name"] = "Eastward ship speed"
+    ds_data["v_ship"].attrs["name"] = "v_ship"
+    ds_data["v_ship"].attrs["units"] = "m/s"
     ds_data["v_ship"].attrs["long_name"] = "Northward ship speed"
     ds_data["pg"].attrs["long_name"] = "Percent good"
     ds_data["Heading_ship"].attrs["long_name"] = "Ship heading"
-    ds_data["Speed_ship"].attrs["long_name"] = "Ship speed"
 
     return ds_data
 
