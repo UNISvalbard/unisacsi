@@ -1334,33 +1334,32 @@ def ctd_identify_water_masses(
         CTD[s]["water_mass"] = np.ones_like(CTD[s]["T [degC]"]) * np.nan
         CTD[s]["water_mass_Abbr"] = np.empty_like(CTD[s]["T [degC]"], dtype="object")
         for index, row in water_mass_def.iterrows():
-            if row["Abbr"] != "ArW":
-                if use_SA:
-                    ind = np.all(
-                        np.array(
-                            [
-                                CTD[s]["T [degC]"] > row["T_min"],
-                                CTD[s]["T [degC]"] <= row["T_max"],
-                                CTD[s]["SA [g/kg]"] > row["SA_min"],
-                                CTD[s]["SA [g/kg]"] <= row["SA_max"],
-                            ]
-                        ),
-                        axis=0,
-                    )
-                else:
-                    ind = np.all(
-                        np.array(
-                            [
-                                CTD[s]["T [degC]"] > row["T_min"],
-                                CTD[s]["T [degC]"] <= row["T_max"],
-                                CTD[s]["S []"] > row["S_psu_min"],
-                                CTD[s]["S []"] <= row["S_psu_max"],
-                            ]
-                        ),
-                        axis=0,
-                    )
-                CTD[s]["water_mass"][ind] = index
-                CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
+            if use_SA:
+                ind = np.all(
+                    np.array(
+                        [
+                            CTD[s]["T [degC]"] > row["T_min"],
+                            CTD[s]["T [degC]"] <= row["T_max"],
+                            CTD[s]["SA [g/kg]"] > row["SA_min"],
+                            CTD[s]["SA [g/kg]"] <= row["SA_max"],
+                        ]
+                    ),
+                    axis=0,
+                )
+            else:
+                ind = np.all(
+                    np.array(
+                        [
+                            CTD[s]["T [degC]"] > row["T_min"],
+                            CTD[s]["T [degC]"] <= row["T_max"],
+                            CTD[s]["S []"] > row["S_psu_min"],
+                            CTD[s]["S []"] <= row["S_psu_max"],
+                        ]
+                    ),
+                    axis=0,
+                )
+            CTD[s]["water_mass"][ind] = index
+            CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
 
     return CTD
 
