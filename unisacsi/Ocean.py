@@ -3947,7 +3947,11 @@ class tide:
         return self.recon
 
     def plot_spectrum(
-        self, constituents: list[str] = None, exclude_constituents: list[str] = None
+        self,
+        constituents: list[str] = None,
+        exclude_constituents: list[str] = None,
+        fig: plt.Figure = None,
+        ax: matplotlib.axes.Axes = None,
     ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
         """Plots the tidal spectrum of the tide object.
 
@@ -3956,6 +3960,12 @@ class tide:
                 - If None, plots all constituents from the spectrum.
             exclude_constituents (list[str], optional): List of constituents to exclude from the plot. Defaults to None.
                 - If provided, constituents will be excluded from the plot.
+            fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+                - If set, also needs a ax.
+                - If None, a new axes will be created.
+            ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+                - If set, also needs a fig.
+                - If None, a new axes will be created.
 
         Returns:
             tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -3995,7 +4005,9 @@ class tide:
         if constituents is None and exclude_constituents is None:
             constituents = self.constituents.index
 
-        fig, ax = plot_tidal_spectrum(self.spectrum, constituents=constituents)
+        fig, ax = plot_tidal_spectrum(
+            self.spectrum, constituents=constituents, fig=fig, ax=ax
+        )
 
         return fig, ax
 
@@ -4007,6 +4019,8 @@ class tide:
         lon_center: num.Number = 14.26,
         map_extent: list = [11.0, 16.0, 78.0, 78.3],
         topography: str = None,
+        fig: plt.Figure = None,
+        ax: matplotlib.axes.Axes = None,
     ) -> tuple[plt.Figure, matplotlib.axes.Axes, Any]:
         """Plots tidal ellipses for selected constituents on a map.
 
@@ -4017,6 +4031,12 @@ class tide:
             lon_center (float, optional): Center longitude for ellipses. Defaults to 14.26.
             map_extent (list, optional): [lon_min, lon_max, lat_min, lat_max]. Defaults to [11.0, 16.0, 78.0, 78.3].
             topography (str, optional): Path or array for bathymetry. Defaults to None.
+            fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+            ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+                - If set, also needs a fig.
+                - If None, a new axes will be created.
 
         Returns:
             tuple[plt.Figure, matplotlib.axes.Axes, Any]:
@@ -4084,6 +4104,8 @@ class tide:
             lon_center,
             map_extent,
             topography,
+            fig,
+            ax,
         )
         return fig, ax, ax_ellipse
 
@@ -4093,6 +4115,8 @@ class tide:
         exclude_constituents: list[str] = None,
         multiple_plots: bool = False,
         n_row_col: tuple[int, int] = None,
+        fig: plt.Figure = None,
+        ax: matplotlib.axes.Axes = None,
     ) -> tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
         """
         Plots tidal ellipses for selected constituents.
@@ -4102,6 +4126,13 @@ class tide:
             exclude_constituents (list[str], optional): List of constituents to exclude. Defaults to None.
             multiple_plots (bool, optional): If True, plot each constituent in a separate subplot. Defaults to False.
             n_row_col (tuple[int, int], optional): Tuple specifying (nrows, ncols) for subplots. If None, tries to guess. Defaults to None.
+            fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+                - If set, also needs a ax.
+                - If None, a new axes will be created.
+            ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+                - If set, also needs a fig.
+                - If set, needs to match the number of constituents if 'muliple_plots' is True.
+                - If None, a new axes will be created.
 
         Returns:
             tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
@@ -4154,6 +4185,8 @@ class tide:
             constituents,
             muliple_plots=multiple_plots,
             n_row_col=n_row_col,
+            fig=fig,
+            ax=ax,
         )
 
 
@@ -4817,6 +4850,8 @@ def plot_CTD_section(
     interp_opt: int = 1,
     bottom: npt.ArrayLike = None,
     z_fine: bool = False,
+    fig: plt.Figure = None,
+    ax: plt.Axes = None,
 ) -> tuple[matplotlib.axes.Axes, matplotlib.axes.Axes, Any, Any, Any, Any]:
     """This function plots a CTD section of Temperature and Salinity,
     given CTD data either directly or via file(s).
@@ -4839,6 +4874,13 @@ def plot_CTD_section(
             - If None, it will be extracted from the CTD data.
         z_fine (bool, optional): Whether to use a fine z grid. Defaults to False.
             - If True, will be 10 cm, otherwise 1 m.
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig and should be 2 elements (axT and axS).
+            - If None, a new axes will be created.
+
 
     Returns:
         tuple[matplotlib.axes.Axes, matplotlib.axes.Axes, Any, Any, Any, Any]:
@@ -4925,7 +4967,16 @@ def plot_CTD_section(
     )
 
     # plot the figure
-    fig, [axT, axS] = plt.subplots(2, 1, figsize=(8, 9), sharex=True)
+    if fig is None and ax is None:
+        fig, [axT, axS] = plt.subplots(2, 1, figsize=(8, 9), sharex=True)
+    elif fig is None or ax is None:
+        raise ValueError(
+            "'fig' and 'ax' should both be set, or both be None. Currently one of them is None."
+        )
+    else:
+        if len(ax) != 2:
+            raise ValueError("'ax' should contain exactly two elements (axT and axS).")
+        axT, axS = ax
 
     # Temperature
     _, Ct_T, C_T = contour_section(
@@ -4970,7 +5021,7 @@ def plot_CTD_section(
     # tight_layout
     fig.tight_layout(h_pad=0.1, rect=[0, 0, 1, 0.95])
 
-    return axT, axS, Ct_T, Ct_S, C_T, C_S
+    return fig, axT, axS, Ct_T, Ct_S, C_T, C_S
 
 
 def plot_CTD_single_section(
@@ -4989,6 +5040,8 @@ def plot_CTD_single_section(
     tlocator: Any = None,
     z_fine: bool = False,
     cbar: bool = True,
+    fig: plt.Figure = None,
+    ax: plt.Axes = None,
 ) -> tuple[matplotlib.axes.Axes, Any, Any]:
     """This function plots a CTD section of a chosen variable,
     given CTD data either directly or via a file (through `CTD`).
@@ -5020,6 +5073,12 @@ def plot_CTD_single_section(
         z_fine (bool, optional): Whether to use a fine z grid. Defaults to False.
             - If True, will be 10 cm, otherwise 1 m.
         cbar (bool, optional): If the colorbar is displayed. Defaults to True.
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig.
+            - If None, a new axes will be created.
 
     Returns:
         tuple[matplotlib.axes.Axes, Any, Any]:
@@ -5135,7 +5194,10 @@ def plot_CTD_single_section(
     )
 
     # plot the figure
-    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    if ax is None and fig is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    elif ax is None or fig is None:
+        raise ValueError(f"You need to give a ax and fig and can't just give one.")
 
     # plot the cross section
     _, Ct, C = contour_section(
@@ -5180,6 +5242,8 @@ def plot_xarray_sections(
     interp: bool = False,
     switch_cbar: bool = True,
     add_station_ticks: bool = True,
+    fig: plt.Figure = None,
+    axes: list[plt.Axes] = None,
 ) -> tuple[plt.Figure, list[Any], list]:
     """Function to plot a variable number of variables from a section.
     Data can be from CTD or ADCP, but has to be provided as xarray datasets (see example notebook!)
@@ -5200,6 +5264,13 @@ def plot_xarray_sections(
         interp (bool, optional): Interpolation to a finer grid along the depth dimension. Defaults to False.
         switch_cbar (bool, optional): Adds colorbar to each contourf plot. Defaults to True.
         add_station_ticks (bool, optional): Add ticks for the locations of the CTD stations along the section. Defaults to True.
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        axes (list[matplotlib.pyplot.Axes], optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig.
+            - If set, needs to have the same length as list_das.
+            - If None, a new axes will be created.
 
     Returns:
         tuple[plt.Figure, list[Any], list]:
@@ -5263,11 +5334,25 @@ def plot_xarray_sections(
 
     N_subplots = len(list_das)
 
-    fig, axes = plt.subplots(
-        N_subplots, 1, sharey=True, sharex=True, figsize=(12, N_subplots * 4)
-    )
-    if N_subplots == 1:
-        axes = [axes]
+    if fig is None and axes is None:
+        fig, axes = plt.subplots(
+            N_subplots, 1, sharey=True, sharex=True, figsize=(12, N_subplots * 4)
+        )
+        if N_subplots == 1:
+            axes = [axes]
+    elif fig is None or axes is None:
+        raise ValueError(
+            "'fig' and 'axes' should both be set, or both be None. Currently one of them is None."
+        )
+    elif not pd.api.types.is_list_like(axes):
+        raise ValueError("'axes' should be a list of matplotlib.pyplot.Axes.")
+    elif len(axes) != N_subplots:
+        raise ValueError(
+            f"'axes' should have the same length as the supplied list_das."
+        )
+    elif len(axes.shape) > 1:
+        raise ValueError("'axes' should be a 1D list of matplotlib.pyplot.Axes.")
+
     pics = []
     for i, da in enumerate(list_das):
         if interp:
@@ -5814,6 +5899,8 @@ def plot_empty_map(
         4000,
         5000,
     ],
+    fig: plt.Figure = None,
+    ax: matplotlib.axes.Axes = None,
 ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Function which plots a very basic map of selected CTD stations.
 
@@ -5828,6 +5915,12 @@ def plot_empty_map(
                 - '.npy' with an array containing lat, lon and elevation as columns
                 - array_like with lat, lon and elevation
         depth_contours (array_like, optional): List containing countour levels for the bathymetry. Defaults to [10, 50, 100, 150, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000].
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig.
+            - If None, a new axes will be created.
 
     Returns:
         tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -5851,7 +5944,21 @@ def plot_empty_map(
             f"'depth_contours' should be an array_like, not {type(depth_contours).__name__}."
         )
 
-    fig, ax = plt.subplots(1, 1, subplot_kw={"projection": ccrs.PlateCarree()})
+    fig_ax: bool = True
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, subplot_kw={"projection": ccrs.PlateCarree()})
+        fig_ax = False
+    elif fig is None or ax is None:
+        raise ValueError(
+            "Either both 'fig' and 'ax' should be None, or both should be provided."
+        )
+    elif not hasattr(ax, "projection"):
+        raise ValueError("The sub plot axes needs to have a projection.")
+    elif not isinstance(ax.projection, ccrs.PlateCarree):
+        raise ValueError(
+            "The sub plot axes needs to have the projection: ccrs.PlateCarree."
+        )
+
     ax.set_extent(extent)
     if isinstance(topography, str):
         if os.path.isdir(topography):
@@ -5922,8 +6029,9 @@ def plot_empty_map(
 
     # make sure aspect ration of the axes is not too extreme
     ax.set_aspect("auto")
-    plt.gcf().canvas.draw()
-    plt.tight_layout()
+    if fig_ax:
+        plt.tight_layout()
+        plt.gcf().canvas.draw()
 
     return fig, ax
 
@@ -6226,13 +6334,20 @@ def check_VM_ADCP_map(ds: xr.Dataset) -> None:
 
 
 def plot_tidal_spectrum(
-    data: pd.Series | tide, constituents: list[str] = ["M2"]
+    data: pd.Series | tide,
+    constituents: list[str] = ["M2"],
+    fig: plt.Figure = None,
+    ax: matplotlib.axes.Axes = None,
 ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Plots the tidal spectrum and marks specified tidal constituents.
 
     Args:
         data (pd.Series or tide): Time series of spectral data (output of 'calculate_tidal_spectrum' or a tide object).
         constituents (list[str], optional): List of tidal constituents to mark on the plot. Defaults to ["M2"].
+        fig (plt.Figure, optional): Figure to plot on. Defaults to None.
+            - If None, will create a new figure.
+        ax (matplotlib.axes.Axes, optional): Axes to plot on. Defaults to None.
+            - If None, will create new axes.
 
     Returns:
         tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -6253,7 +6368,13 @@ def plot_tidal_spectrum(
     )
     tidal_freqs = np.array([omega_dict[c] for c in constituents])
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    elif fig is None or ax is None:
+        raise ValueError(
+            "Either both 'fig' and 'ax' should be None, or both should be provided."
+        )
+
     data.plot(ax=ax, color="b", zorder=10)
     ax.grid()
     ax.set_xscale("log")
@@ -6281,6 +6402,8 @@ def plot_map_tidal_ellipses(
         78.3,
     ],
     topography: str = None,
+    fig: plt.Figure = None,
+    ax: matplotlib.axes.Axes = None,
 ) -> tuple[plt.Figure, matplotlib.axes.Axes, Any]:
     """
     Plots tidal ellipses for specified tidal constituents on a map.
@@ -6299,6 +6422,12 @@ def plot_map_tidal_ellipses(
             - Path to a .npy file (should contain array with lat, lon, elevation as columns).
             - Array_like with lat, lon, elevation as columns.
             - None for no bathymetry. Defaults to None.
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig.
+            - If None, a new axes will be created.
 
     Returns:
         tuple[plt.Figure, matplotlib.axes.Axes, AxesHostAxes]:
@@ -6340,7 +6469,9 @@ def plot_map_tidal_ellipses(
             f"'lon_center' should be a number, not {type(lon_center).__name__}."
         )
 
-    fig, ax_map = plot_empty_map(extent=map_extent, topography=topography)
+    fig, ax_map = plot_empty_map(
+        extent=map_extent, topography=topography, fig=fig, ax=ax
+    )
 
     phi = np.linspace(0, 2 * np.pi, 1000)
     inset_size = 2.2
@@ -6394,6 +6525,8 @@ def plot_tidal_ellipses(
     constituents: npt.ArrayLike,
     muliple_plots: bool = False,
     n_row_col: tuple[int, int] = None,
+    fig: plt.Figure = None,
+    ax: matplotlib.axes.Axes = None,
 ) -> tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
     """Function to plot tidal ellipses in a TS-diagram.
 
@@ -6404,6 +6537,13 @@ def plot_tidal_ellipses(
         constituents (array_like): List with the names of the constituent, for the legend.
         muliple_plots (bool, optional): If True, plot each constituent in a separate subplot. Defaults to False.
         n_row_col (tuple[int, int], optional): Tuple specifying (nrows, ncols) for subplots. If None, tries to guess. Defaults to None.
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig.
+            - If set, needs to match the number of constituents if 'muliple_plots' is True.
+            - If None, a new axes will be created.
 
     Returns:
         tuple[plt.Figure, tuple[matplotlib.axes.Axes] | matplotlib.axes.Axes]:
@@ -6466,17 +6606,48 @@ def plot_tidal_ellipses(
             raise ValueError(
                 f"'n_row_col' should be a tuple with two integers, not {n_row_col}."
             )
-        fig, axes = plt.subplots(
-            ncols=n_row_col[1],
-            nrows=n_row_col[0],
-            figsize=(n_row_col[1] * 3, n_row_col[0] * 3),
-        )
+
+        if fig is None and ax is None:
+            fig, axes = plt.subplots(
+                ncols=n_row_col[1],
+                nrows=n_row_col[0],
+                figsize=(n_row_col[1] * 3, n_row_col[0] * 3),
+            )
+        elif fig is None or ax is None:
+            raise ValueError(
+                "Either both 'fig' and 'ax' should be None, or both should be provided."
+            )
+        elif not pd.api.types.is_list_like(ax):
+            if len(constituents) != 1:
+                raise ValueError(
+                    f"When providing 'fig' and 'ax', 'ax' should be a list of axes when 'muliple_plots' is True."
+                )
+        elif len(ax) != len(constituents):
+            raise ValueError(
+                f"When providing 'fig' and 'ax', the number of axes ({len(ax)}) should match the number of constituents ({len(constituents)})."
+            )
+        else:
+            axes = ax
+
         flat_axes = axes.flatten()
-        max_a = np.max(amp_major) * 1.1
     else:
-        fig, axes = plt.subplots(ncols=1, nrows=1, figsize=(3, 3))
+        if fig is None and ax is None:
+            fig, axes = plt.subplots(ncols=1, nrows=1, figsize=(3, 3))
+        elif fig is None or ax is None:
+            raise ValueError(
+                "Either both 'fig' and 'ax' should be None, or both should be provided."
+            )
+        elif pd.api.types.is_list_like(ax):
+            if len(ax) != 1:
+                raise ValueError(
+                    f"When providing 'fig' and 'ax', only one axes should be provided when 'muliple_plots' is False."
+                )
+            axes = ax[0]
+        else:
+            axes = ax
         flat_axes = [axes]
-        max_a = np.max(amp_major) * 1.1
+
+    max_a = np.max(amp_major) * 1.1
 
     for i, (a, b, t, n) in enumerate(zip(amp_major, amp_minor, inclin, constituents)):
         if not muliple_plots:
@@ -6528,6 +6699,8 @@ def plot_tidal_time_series(
     moon_phase: list[list, list] | bool = True,
     moon_apsides: list[list, list] | bool = True,
     figsize: tuple[int, int] = None,
+    fig: plt.Figure | None = None,
+    ax: matplotlib.axes.Axes | None = None,
 ) -> tuple[plt.figure, matplotlib.axes.Axes]:
     """Plots a time series of tidal data with optional transparency and moon phase/orbit overlays.
 
@@ -6562,6 +6735,13 @@ def plot_tidal_time_series(
         figsize (tuple[int, int], optional): Sets the used figsize. Defaults to None.
             - If None, uses the default figsize of (10, 5 * number_of_subplots / 1.5).
             - Also used to set the size of markers in the plot.
+        fig (matplotlib.pyplot.Figure, optional): The figure to plot on. If None, a new figure will be created. Defaults to None.
+            - If set, also needs a ax.
+            - If None, a new axes will be created.
+        ax (matplotlib.pyplot.Axes, optional): The axes to plot on. Defaults to None.
+            - If set, also needs a fig.
+            - If set, needs to match the number of constituents if 'muliple_plots' is True.
+            - If None, a new axes will be created.
 
     Returns:
         tuple[plt.figure, matplotlib.axes.Axes]:
@@ -6784,7 +6964,30 @@ def plot_tidal_time_series(
             f"'figsize' should be a tuple of two integers, not {len(figsize)}."
         )
 
-    fig, axes = plt.subplots(number, 1, figsize=figsize, sharex=True)
+    if fig is None or ax is None:
+        fig, axes = plt.subplots(number, 1, figsize=figsize, sharex=True)
+    elif fig is None or ax is None:
+        raise ValueError(
+            "Either both 'fig' and 'ax' should be None, or both should be provided."
+        )
+    elif number > 1 and not pd.api.types.is_list_like(ax):
+        raise ValueError(
+            f"When providing 'fig' and 'ax', 'ax' should be a list of axes when 'data' has multiple subplots."
+        )
+    elif number > 1 and len(ax) != number:
+        raise ValueError(
+            f"When providing 'fig' and 'ax', the number of axes ({len(ax)}) should match the number of subplots in 'data' ({number})."
+        )
+    elif number > 1 and len(ax.shape) != 1:
+        raise ValueError(
+            f"When providing 'fig' and 'ax', 'ax' should be a 1D array of axes when 'data' has multiple subplots."
+        )
+    else:
+        if number == 1:
+            axes = [ax]
+        else:
+            axes = ax
+
     if number == 1:
         axes = [axes]
     for i, (ax, data_arg, name) in enumerate(zip(axes, data_args, label)):

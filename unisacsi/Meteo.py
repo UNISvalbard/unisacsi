@@ -842,7 +842,6 @@ def download_IWIN_from_THREDDS(
 
 
 class MapGenerator:
-
     def __init__(
         self,
         lat_limits: list[int | float],
@@ -2661,8 +2660,3 @@ class MapGenerator:
             mathplotlib.figure.Figure: Figure of the plt.subplot.
         """
         return self.fig
-
-
-############################################################################
-# UAV FUNCTIONS
-############################################################################
