@@ -1265,7 +1265,7 @@ def create_water_mass_DataFrame(
 
 
 def ctd_identify_water_masses(
-    CTD: dict, water_mass_def: pd.DataFrame, stations: npt.ArrayLike = None
+    CTD: dict, water_mass_def: pd.DataFrame, stations: npt.ArrayLike = None, use_SA: bool = False
 ) -> dict[dict]:
     """Function to assign each ctd measurement tuple of T and S the corresponding water mass (AW, TAW, LW etc.).
 
@@ -1276,6 +1276,7 @@ def ctd_identify_water_masses(
             - Needs to contain columns with the name '['Abbr','T_min','T_max','S_psu_max','S_psu_min']'.
         stations (array_like, optional): List of stations to select from CTD. Defaults to None.
             - If set to None all stations are used.
+        use_SA (bool, optional): If True, the water masses are identified based on Absolute Salinity.
 
     Returns:
         dict[dict]: Dict with the ctd data, each station has new variables 'water_mass' and 'water_mass_Abbr'.
@@ -1315,19 +1316,37 @@ def ctd_identify_water_masses(
     if not "Abbr" in water_mass_def.columns:
         raise ValueError(f"'Abbr' should be a column in 'water_mass_def.columns'.")
     if not "T_min" in water_mass_def.columns:
-        raise ValueError(f"'T_min' should be a column in 'water_mass_def.columns'.")
+            raise ValueError(f"'T_min' should be a column in 'water_mass_def.columns'.")
     if not "T_max" in water_mass_def.columns:
         raise ValueError(f"'T_max' should be a column in 'water_mass_def.columns'.")
-    if not "S_psu_min" in water_mass_def.columns:
-        raise ValueError(f"'S_psu_min' should be a column in 'water_mass_def.columns'.")
-    if not "S_psu_max" in water_mass_def.columns:
-        raise ValueError(f"'S_psu_max' should be a column in 'water_mass_def.columns'.")
+    if use_SA:
+        if not "SA_min" in water_mass_def.columns:
+            raise ValueError(f"'SA_min' should be a column in 'water_mass_def.columns'.")
+        if not "SA_max" in water_mass_def.columns:
+            raise ValueError(f"'SA_max' should be a column in 'water_mass_def.columns'.")
+    else:
+        if not "S_psu_min" in water_mass_def.columns:
+            raise ValueError(f"'S_psu_min' should be a column in 'water_mass_def.columns'.")
+        if not "S_psu_max" in water_mass_def.columns:
+            raise ValueError(f"'S_psu_max' should be a column in 'water_mass_def.columns'.")
 
     for s in stations:
         CTD[s]["water_mass"] = np.ones_like(CTD[s]["T [degC]"]) * np.nan
         CTD[s]["water_mass_Abbr"] = np.empty_like(CTD[s]["T [degC]"], dtype="object")
         for index, row in water_mass_def.iterrows():
-            if row["Abbr"] != "ArW":
+            if use_SA:
+                ind = np.all(
+                    np.array(
+                        [
+                            CTD[s]["T [degC]"] > row["T_min"],
+                            CTD[s]["T [degC]"] <= row["T_max"],
+                            CTD[s]["SA [g/kg]"] > row["SA_min"],
+                            CTD[s]["SA [g/kg]"] <= row["SA_max"],
+                        ]
+                    ),
+                    axis=0,
+                )
+            else:
                 ind = np.all(
                     np.array(
                         [
@@ -1339,8 +1358,8 @@ def ctd_identify_water_masses(
                     ),
                     axis=0,
                 )
-                CTD[s]["water_mass"][ind] = index
-                CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
+            CTD[s]["water_mass"][ind] = index
+            CTD[s]["water_mass_Abbr"][ind] = row["Abbr"]
 
     return CTD
 
@@ -1583,6 +1602,181 @@ def read_ADCP_CODAS(
     return ds
 
 
+def read_ADCP_CODAS_mat(
+        path_to_folder: str, loadadditional_var: str | list[str] = None
+) -> xr.Dataset:
+    """Reads ADCP data from .mat files processed by CODAS.
+
+    Args:
+        filepath (str): Path to the folder containing the '.mat' file(s).
+            - Only the files named "allbins_*.mat" are considered.
+        loadadditional_var (str or list[str], optional): Name(s) of variabels that should be imported as well. Defaults to None.
+            - Standard variabels: "U", "V", "AMP", "PGOOD", "HEADING", "U_SHIP", "V_SHIP", "E"
+
+    Returns:
+        xr.Dataset: Dataset containing the adcp data. Current velocities are adjusted for the ship's motion.
+    """
+
+    all_files_full = sorted(glob.glob(os.path.join(path_to_folder,"allbins_*.mat")))
+    all_files = [os.path.basename(f) for f in all_files_full]
+
+    if len(all_files_full) == 0:
+        raise ValueError(f"No .mat files found in {path_to_folder}")
+    
+    if loadadditional_var == None:
+        loadadditional_var = []
+    if not isinstance(loadadditional_var, str) or not pd.api.types.is_list_like(
+        loadadditional_var
+    ):
+        if pd.api.types.is_list_like(loadadditional_var):
+            for i in loadadditional_var:
+                if not isinstance(i, str):
+                    raise TypeError(
+                        f"Objects in 'loadadditional_var' should be a string, not a {type(i).__name__}. ('{i}')"
+                    )
+        else:
+            raise TypeError(
+                f"'loadadditional_var' should be a string or a list of strings, not a {type(i).__name__}."
+            )
+
+    load_additiona_var_dict: dict = {}
+    if isinstance(loadadditional_var, str):
+        load_additiona_var_dict[loadadditional_var] = loadadditional_var.lower()
+    else:
+        for vari in loadadditional_var:
+            load_additiona_var_dict[vari] = vari.lower()
+
+    extract_vars: dict = {
+        "U": "u",
+        "V": "v",
+        "AMP": "amp",
+        "PGOOD": "pg",
+        "E": "e"
+    }
+
+
+
+    if 'allbins_depth.mat' not in all_files:
+        raise ValueError(f"'allbins_depth.mat' not found in {path_to_folder}. This file is required!")
+    d = myloadmat(os.path.join(path_to_folder, 'allbins_depth.mat'))
+    depth = d["DEPTH"]
+    
+
+    if 'allbins_other.mat' not in all_files:
+        raise ValueError(f"'allbins_other.mat' not found in {path_to_folder}. This file is required!")
+    d = myloadmat(os.path.join(path_to_folder, 'allbins_other.mat'))
+    
+    n_bins = d["NBINS"]
+    n_prfs = d["NPRFS"]
+
+    time_raw = d["TIME"]
+    if time_raw.shape == (6, n_prfs):
+        time_raw = np.transpose(time_raw)
+    time_vec = np.array([np.datetime64(f"{t[0]}-{t[1]:02d}-{t[2]:02d}T{t[3]:02d}:{t[4]:02d}:{t[5]:02d}") for t in time_raw])
+
+    if depth.shape == (n_bins, n_prfs):
+        depth = np.transpose(depth)
+
+    ds_data = xr.Dataset(
+        data_vars={"Heading_ship": ("time", d["HEADING"])},
+        coords={
+                "lat": ("time", d["LAT_END"]),
+                "lon": ("time", d["LON_END"]),
+                "depth": (("time", "depth_cell"), depth),
+                "time": ("time", time_vec),}
+    )
+
+    for vari_mat, vari_lower in extract_vars.items():
+        file = f'allbins_{vari_lower}.mat'
+
+        if file not in all_files:
+            raise ValueError(f"'{file}' not found in {path_to_folder}. This file is required!")
+        d = myloadmat(os.path.join(path_to_folder, file))
+        data = d[vari_mat]
+        if data.shape == (n_bins, n_prfs):
+            data = np.transpose(data)
+        ds_data[vari_lower] = (("time", "depth_cell"), data)
+        if vari_mat in ["U", "V"]:
+            ds_data[f"{vari_lower}_ship"] = ("time", d[f"{vari_mat}_SHIP"])
+
+
+
+    for vari_mat, vari_lower in load_additiona_var_dict.items():
+        if vari_mat == "W":
+            file = f'allbins_{vari_lower}.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            data = d[vari_mat]
+            if data.shape == (n_bins, n_prfs):
+                data = np.transpose(data)
+            ds_data[vari_lower] = (("time", "depth_cell"), data)
+        elif "MEAN" in vari_mat:
+            file = f'allbins_{vari_mat[0].lower()}.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            ds_data[vari_lower] = ("time", d[vari_mat])
+        elif "BT" in vari_mat:
+            file = f'allbins_bt.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            ds_data[vari_lower] = ("time", d[vari_mat])
+        elif vari_mat == "PFLAG":
+            file = f'allbins_pf.mat'
+            if file not in all_files:
+                print(f"'{file}' not found in {path_to_folder}. {vari_mat} will not be loaded!")
+                continue
+            d = myloadmat(os.path.join(path_to_folder, file))
+            data = d[vari_mat]
+            if data.shape == (n_bins, n_prfs):
+                data = np.transpose(data)
+            ds_data[vari_lower] = (("time", "depth_cell"), data)
+        else:
+            print(f"Extraction of {vari_mat} no supported! Typo?! If not: Sorry, too bad :(")
+            continue
+
+    for vari in ["u", "v"]:
+        ds_data[vari] = ds_data[vari] + ds_data[f"{vari}_ship"]
+    
+    if "u_mean" in ds_data.data_vars:
+        ds_data["u_mean"] = ds_data["u_mean"] + ds_data[f"u_ship"]
+        ds_data["u_mean"].attrs["long_name"] = "Eastward depth-averaged current velocity"
+
+    if "v_mean" in ds_data.data_vars:
+        ds_data["v_mean"] = ds_data["v_mean"] + ds_data[f"v_ship"]
+        ds_data["v_mean"].attrs["long_name"] = "Northward depth-averaged current velocity"
+
+
+    ds_data["Speed_ship"] = xr.apply_ufunc(np.sqrt, ds_data["u_ship"] ** 2.0 + ds_data["v_ship"] ** 2.0)
+    ds_data["Speed_ship"].attrs["name"] = "Speed_ship"
+    ds_data["Speed_ship"].attrs["units"] = "m/s"
+    ds_data["Speed_ship"].attrs["long_name"] = "Ship speed"
+
+    ds_data["u"].attrs["name"] = "u"
+    ds_data["u"].attrs["units"] = "m/s"
+    ds_data["u"].attrs["long_name"] = "Eastward current velocity"
+    ds_data["v"].attrs["name"] = "v"
+    ds_data["v"].attrs["units"] = "m/s"
+    ds_data["v"].attrs["long_name"] = "Northward current velocity"
+    ds_data["u_ship"].attrs["name"] = "u_ship"
+    ds_data["u_ship"].attrs["units"] = "m/s"
+    ds_data["u_ship"].attrs["long_name"] = "Eastward ship speed"
+    ds_data["v_ship"].attrs["name"] = "v_ship"
+    ds_data["v_ship"].attrs["units"] = "m/s"
+    ds_data["v_ship"].attrs["long_name"] = "Northward ship speed"
+    ds_data["pg"].attrs["long_name"] = "Percent good"
+    ds_data["Heading_ship"].attrs["long_name"] = "Ship heading"
+    ds_data["Heading_ship"].attrs["units"] = "degree"
+
+    return ds_data
+
+
+
 def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
     """Splits the full ADCP time series into seperate datasets containing only timesteps with the same depth resolution.
 
@@ -1598,7 +1792,7 @@ def split_CODAS_resolution(ds: xr.Dataset) -> list[xr.Dataset]:
 
     ds["depth_binsize"] = (
         ds.depth.isel(depth_cell=slice(0, 2))
-        .diff(dim="depth_cell")
+        .diff(dim="depth_cell").round()
         .squeeze("depth_cell", drop=True)
         .drop_vars("depth")
     )
@@ -2959,7 +3153,7 @@ def read_RBR(filepath: str) -> pd.DataFrame:
 
         df: pd.DataFrame = pd.DataFrame(data, index=time, columns=variables)
 
-        df = uf.std_names(df, add_units=True)
+        df = uf.std_names(df, add_units=True, module="o")
 
         df.sort_index(axis=0, inplace=True)
 
@@ -5792,6 +5986,7 @@ def plot_CTD_map(
     CTD_duplicates: dict = {
         key: CTD_station[key] for key in CTD_station.keys() if len(CTD_station[key]) > 1
     }
+
     for key, value in CTD_duplicates.items():
         key_lat: list = []
         key_lon: list = []
@@ -5808,9 +6003,14 @@ def plot_CTD_map(
             CTD[key] = {}
             CTD[key]["lat"] = list(key_lat)[0]
             CTD[key]["lon"] = list(key_lon)[0]
-            for st in value:
+            for i, st in enumerate(value):
                 del CTD[st]
-                stations[stations.index(st)] = key
+                if i == 0:
+                    stations[stations.index(st)] = key
+                else:
+                    stations.remove(st)
+
+    CTD = {key: CTD[key] for key in stations}
 
     lat: list = [value["lat"] for value in CTD.values()]
     lon: list = [value["lon"] for value in CTD.values()]
@@ -6258,7 +6458,7 @@ def create_empty_ts(
             for col in ["T_min", "T_max", "SA_min", "SA_max", "Abbr"]
         ):
             raise ValueError(
-                "'water_masses' DataFrame should contain 'T_min', 'T_max', 'S_min', 'S_max', and 'Abbr' columns."
+                "'water_masses' DataFrame should contain 'T_min', 'T_max', 'SA_min', 'SA_max', and 'Abbr' columns."
             )
 
         for wm in water_masses.iterrows():
