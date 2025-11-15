@@ -75,7 +75,6 @@ import plotly.express as px
 from plotly.offline import plot as pplot
 
 import utide
-import spectrum
 
 import zipfile
 
@@ -4397,6 +4396,7 @@ def calculate_tidal_spectrum(data: pd.Series, bandwidth: int = 8) -> pd.Series:
     Returns:
         pd.Series: Series with the spectral data, the index is specifying the frequency per day.
     """
+    import spectrum
     if not isinstance(data, pd.Series):
         raise TypeError(
             f"'data' should be a pandas Series, not a {type(data).__name__}."
