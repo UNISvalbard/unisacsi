@@ -6538,6 +6538,7 @@ def plot_tidal_spectrum(
     constituents: list[str] = ["M2"],
     fig: plt.Figure = None,
     ax: matplotlib.axes.Axes = None,
+    **kwargs
 ) -> tuple[plt.Figure, matplotlib.axes.Axes]:
     """Plots the tidal spectrum and marks specified tidal constituents.
 
@@ -6548,6 +6549,7 @@ def plot_tidal_spectrum(
             - If None, will create a new figure.
         ax (matplotlib.axes.Axes, optional): Axes to plot on. Defaults to None.
             - If None, will create new axes.
+        kwargs (optional): Arguments passed on to pyplot.plot. 
 
     Returns:
         tuple[plt.Figure, matplotlib.axes.Axes]:
@@ -6575,7 +6577,7 @@ def plot_tidal_spectrum(
             "Either both 'fig' and 'ax' should be None, or both should be provided."
         )
 
-    data.plot(ax=ax, color="b", zorder=10)
+    data.plot(ax=ax, zorder=10, **kwargs)
     ax.grid()
     ax.set_xscale("log")
     ax.set_yscale("log")
