@@ -7188,8 +7188,6 @@ def plot_tidal_time_series(
         else:
             axes = ax
 
-    if number == 1:
-        axes = [axes]
     for i, (ax, data_arg, name) in enumerate(zip(axes, data_args, label)):
         data_arg.setdefault("color", f"C{i*2}")
         data_arg.setdefault("label", name)
