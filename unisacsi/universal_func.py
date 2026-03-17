@@ -39,6 +39,7 @@ unit_rename_dict: dict[str, list[str]] = {
     "V": ["Volts"],
     "%": ["percent"],
     "": ["pratical salinity unit"],
+    "m": ["meter"],
 }
 
 # dictinary variables and units {'variable_name': 'unit'}
