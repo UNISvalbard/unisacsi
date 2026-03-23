@@ -2576,14 +2576,16 @@ def read_CTD_from_mat(matfile: str) -> dict:
     return CTD
 
 
-def read_MSS(files: str, excel_file: str = None) -> tuple[dict, dict, dict]:
-    """Function to read MSS data from .mat-files can also read the excel_file to add latitude and longditue.
+def read_MSS(
+    files: str, excel_file: str = None
+) -> tuple[dict, dict, dict] | xr.Dataset:
+    """Function to read MSS data from .mat/.nc-files can also read the excel_file to add latitude and longditue.
     Calculates z from p and adds it to the data (if no latitude is given, uses 60N).
 
     Args:
         files (str):
-            - Path to the folder where the .mat file(s) are stored.
-            - Path to .mat file(s) with UNIX-wildcards ('*' for any character(s), '?' for single character, etc.).
+            - Path to the folder where the .mat/.nc file(s) are stored.
+            - Path to .mat/.nc file(s) with UNIX-wildcards ('*' for any character(s), '?' for single character, etc.).
         excel_file (str, optional): Path to the .xlsx file. Defaults to None.
             - This should contain a table with the following columns:
                 - Station name
@@ -2614,16 +2616,30 @@ def read_MSS(files: str, excel_file: str = None) -> tuple[dict, dict, dict]:
     if not isinstance(files, str):
         raise TypeError(f"'files' should be a string, not a {type(files).__name__}.")
     if os.path.isdir(files):
+        back_files = copy.deepcopy(files)
         files = glob.glob(os.path.join(files, "*.mat"))
+        if len(files) == 0:
+            files = glob.glob(os.path.join(back_files, "*.nc"))
     else:
         files = glob.glob(files)
 
     if len(files) == 0:
-        raise FileNotFoundError(f"No files where found.")
+        raise FileNotFoundError(f"No file(s) where found.")
+
+    if files[0].endswith(".nc"):
+        file_format = ".nc"
+    elif files[0].endswith(".mat"):
+        file_format = ".mat"
+    else:
+        raise ValueError(
+            f"Invalid file format: {files[0]}. Expected a .mat or .nc file."
+        )
 
     for file in files:
-        if not file.endswith(".mat"):
-            raise ValueError(f"Invalid file format: {file}. Expected a .mat file.")
+        if not file.endswith(file_format):
+            raise ValueError(
+                f"Invalid file format: {file}. Expected a .{file_format} file."
+            )
 
     # first, handle the excel file
     if excel_file:
@@ -2686,49 +2702,60 @@ def read_MSS(files: str, excel_file: str = None) -> tuple[dict, dict, dict]:
             )
             excel_file = None
 
-    out_data: dict[str, dict] = {"CTD": {}, "MIX": {}, "DATA": {}}
-    len_files: int = len(files)
-    for num, file in enumerate(files):
-        # to not have a progress bar, when there are just a few files
-        if len_files > 20:
-            uf.progress_bar(num + 1, len_files)
+    if file_format == ".mat":
+        out_data: dict[str, dict] = {"CTD": {}, "MIX": {}, "DATA": {}}
+        len_files: int = len(files)
+        for num, file in enumerate(files):
+            # to not have a progress bar, when there are just a few files
+            if len_files > 20:
+                uf.progress_bar(num + 1, len_files)
 
-        st_name = int(file.split(".mat")[0][-4:])
-        raw_data: dict = myloadmat(file)
-        data: dict[str, dict] = {k: raw_data[k] for k in ["CTD", "MIX", "DATA"]}
+            st_name = int(file.split(".mat")[0][-4:])
+            raw_data: dict = myloadmat(file)
+            data: dict[str, dict] = {k: raw_data[k] for k in ["CTD", "MIX", "DATA"]}
 
-        for name in ["CTD", "MIX"]:
-            for var in ["LON", "LAT", "fname", "date"]:
-                data[name][var] = raw_data["STA"][var]
+            for name in ["CTD", "MIX"]:
+                for var in ["LON", "LAT", "fname", "date"]:
+                    data[name][var] = raw_data["STA"][var]
 
-            if excel_file:
-                matches: np.array = np.where(file_nr == st_name)[0]
-                if len(matches) != 0:
-                    index: int = matches[0]
-                    data[name]["LON"] = lon_deg[index] + float(lon_min[index]) / 60
-                    data[name]["LAT"] = lat_deg[index] + float(lat_min[index]) / 60
-                    data[name]["Station name"] = st[index]
-                else:
-                    logging.warning(
-                        f"Warning: No match for {st_name} in the excel file."
-                    )
+                if excel_file:
+                    matches: np.array = np.where(file_nr == st_name)[0]
+                    if len(matches) != 0:
+                        index: int = matches[0]
+                        data[name]["LON"] = lon_deg[index] + float(lon_min[index]) / 60
+                        data[name]["LAT"] = lat_deg[index] + float(lat_min[index]) / 60
+                        data[name]["Station name"] = st[index]
+                    else:
+                        logging.warning(
+                            f"Warning: No match for {st_name} in the excel file."
+                        )
 
-            try:
-                data[name]["z"] = gsw.z_from_p(data[name]["P"], data[name]["LAT"])
-            except:  # just use 60N as lat if lat is not provided
-                data[name]["z"] = gsw.z_from_p(data[name]["P"], 60)
+                try:
+                    data[name]["z"] = gsw.z_from_p(data[name]["P"], data[name]["LAT"])
+                except:  # just use 60N as lat if lat is not provided
+                    data[name]["z"] = gsw.z_from_p(data[name]["P"], 60)
 
-            # Something weird in the data...
-            data[name]["z"][np.isnan(data[name]["SIGTH"])] = np.nan
-            data[name]["BottomDepth"] = np.nanmax(-data[name]["z"])
-            data[name]["datetime"] = pd.to_datetime(
-                data[name]["date"], format="%d-%b-%Y %H:%M:%S"
-            )
+                # Something weird in the data...
+                data[name]["z"][np.isnan(data[name]["SIGTH"])] = np.nan
+                data[name]["BottomDepth"] = np.nanmax(-data[name]["z"])
+                data[name]["datetime"] = pd.to_datetime(
+                    data[name]["date"], format="%d-%b-%Y %H:%M:%S"
+                )
 
-        for name in ["CTD", "MIX", "DATA"]:
-            out_data[name][st_name] = data[name]
+            for name in ["CTD", "MIX", "DATA"]:
+                out_data[name][st_name] = data[name]
 
-    return out_data["CTD"], out_data["MIX"], out_data["DATA"]
+        return out_data["CTD"], out_data["MIX"], out_data["DATA"]
+    elif file_format == ".nc":
+        list_of_ds: list[xr.Dataset] = []
+        for file in files:
+            ds = xr.open_dataset(file)
+            list_of_ds.append(ds)
+        ds: xr.Dataset = xr.merge(list_of_ds, compat="no_conflicts")
+
+        ds = uf.std_names(ds)
+
+        return ds
 
 
 def read_mooring(filepath: str, normal_dict: bool = True) -> dict:
