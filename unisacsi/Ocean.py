@@ -2596,10 +2596,12 @@ def read_MSS(
             - The latitude and longitude are used to add the coordinates to the data.
 
     Returns:
-        tuple[dict,dict,dict]:
+        tuple[dict,dict,dict] or xr.Dataset:
             - Dictionary with the CTD data.
             - Dictionary with the MIX data.
             - Dictionary with the DATA data.
+            - xr.Dataset with naming convention.
+
     """
 
     if excel_file == None:
