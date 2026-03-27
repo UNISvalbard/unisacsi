@@ -3479,14 +3479,14 @@ def download_tidal_model(
     return None
 
 
-__inter_methods__ = Literal["bilinear", "spline", "linear", "nearest"]
+__inter_methods__ = Literal["linear", "nearest"]
 
 
 def detide_VMADCP(
     ds: xr.Dataset,
     path_tidal_models: str,
     tidal_model: str | __tidal_models__ = "Arc2kmTM",
-    method: str | __inter_methods__ = "spline",
+    method: str | __inter_methods__ = "linear",
 ) -> xr.Dataset:
     """Function to correct the VM-ADCP data for the tides
     (substract the tidal currents from the measurements).
@@ -3500,7 +3500,7 @@ def detide_VMADCP(
             - Options are: "AODTM-5", "AOTIM-5", "AOTIM-5-2018", "Arc2kmTM", "Gr1kmTM".
         method (str, optional): Spatial interpolation method. Defaults to "spline".
             - From tidal model grid to actual locations of the ship.
-            - Options: 'bilinear', 'spline', 'linear' and 'nearest'.
+            - Options: 'linear' and 'nearest'.
 
     Returns:
         xr.Dataset: same xarray dataset as the input, but with additional variables for the tidal currents and the de-tided measurements
@@ -3524,27 +3524,20 @@ def detide_VMADCP(
     if not isinstance(method, str):
         raise TypeError(f"'method' should be a string, not a {type(method).__name__}.")
     if method not in get_args(__inter_methods__):
-        raise ValueError(
-            f"'method' should be 'bilinear', 'spline', 'linear' or 'nearest', not {method}."
-        )
-
-    time: NDArray = (
-        (ds.time.to_pandas() - pd.Timestamp(1970, 1, 1, 0, 0, 0)).dt.total_seconds()
-    ).values
+        raise ValueError(f"'method' should be 'linear' or 'nearest', not {method}.")
 
     tide_uv: dict = pyTMD.compute.tide_currents(
         ds.lon.values,
         ds.lat.values,
-        time,
-        DIRECTORY=path_tidal_models,
-        MODEL=tidal_model,
-        EPSG=4326,
-        EPOCH=(1970, 1, 1, 0, 0, 0),
-        TYPE="drift",
-        TIME="UTC",
-        METHOD=method,
-        EXTRAPOLATE=True,
-        FILL_VALUE=np.nan,
+        ds.time.values,
+        directory=path_tidal_models,
+        model=tidal_model,
+        crs=4326,
+        type="drift",
+        standard="datetime",
+        method=method,
+        extrapolate=True,
+        cutoff=np.nan,
     )
 
     ds["u_tide"] = xr.DataArray(
@@ -3580,7 +3573,7 @@ def get_tidal_uvh(
     time: pd.DatetimeIndex,
     path_tidal_models: str,
     tidal_model: str | __tidal_models__ = "Arc2kmTM",
-    method: str | __inter_methods__ = "spline",
+    method: str | __inter_methods__ = "linear",
 ) -> pd.DataFrame:
     """Function to calculate time series of tidal currents u and v
     as well as the surface elevation change h for a given pair of lat and lon
@@ -3596,9 +3589,9 @@ def get_tidal_uvh(
             - Don't include the name of the actual tidal model!
         tidal_model (str, optional): Name of the tidal model to be used (also name of the folder where these respective tidal model data are stored). Defaults to "Arc2kmTM".
             - Options are: "AODTM-5", "AOTIM-5", "AOTIM-5-2018", "Arc2kmTM", "Gr1kmTM".
-        method (str, optional): Spatial interpolation method. Defaults to "spline".
+        method (str, optional): Spatial interpolation method. Defaults to "linear".
             - From tidal model grid to actual locations of the ship.
-            - Options: 'bilinear', 'spline', 'linear' and 'nearest'.
+            - Options: 'linear' and 'nearest'.
 
     Returns:
         pd.DataFrame: Dataframe with time as the index and three columns u, v and h with the tidal current velocities and the surface height anomalies.
@@ -3632,53 +3625,46 @@ def get_tidal_uvh(
     if not isinstance(method, str):
         raise TypeError(f"'method' should be a string, not a {type(method).__name__}.")
     if method not in get_args(__inter_methods__):
-        raise ValueError(
-            f"'method' should be 'bilinear', 'spline', 'linear' or 'nearest', not {method}."
-        )
+        raise ValueError(f"'method' should be 'linear' or 'nearest', not {method}.")
+    time_use = time
+    if time_use.tz is not None:
+        time_use = time_use.tz_convert("UTC").tz_localize(None)
+    time_model = time_use.to_numpy(dtype="datetime64[ns]")
 
-    time_model: NDArray = (
-        (time - pd.Timestamp(1970, 1, 1, 0, 0, 0)).total_seconds()
-    ).values
-
-    tide_uv: dict = pyTMD.compute.tide_currents(
+    tide_uv = pyTMD.compute.tide_currents(
         longitude,
         latitude,
         time_model,
-        DIRECTORY=path_tidal_models,
-        MODEL=tidal_model,
-        EPSG=4326,
-        EPOCH=(1970, 1, 1, 0, 0, 0),
-        TYPE="time series",
-        TIME="UTC",
-        METHOD=method,
-        EXTRAPOLATE=True,
-        FILL_VALUE=np.nan,
+        directory=path_tidal_models,
+        model=tidal_model,
+        crs=4326,
+        type="time series",
+        standard="datetime",
+        method=method,
+        extrapolate=True,
+        cutoff=np.inf,
     )
-    tide_h: NDArray = pyTMD.compute.tide_elevations(
+
+    tide_h = pyTMD.compute.tide_elevations(
         longitude,
         latitude,
         time_model,
-        DIRECTORY=path_tidal_models,
-        MODEL=tidal_model,
-        EPSG=4326,
-        EPOCH=(1970, 1, 1, 0, 0, 0),
-        TYPE="time series",
-        TIME="UTC",
-        METHOD=method,
-        EXTRAPOLATE=True,
-        FILL_VALUE=np.nan,
+        directory=path_tidal_models,
+        model=tidal_model,
+        crs=4326,
+        type="time series",
+        standard="datetime",
+        method=method,
+        extrapolate=True,
+        cutoff=np.inf,
     )
 
-    df = pd.DataFrame(
-        {
-            "u [m/s]": tide_uv["u"].squeeze() / 100.0,
-            "v [m/s]": tide_uv["v"].squeeze() / 100.0,
-            "h [m]": tide_h.squeeze(),
-        },
-        index=time,
-    )
+    # In current pyTMD, tide_currents returns a DataTree with u and v nodes
+    u = tide_uv["u"].to_dataset()["u"].to_numpy().squeeze() / 100.0  # cm/s -> m/s
+    v = tide_uv["v"].to_dataset()["v"].to_numpy().squeeze() / 100.0  # cm/s -> m/s
+    h = tide_h.to_numpy().squeeze()  # already meters
 
-    return df
+    return pd.DataFrame({"u [m/s]": u, "v [m/s]": v, "h [m]": h}, index=time_use)
 
 
 class tide:
