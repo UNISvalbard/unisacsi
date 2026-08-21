@@ -154,3 +154,8 @@ cython_debug/
 # Exercise solutions
 exercises_solutions.ipynb
 exercises_solutions.pdf
+
+# VS Code
+.vscode/
+.DS_Store/
+*.json
