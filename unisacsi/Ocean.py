@@ -6203,7 +6203,7 @@ def plot_empty_map(
             "The sub plot axes needs to have the projection: ccrs.PlateCarree."
         )
 
-    ax.set_extent(extent)
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
     if isinstance(topography, str):
         if os.path.isdir(topography):
             topography = os.path.join(
