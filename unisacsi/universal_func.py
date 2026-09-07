@@ -16,7 +16,7 @@ rename_dict: dict[str, list[str]] = {
     "RECORD": ["Record"],
     "T": ["temperature", "Temperature", "temp", "Temp", "TEMP"],
     "RH": ["relative_humidity", "rel_humidity", "Relative humidity"],
-    "Speed": ["speed"],
+    "Speed": ["speed", "abs speed"],
     "Dir": ["direction", "Direction", "dir"],
     "p": ["pressure", "Pressure", "PRES"],
     "SW": ["Shortwave"],
@@ -28,13 +28,13 @@ rename_dict: dict[str, list[str]] = {
     "S": ["Salinity", "salinity", "PSAL"],
     "SIGTH": ["density_anomaly", "SIGO"],
     "C": ["conductivity"],
-    "u": ["eastward", "East"],
-    "v": ["northward", "North"],
+    "u": ["eastward", "East", "east"],
+    "v": ["northward", "North", "north"]
 }
 
 unit_rename_dict: dict[str, list[str]] = {
     "Pa": ["Pascal"],
-    "deg": ["°", "ø", "degrees", "Deg"],
+    "deg": ["°", "ø", "degrees", "Deg", "degM"],
     "C": [" Celsius"],
     "V": ["Volts"],
     "%": ["percent"],

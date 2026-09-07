@@ -2968,18 +2968,102 @@ def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
 
     Args:
         filepath (str): Path to the .txt file.
-        header_len (int, optional): Number of header lines tat have to be skipped. Defaults to 4.
+        header_len (int, optional): Number of header lines that have to be skipped. Defaults to 4.
 
     Returns:
         pd.DataFrame: Dataframe with time as index and the individual variables as columns.
     """
 
+    def _read_old_seaguard(filepath: str, header_len: int) -> pd.DataFrame:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.",
+                category=UserWarning,
+            )
+
+            df: pd.DataFrame = pd.read_csv(
+                filepath,
+                sep="\t",
+                header=header_len,
+                parse_dates=["Time tag (Gmt)"],
+                dayfirst=True,
+            )
+
+        df.rename({"Time tag (Gmt)": "TIMESTAMP"}, axis=1, inplace=True)
+        df = df.set_index("TIMESTAMP")
+        df.sort_index(axis=0, inplace=True)
+
+        df.columns = df.columns.str.replace(".", "", regex=False)
+
+        df = uf.std_names(df)
+
+        if "p [kPa]" in df.columns:
+            df["p [dbar]"] = (df["p [kPa]"] / 10.0) - 10.0
+
+        return df
+
+
+
+
+    def _read_new_seaguard(filepath: str, header_len: int = 6) -> pd.DataFrame:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.",
+                category=UserWarning,
+            )
+
+            df: pd.DataFrame = pd.read_csv(filepath,
+                     sep=";",
+                     skiprows=header_len,
+                     dayfirst=True,
+                        )
+
+        ts = pd.Index(df.iloc[2:,0], name="TIMESTAMP")
+
+        starts = [i for i, col in enumerate(df.columns) if not str(col).startswith("Unnamed")]
+        instr_dfs = []
+        for n, start in enumerate(starts):
+            end = starts[n + 1] if n < len(starts) - 1 else len(df.columns)
+            df_i = df.iloc[:,start:end]
+            df_i.columns = df_i.iloc[0]
+            df_i = df_i.iloc[1:].dropna(axis=1, how="all")
+
+            idx = [i for i, col in enumerate(df_i.columns) if not pd.isna(col)]
+
+            data_cols = []
+            for i in idx:
+                c = df_i.iloc[1:,i+2].rename(f"{df_i.columns[i]} {(df_i.iloc[0,i+2].split(" ")[-1])}")
+                data_cols.append(c.astype(float))
+
+            df_i = pd.concat(data_cols, axis=1)
+
+            df_i = df_i.set_index(ts, drop=True)
+
+            df_i.sort_index(axis=0, inplace=True)
+
+            df_i.columns = df_i.columns.str.replace(".", "", regex=False)
+
+            df_i = uf.std_names(df_i)
+
+            if "p [kPa]" in df_i.columns:
+                df_i["p [dbar]"] = (df_i["p [kPa]"] / 10.0) - 10.0
+
+            instr_dfs.append(df_i)
+
+        return pd.concat(instr_dfs, axis=1, join="outer")
+    
+
     if not isinstance(filepath, str):
         raise TypeError(
             f"'filepath' should be a string, not a {type(filepath).__name__}."
         )
-    if not filepath.endswith(".txt"):
-        raise ValueError(f"Invalid file format: {filepath}. Expected a .txt file.")
+
+    print(filepath.lower())
+    if not filepath.lower().endswith((".txt", ".csv")):
+        raise ValueError(f"Invalid file format: {filepath}. Expected a .txt or .csv file.")
+
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"File not found: {filepath}.")
 
@@ -2988,31 +3072,18 @@ def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
             f"'header_len' should be a int, not a {type(header_len).__name__}."
         )
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.",
-            category=UserWarning,
-        )
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
+        first_line = f.readline().strip()
 
-        df: pd.DataFrame = pd.read_csv(
-            filepath,
-            sep="\t",
-            header=header_len,
-            parse_dates=["Time tag (Gmt)"],
-            dayfirst=True,
-        )
+    if first_line.startswith("Seaguard RCM"):
+        return _read_old_seaguard(filepath, header_len)
+    elif first_line.startswith("Application;AADI DataStudio"):
+        return _read_new_seaguard(filepath)
 
-    df.rename({"Time tag (Gmt)": "TIMESTAMP"}, axis=1, inplace=True)
-    df = df.set_index("TIMESTAMP")
-    df.sort_index(axis=0, inplace=True)
+    raise ValueError("Unknown SeaGuard file format")
 
-    df = uf.std_names(df)
 
-    if "p [kPa]" in df.columns:
-        df["p [dbar]"] = (df["p [kPa]"] / 10.0) - 10.0
-
-    return df
+    
 
 
 def read_Minilog(filepath: str) -> pd.DataFrame:
