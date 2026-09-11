@@ -3020,7 +3020,7 @@ def read_Seaguard(filepath: str, header_len: int = 4) -> pd.DataFrame:
                      dayfirst=True,
                         )
 
-        ts = pd.Index(df.iloc[2:,0], name="TIMESTAMP")
+        ts = pd.DatetimeIndex(df.iloc[2:,0], name="TIMESTAMP", dayfirst=True)
 
         starts = [i for i, col in enumerate(df.columns) if not str(col).startswith("Unnamed")]
         instr_dfs = []
