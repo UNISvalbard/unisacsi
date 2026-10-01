@@ -3608,14 +3608,21 @@ def detide_VMADCP(
         standard="datetime",
         method=method,
         extrapolate=True,
-        cutoff=np.nan,
+        cutoff=np.inf,
+    )
+    
+    valid = (
+        np.isfinite(tide_uv.u)
+        & np.isfinite(tide_uv.v)
+        & (np.abs(tide_uv.u) < 1e10)
+        & (np.abs(tide_uv.v) < 1e10)
     )
 
     ds["u_tide"] = xr.DataArray(
-        tide_uv["u"] / 100.0, dims=["time"], coords={"station": ds.time}, name="u_tide"
+        np.where(valid, tide_uv["u"] / 100.0, np.nan), dims=["time"], coords={"station": ds.time}, name="u_tide"
     )
     ds["v_tide"] = xr.DataArray(
-        tide_uv["v"] / 100.0, dims=["time"], coords={"station": ds.time}, name="v_tide"
+        np.where(valid, tide_uv["v"] / 100.0, np.nan), dims=["time"], coords={"station": ds.time}, name="v_tide"
     )
 
     ds["u_detide"] = ds["u"] - ds["u_tide"]
