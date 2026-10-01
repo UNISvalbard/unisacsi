@@ -3611,6 +3611,7 @@ def detide_VMADCP(
         cutoff=np.inf,
     )
     
+    # is here for updating pyTMD to 3.0.4 or higher
     valid = (
         np.isfinite(tide_uv.u)
         & np.isfinite(tide_uv.v)
