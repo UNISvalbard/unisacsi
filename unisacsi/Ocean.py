@@ -3619,14 +3619,16 @@ def detide_VMADCP(
     )
 
     ds["u_tide"] = xr.DataArray(
-        np.where(valid, tide_uv["u"] / 100.0, np.nan), dims=["time"], coords={"station": ds.time}, name="u_tide"
+        np.where(valid, tide_uv["u"] / 100.0, np.nan), dims=["time"], coords={"time": ds.time}, name="u_tide"
     )
     ds["v_tide"] = xr.DataArray(
-        np.where(valid, tide_uv["v"] / 100.0, np.nan), dims=["time"], coords={"station": ds.time}, name="v_tide"
+        np.where(valid, tide_uv["v"] / 100.0, np.nan), dims=["time"], coords={"time": ds.time}, name="v_tide"
     )
 
     ds["u_detide"] = ds["u"] - ds["u_tide"]
     ds["v_detide"] = ds["v"] - ds["v_tide"]
+    ds["u_mixed"] = ds["u_detide"].fillna(ds["u"])
+    ds["v_mixed"] = ds["v_detide"].fillna(ds["v"])
 
     ds["u_detide"].attrs["units"] = "m/s"
     ds["u_detide"].attrs["name"] = "u_detide"
@@ -3641,6 +3643,15 @@ def detide_VMADCP(
     ds["v_tide"].attrs["units"] = "m/s"
     ds["v_tide"].attrs["name"] = "v_tide"
     ds["v_tide"].attrs["long_name"] = "Northward tidal current velocity"
+
+    ds["u_mixed"].attrs["units"] = "m/s"
+    ds["u_mixed"].attrs["name"] = "u_mixed"
+    ds["u_mixed"].attrs["description"] = "Mixed current velocity: detided where available, otherwise original measurement"
+    ds["u_mixed"].attrs["long_name"] = "Mixed eastward current velocity"
+    ds["v_mixed"].attrs["units"] = "m/s"
+    ds["v_mixed"].attrs["name"] = "v_mixed"
+    ds["v_mixed"].attrs["long_name"] = "Mixed northward current velocity"
+    ds["v_mixed"].attrs["description"] = "Mixed current velocity: detided where available, otherwise original measurement"
 
     return ds
 
